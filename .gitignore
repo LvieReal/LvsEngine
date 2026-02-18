@@ -1,8 +1,8 @@
-.vscode
-build
-Lvs
+/.vscode
+/build
+/Lvs
 *.cap
 *.spec
 **/__pycache__
 **.py
-studioConfig.json
+/studioConfig.json
