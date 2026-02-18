@@ -1,0 +1,8 @@
+.vscode
+build
+Lvs
+*.cap
+*.spec
+**/__pycache__
+**.py
+studioConfig.json
