@@ -1,6 +1,7 @@
 #version 460 core
 
 in vec3 FragColor;
+in vec3 FragDirectionalColor;
 in vec3 FragWorldPos;
 in vec3 FragNormal;
 in vec3 FragLocalPos;
@@ -9,14 +10,33 @@ in vec3 FragLocalNormal;
 out vec4 Color;
 
 uniform vec3 CameraPosition;
+uniform vec3 CameraForward;
 
 uniform vec3 MeshSize;
 uniform float MeshAlpha;
 uniform float MeshReflective;
 
 uniform int IgnoreDiffuseSpecular;
+uniform int EnableShadow;
 
 uniform samplerCube Sky;
+uniform sampler2DShadow DirectionalShadowMap;
+uniform sampler2DShadow DirectionalShadowMap0;
+uniform sampler2DShadow DirectionalShadowMap1;
+uniform sampler2DShadow DirectionalShadowMap2;
+uniform sampler3D DirectionalShadowJitter;
+
+uniform mat4 DirectionalLightShadowMatrix;
+uniform mat4 DirectionalLightShadowMatrices[3];
+uniform vec3 LightDirection;
+uniform float DirectionalShadowBias;
+uniform float DirectionalShadowSoftness;
+uniform float DirectionalShadowFadeWidth;
+uniform int DirectionalShadowTapCount;
+uniform int DirectionalShadowCascadeCount;
+uniform float DirectionalShadowCascadeSplit0;
+uniform float DirectionalShadowCascadeSplit1;
+uniform vec2 DirectionalShadowJitterScale;
 
 uniform int TopSurfaceType;
 uniform int BottomSurfaceType;
@@ -32,6 +52,9 @@ uniform vec2 SurfaceAtlasGrid;
 uniform sampler2D SurfaceAtlas;
 
 #define SMOOTH 0
+#define SAMPLES_COUNT 64
+#define SAMPLES_COUNT_DIV_2 32
+#define INV_SAMPLES_COUNT (1.0 / float(SAMPLES_COUNT))
 
 int getSurfaceType(vec3 normal)
 {
@@ -82,9 +105,140 @@ vec3 sampleSurface(int type, vec2 uv)
     return texture(SurfaceAtlas, base + tileUV).rgb;
 }
 
+vec2 getDirectionalShadowTexelSize(int cascadeIndex)
+{
+    if (cascadeIndex == 1)
+        return 1.0 / vec2(textureSize(DirectionalShadowMap1, 0));
+    if (cascadeIndex == 2)
+        return 1.0 / vec2(textureSize(DirectionalShadowMap2, 0));
+    return 1.0 / vec2(textureSize(DirectionalShadowMap0, 0));
+}
+
+float sampleDirectionalShadowMapProj(int cascadeIndex, vec4 shadowCoord)
+{
+    if (cascadeIndex == 1)
+        return textureProj(DirectionalShadowMap1, shadowCoord);
+    if (cascadeIndex == 2)
+        return textureProj(DirectionalShadowMap2, shadowCoord);
+    return textureProj(DirectionalShadowMap0, shadowCoord);
+}
+
+mat4 getDirectionalCascadeMatrix(int cascadeIndex)
+{
+    if (cascadeIndex == 1)
+        return DirectionalLightShadowMatrices[1];
+    if (cascadeIndex == 2)
+        return DirectionalLightShadowMatrices[2];
+    return DirectionalLightShadowMatrices[0];
+}
+
+float sampleDirectionalAdaptivePCF64(
+    int cascadeIndex,
+    vec4 baseShadowCoord,
+    float radiusTexels,
+    float ndotl
+)
+{
+    float radius = max(0.0, radiusTexels);
+    if (radius <= 1e-6)
+        return sampleDirectionalShadowMapProj(cascadeIndex, baseShadowCoord);
+
+    float texelScale = max(getDirectionalShadowTexelSize(cascadeIndex).x, getDirectionalShadowTexelSize(cascadeIndex).y);
+    float fsize = radius * texelScale;
+    vec3 jcoord = vec3(gl_FragCoord.xy * DirectionalShadowJitterScale, 0.0);
+    vec4 smCoord = baseShadowCoord;
+    float shadow = 0.0;
+
+    // 8 cheap test taps (4 jitter fetches with 2 offsets each).
+    for (int i = 0; i < 4; i++)
+    {
+        vec4 offset = (texture(DirectionalShadowJitter, jcoord) * 2.0) - 1.0;
+        jcoord.z += 1.0 / float(SAMPLES_COUNT_DIV_2);
+
+        smCoord.xy = (offset.xy * fsize) + baseShadowCoord.xy;
+        shadow += sampleDirectionalShadowMapProj(cascadeIndex, smCoord) * (1.0 / 8.0);
+
+        smCoord.xy = (offset.zw * fsize) + baseShadowCoord.xy;
+        shadow += sampleDirectionalShadowMapProj(cascadeIndex, smCoord) * (1.0 / 8.0);
+    }
+
+    // GPU Gems 2 branch condition: refine only in penumbra and only on lit-facing side.
+    if (ndotl > 0.0 && shadow > 0.0 && shadow < 1.0)
+    {
+        shadow *= (1.0 / 8.0);
+        for (int i = 0; i < (SAMPLES_COUNT_DIV_2 - 4); i++)
+        {
+            vec4 offset = (texture(DirectionalShadowJitter, jcoord) * 2.0) - 1.0;
+            jcoord.z += 1.0 / float(SAMPLES_COUNT_DIV_2);
+
+            smCoord.xy = (offset.xy * fsize) + baseShadowCoord.xy;
+            shadow += sampleDirectionalShadowMapProj(cascadeIndex, smCoord) * INV_SAMPLES_COUNT;
+
+            smCoord.xy = (offset.zw * fsize) + baseShadowCoord.xy;
+            shadow += sampleDirectionalShadowMapProj(cascadeIndex, smCoord) * INV_SAMPLES_COUNT;
+        }
+    }
+
+    return shadow;
+}
+
+float computeDirectionalBias(int cascadeIndex, float pcfRadiusTexels)
+{
+    vec2 texelSize = getDirectionalShadowTexelSize(cascadeIndex);
+
+    float texelScale = max(texelSize.x, texelSize.y);
+
+    float NdotL = clamp(dot(normalize(FragNormal), -normalize(LightDirection)), 0.0, 1.0);
+
+    float slope = sqrt(1.0 - NdotL * NdotL) / max(NdotL, 0.05);
+
+    const float slopeBias = 0.25;
+
+    float biasTexels = DirectionalShadowBias + slopeBias * slope;
+
+    biasTexels *= (1.0 + pcfRadiusTexels * 0.25);
+
+    return biasTexels * texelScale;
+}
+
+float computeDirectionalShadow()
+{
+    if (EnableShadow == 0 || IgnoreDiffuseSpecular != 0)
+        return 1.0;
+
+    int cascadeCount = clamp(DirectionalShadowCascadeCount, 1, 3);
+    float viewDepth = max(dot(FragWorldPos - CameraPosition, normalize(CameraForward)), 0.0);
+    int cascadeIndex = 0;
+    if (cascadeCount >= 3 && viewDepth > DirectionalShadowCascadeSplit1)
+        cascadeIndex = 2;
+    else if (cascadeCount >= 2 && viewDepth > DirectionalShadowCascadeSplit0)
+        cascadeIndex = 1;
+
+    vec4 lightClip = getDirectionalCascadeMatrix(cascadeIndex) * vec4(FragWorldPos, 1.0);
+    if (abs(lightClip.w) <= 1e-6)
+        return 1.0;
+
+    vec3 lightNdc = lightClip.xyz / lightClip.w;
+    vec2 shadowUv = (lightNdc.xy * 0.5) + 0.5;
+    float receiverDepth = lightNdc.z;
+
+    if (receiverDepth <= 0.0 || receiverDepth >= 1.0)
+        return 1.0;
+
+    float softness = clamp(DirectionalShadowSoftness, 0.0, 12.0);
+
+    float bias = computeDirectionalBias(cascadeIndex, softness);
+    float ndotl = clamp(dot(normalize(FragNormal), -normalize(LightDirection)), 0.0, 1.0);
+    vec4 shadowCoord = vec4(shadowUv, clamp(receiverDepth - bias, 0.0, 1.0), 1.0);
+
+    return sampleDirectionalAdaptivePCF64(cascadeIndex, shadowCoord, softness, ndotl);
+}
+
 void main()
 {
-    vec3 albedo = FragColor;
+    float directionalShadow = computeDirectionalShadow();
+    vec3 nonDirectional = max(FragColor - FragDirectionalColor, vec3(0.0));
+    vec3 albedo = nonDirectional + (FragDirectionalColor * directionalShadow);
 
     // float camToFrag = length(FragWorldPos - CameraPosition);
 

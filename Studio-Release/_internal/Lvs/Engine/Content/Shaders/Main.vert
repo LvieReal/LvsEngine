@@ -4,6 +4,7 @@ layout (location = 0) in vec3 Position;
 layout (location = 1) in vec3 Normal;
 
 out vec3 FragColor;
+out vec3 FragDirectionalColor;
 out vec3 FragWorldPos;
 out vec3 FragNormal;
 out vec3 FragLocalPos;
@@ -67,10 +68,17 @@ void main()
     vec3 N = normalize(normalMatrix * Normal);
 
     vec3 lighting;
+    vec3 directionalLighting;
 
     if (IgnoreDiffuseSpecular == 0)
     {
         lighting = vec3(0.0);
+        directionalLighting = vec3(0.0);
+        vec3 firstDirectionalLighting = vec3(0.0);
+        bool hasFirstDirectional = false;
+        bool matchedPrimaryDirectional = false;
+        float primaryDirLength = length(LightDirection);
+        vec3 primaryLightDir = (primaryDirLength > 1e-6) ? normalize(-LightDirection) : vec3(0.0);
 
         if (LightingPass != LIGHTING_PASS_DIRECT)
         {
@@ -95,20 +103,38 @@ void main()
                     vec3 H = normalize(lDir + V);
 
                     float diffuse = max(dot(N, lDir), 0.0);
-                    lighting += diffuse * lColor * lIntensity;
-
                     float specular = pow(max(dot(N, H), 0.0), lShininess);
-                    lighting += lSpecStr * specular * lColor * lIntensity;
+                    vec3 directionalContribution = (diffuse * lColor * lIntensity) + (lSpecStr * specular * lColor * lIntensity);
+
+                    lighting += directionalContribution;
+                    if (!hasFirstDirectional)
+                    {
+                        firstDirectionalLighting = directionalContribution;
+                        hasFirstDirectional = true;
+                    }
+
+                    if (primaryDirLength > 1e-6 && dot(lDir, primaryLightDir) >= 0.999)
+                    {
+                        directionalLighting += directionalContribution;
+                        matchedPrimaryDirectional = true;
+                    }
                 }
             }
+        }
+
+        if (!matchedPrimaryDirectional && hasFirstDirectional)
+        {
+            directionalLighting = firstDirectionalLighting;
         }
     }
     else
     {
         lighting = vec3(1.0);
+        directionalLighting = vec3(0.0);
     }
 
     FragColor = MeshColor * lighting;
+    FragDirectionalColor = MeshColor * directionalLighting;
 
     FragWorldPos = worldPos;
     FragNormal = N;

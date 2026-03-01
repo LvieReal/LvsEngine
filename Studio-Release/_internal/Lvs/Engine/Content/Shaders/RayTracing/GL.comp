@@ -16,7 +16,7 @@ uniform vec3 LightColor;
 uniform float LightIntensity;
 uniform float SpecularStrength;
 uniform float Shininess;
-uniform int RetroVertexLighting;
+uniform int RayTracedVertexLighting;
 uniform int EnableShadows;
 uniform int EnableReflections;
 uniform int EnableFresnel;
@@ -598,7 +598,7 @@ vec3 ShadeHit(
                 float lShininess = lights[li].shininess;
                 if (lShininess <= 0.0) lShininess = 32.0;
 
-                if (RetroVertexLighting == 1)
+                if (RayTracedVertexLighting == 1)
                 {
                     vec3 lDir = normalize(-vec3(lights[li].dir_or_pos_x, lights[li].dir_or_pos_y, lights[li].dir_or_pos_z));
                     vec3 w_p0 = (ins.model * vec4(obj_p0, 1.0)).xyz;

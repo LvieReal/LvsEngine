@@ -1,8 +1,0 @@
-{
-    "BaseCameraSpeed": 15.0,
-    "ShiftCameraSpeed": 5.0,
-    "Theme": "Light",
-    "GizmoAlwaysOnTop": true,
-    "GizmoIgnoreDiffuseSpecular": true,
-    "GizmoAlignByMagnitude": true
-}
