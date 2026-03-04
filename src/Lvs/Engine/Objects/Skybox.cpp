@@ -84,12 +84,6 @@ Core::ClassDescriptor& Skybox::Descriptor() {
             true,
             "Textures"
         ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
-            "RotateUpDownFaces",
-            false,
-            true,
-            "Textures"
-        ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Math::Color3>(
             "Tint", Math::Color3{1.0, 1.0, 1.0}, true, "Appearance"
         ));

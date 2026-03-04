@@ -10,7 +10,6 @@ QString GetFullCreatorName();
 QString GetVersion();
 int GetYear();
 QString GetStudioWindowName();
-QString GetAppWindowName();
 QString GetLogoPathPNG();
 QString GetLogoPathICO();
 

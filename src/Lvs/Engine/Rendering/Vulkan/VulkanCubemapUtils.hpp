@@ -24,7 +24,6 @@ CubemapHandle CreateCubemapFromPaths(
     VkQueue queue,
     std::uint32_t queueFamilyIndex,
     const std::array<QString, 6>& facePaths,
-    bool rotateUpDownFaces,
     bool linearFiltering,
     int resolutionCap,
     bool compression
@@ -36,7 +35,6 @@ CubemapHandle CreateCubemapFromCrossPath(
     VkQueue queue,
     std::uint32_t queueFamilyIndex,
     const QString& crossPath,
-    bool rotateUpDownFaces,
     bool linearFiltering,
     int resolutionCap,
     bool compression

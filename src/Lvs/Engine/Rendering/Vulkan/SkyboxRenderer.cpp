@@ -118,7 +118,6 @@ void SkyboxRenderer::UpdateResources(VulkanContext& context) {
     const bool linearFiltering = filtering == Enums::TextureFiltering::Linear;
     const auto textureLayout = sourceSky->GetProperty("TextureLayout").value<Enums::SkyboxTextureLayout>();
     const QString crossTexture = sourceSky->GetProperty("CrossTexture").toString();
-    const bool rotateUpDownFaces = sourceSky->GetProperty("RotateUpDownFaces").toBool();
     const int resolutionCap = sourceSky->GetProperty("ResolutionCap").toInt();
     const bool compression = sourceSky->GetProperty("Compression").toBool();
 
@@ -131,7 +130,6 @@ void SkyboxRenderer::UpdateResources(VulkanContext& context) {
                 context.GetGraphicsQueue(),
                 context.GetGraphicsQueueFamily(),
                 crossTexture,
-                rotateUpDownFaces,
                 linearFiltering,
                 resolutionCap,
                 compression
@@ -143,7 +141,6 @@ void SkyboxRenderer::UpdateResources(VulkanContext& context) {
                 context.GetGraphicsQueue(),
                 context.GetGraphicsQueueFamily(),
                 faces,
-                rotateUpDownFaces,
                 linearFiltering,
                 resolutionCap,
                 compression

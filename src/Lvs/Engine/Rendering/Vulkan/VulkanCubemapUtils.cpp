@@ -102,18 +102,9 @@ void EndOneTimeCommands(
 void ApplySkyboxFaceProcessing(
     QImage& image,
     const std::size_t faceIndex,
-    const bool rotateUpDownFaces,
     const int resolutionCap,
     const bool compression
 ) {
-    if (rotateUpDownFaces) {
-        if (faceIndex == 2U) {
-            image = image.transformed(QTransform().rotate(-90.0));
-        } else if (faceIndex == 3U) {
-            image = image.transformed(QTransform().rotate(90.0));
-        }
-    }
-
     if (resolutionCap > 0) {
         const int maxSide = std::max(image.width(), image.height());
         if (maxSide > resolutionCap) {
@@ -291,7 +282,6 @@ CubemapHandle CreateCubemapFromPaths(
     const VkQueue queue,
     const std::uint32_t queueFamilyIndex,
     const std::array<QString, 6>& facePaths,
-    const bool rotateUpDownFaces,
     const bool linearFiltering,
     const int resolutionCap,
     const bool compression
@@ -303,7 +293,7 @@ CubemapHandle CreateCubemapFromPaths(
         if (image.isNull()) {
             throw std::runtime_error(QString("Failed to load skybox face: %1").arg(resolved).toStdString());
         }
-        ApplySkyboxFaceProcessing(image, i, rotateUpDownFaces, resolutionCap, compression);
+        ApplySkyboxFaceProcessing(image, i, resolutionCap, compression);
         if (i > 0U && (image.width() != faces[0].width() || image.height() != faces[0].height())) {
             throw std::runtime_error("Skybox faces must have identical dimensions.");
         }
@@ -326,7 +316,6 @@ CubemapHandle CreateCubemapFromCrossPath(
     const VkQueue queue,
     const std::uint32_t queueFamilyIndex,
     const QString& crossPath,
-    const bool rotateUpDownFaces,
     const bool linearFiltering,
     const int resolutionCap,
     const bool compression
@@ -357,7 +346,7 @@ CubemapHandle CreateCubemapFromCrossPath(
     };
 
     for (std::size_t i = 0; i < faces.size(); ++i) {
-        ApplySkyboxFaceProcessing(faces[i], i, rotateUpDownFaces, resolutionCap, compression);
+        ApplySkyboxFaceProcessing(faces[i], i, resolutionCap, compression);
     }
 
     return CreateCubemapFromFaceImages(
