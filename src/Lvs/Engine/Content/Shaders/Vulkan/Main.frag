@@ -43,6 +43,10 @@ layout(location = 0) out vec4 outSceneColor;
 layout(location = 1) out vec4 outGlowColor;
 
 const float PI = 3.14159265359;
+const float EMISSIVE_SCENE_BOOST = 4.0;
+const float EMISSIVE_GLOW_BOOST = 8.0;
+const float BLACK_NEON_GLOW_FLOOR = 1.0 / 255.0;
+const float BLACK_NEON_GLOW_EXTRA_BOOST = 2.0;
 const int SMOOTH = 0;
 
 float DistributionGGX(vec3 N, vec3 H, float roughness) {
@@ -314,21 +318,25 @@ void main() {
         glowMask = 0.0;
     }
     vec3 glowBase = albedo;
+    float blackNeonGlowBoost = 1.0;
     if (allowBlackNeon && albedoL2 < 1e-6) {
-        // Keep black hue instead of forcing white while still preserving a visible glow signal.
-        glowBase = vec3(1.0 / 255.0);
+        // Keep black-neon visible without turning the bloom source white.
+        glowBase = vec3(BLACK_NEON_GLOW_FLOOR);
+        blackNeonGlowBoost = BLACK_NEON_GLOW_EXTRA_BOOST;
     }
-    vec3 glowColor = glowBase * emissive * glowMask;
+    vec3 emissiveScene = albedo * emissive * EMISSIVE_SCENE_BOOST;
+    vec3 glowColor = glowBase * emissive * EMISSIVE_GLOW_BOOST * blackNeonGlowBoost * glowMask;
 
     if (ignoreLighting > 0.5) {
-        outSceneColor = vec4(albedo + (albedo * emissive), alpha);
+        outSceneColor = vec4(albedo + emissiveScene, alpha);
         outGlowColor = vec4(0.0);
         return;
     }
 
-    // Emissive parts are treated as fully unlit neon: skip shadow/fresnel/specular/diffuse sampling.
-    if (emissive > 0.0) {
-        outSceneColor = vec4(albedo + (albedo * emissive), alpha);
+    // With black-neon enabled, emissive parts behave like unlit neon.
+    // With black-neon disabled, keep physically plausible lit+emissive behavior.
+    if (allowBlackNeon && emissive > 0.0) {
+        outSceneColor = vec4(albedo + emissiveScene, alpha);
         outGlowColor = vec4(glowColor, glowMask);
         return;
     }
@@ -356,7 +364,7 @@ void main() {
                 color += env * Fenv * reflectionWeight * (smoothness * smoothness);
             }
         }
-        color += albedo * emissive;
+        color += emissiveScene;
         outSceneColor = vec4(color, alpha);
         outGlowColor = vec4(glowColor, glowMask);
         return;
@@ -403,7 +411,7 @@ void main() {
         }
     }
 
-    color += albedo * emissive;
+    color += emissiveScene;
     outSceneColor = vec4(color, alpha);
     outGlowColor = vec4(glowColor, glowMask);
 }

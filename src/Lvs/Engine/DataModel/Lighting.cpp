@@ -21,7 +21,7 @@ Core::ClassDescriptor& Lighting::Descriptor() {
             "Dithering", true, true, "Rendering", "Apply post-process dithering to reduce visible color banding."
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
-            "AllowBlackNeon", true, true, "Rendering", "Allow emissive parts with very dark colors to still emit glow."
+            "InaccurateNeon", true, true, "Rendering", "Allow emissive parts with very dark colors to still emit glow."
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
             "NeonBlur", 2.0, true, "Rendering", "Dual Kawase blur amount for neon glow."

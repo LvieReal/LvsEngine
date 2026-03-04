@@ -917,7 +917,7 @@ void Renderer::UpdateCameraUniformAndLighting(VulkanContext& context, const std:
         uniform.Ambient[2] = static_cast<float>(ambient.b) * ambientStrength;
         uniform.RenderSettings[1] = static_cast<float>(lighting->GetProperty("Shading").value<Enums::LightingComputationMode>());
         uniform.RenderSettings[2] = lighting->GetProperty("GammaCorrection").toBool() ? 1.0F : 0.0F;
-        uniform.RenderSettings[3] = lighting->GetProperty("AllowBlackNeon").toBool() ? 1.0F : 0.0F;
+        uniform.RenderSettings[3] = lighting->GetProperty("InaccurateNeon").toBool() ? 1.0F : 0.0F;
 
         if (const auto light = GetDirectionalLight(lighting); light != nullptr && light->GetProperty("Enabled").toBool()) {
             auto direction = light->GetProperty("Direction").value<Math::Vector3>();

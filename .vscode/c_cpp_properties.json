@@ -11,7 +11,10 @@
             "defines": [
                 "_DEBUG",
                 "UNICODE",
-                "_UNICODE"
+                "_UNICODE",
+                "VK_USE_PLATFORM_WIN32_KHR",
+                "WIN32_LEAN_AND_MEAN",
+                "NOMINMAX"
             ],
             "windowsSdkVersion": "10.0.26100.0",
             "intelliSenseMode": "windows-gcc-x64",
@@ -30,7 +33,10 @@
             "defines": [
                 "_DEBUG",
                 "UNICODE",
-                "_UNICODE"
+                "_UNICODE",
+                "VK_USE_PLATFORM_WIN32_KHR",
+                "WIN32_LEAN_AND_MEAN",
+                "NOMINMAX"
             ],
             "windowsSdkVersion": "10.0.26100.0",
             "intelliSenseMode": "windows-clang-x64",

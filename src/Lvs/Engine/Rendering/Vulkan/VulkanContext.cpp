@@ -231,6 +231,10 @@ VkFormat VulkanContext::GetSwapchainImageFormat() const {
     return swapchainImageFormat_;
 }
 
+VkFormat VulkanContext::GetOffscreenImageFormat() const {
+    return offscreenImageFormat_;
+}
+
 VkExtent2D VulkanContext::GetSwapchainExtent() const {
     return swapchainExtent_;
 }
@@ -426,10 +430,19 @@ void VulkanContext::CreateImageViews() {
     }
 }
 
+void VulkanContext::SelectOffscreenImageFormat() {
+    offscreenImageFormat_ = FindSupportedFormat(
+        physicalDevice_,
+        {VK_FORMAT_R16G16B16A16_SFLOAT, VK_FORMAT_R32G32B32A32_SFLOAT},
+        VK_IMAGE_TILING_OPTIMAL,
+        VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT
+    );
+}
+
 void VulkanContext::CreateSceneRenderPass() {
     const VkAttachmentDescription sceneColorAttachment{
         .flags = 0,
-        .format = swapchainImageFormat_,
+        .format = offscreenImageFormat_,
         .samples = VK_SAMPLE_COUNT_1_BIT,
         .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
         .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
@@ -440,7 +453,7 @@ void VulkanContext::CreateSceneRenderPass() {
     };
     const VkAttachmentDescription glowColorAttachment{
         .flags = 0,
-        .format = swapchainImageFormat_,
+        .format = offscreenImageFormat_,
         .samples = VK_SAMPLE_COUNT_1_BIT,
         .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
         .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
@@ -614,6 +627,10 @@ void VulkanContext::CreateFramebuffers() {
 }
 
 void VulkanContext::CreateOffscreenResources() {
+    if (offscreenImageFormat_ == VK_FORMAT_UNDEFINED) {
+        throw std::runtime_error("Offscreen image format is undefined.");
+    }
+
     offscreenColorImages_.resize(swapchainImages_.size(), VK_NULL_HANDLE);
     offscreenGlowImages_.resize(swapchainImages_.size(), VK_NULL_HANDLE);
     offscreenColorImageViews_.resize(swapchainImages_.size(), VK_NULL_HANDLE);
@@ -627,7 +644,7 @@ void VulkanContext::CreateOffscreenResources() {
             .pNext = nullptr,
             .flags = 0,
             .imageType = VK_IMAGE_TYPE_2D,
-            .format = swapchainImageFormat_,
+            .format = offscreenImageFormat_,
             .extent = {.width = swapchainExtent_.width, .height = swapchainExtent_.height, .depth = 1},
             .mipLevels = 1,
             .arrayLayers = 1,
@@ -683,7 +700,7 @@ void VulkanContext::CreateOffscreenResources() {
             .flags = 0,
             .image = offscreenColorImages_[i],
             .viewType = VK_IMAGE_VIEW_TYPE_2D,
-            .format = swapchainImageFormat_,
+            .format = offscreenImageFormat_,
             .components = {.r = VK_COMPONENT_SWIZZLE_IDENTITY,
                            .g = VK_COMPONENT_SWIZZLE_IDENTITY,
                            .b = VK_COMPONENT_SWIZZLE_IDENTITY,
@@ -704,7 +721,7 @@ void VulkanContext::CreateOffscreenResources() {
             .flags = 0,
             .image = offscreenGlowImages_[i],
             .viewType = VK_IMAGE_VIEW_TYPE_2D,
-            .format = swapchainImageFormat_,
+            .format = offscreenImageFormat_,
             .components = {.r = VK_COMPONENT_SWIZZLE_IDENTITY,
                            .g = VK_COMPONENT_SWIZZLE_IDENTITY,
                            .b = VK_COMPONENT_SWIZZLE_IDENTITY,
@@ -989,9 +1006,10 @@ void VulkanContext::RecreateSwapchain(const std::uint32_t width, const std::uint
 
     CreateSwapchain(width, height);
     CreateImageViews();
-    CreateOffscreenResources();
+    SelectOffscreenImageFormat();
     CreateDepthResources();
     CreateSceneRenderPass();
+    CreateOffscreenResources();
     CreatePostProcessRenderPass();
     CreateFramebuffers();
     CreateCommandPool();
@@ -1121,6 +1139,7 @@ void VulkanContext::CleanupSwapchain() {
         }
     }
     offscreenGlowMemories_.clear();
+    offscreenImageFormat_ = VK_FORMAT_UNDEFINED;
 
     for (const auto imageView : swapchainImageViews_) {
         if (imageView != VK_NULL_HANDLE) {

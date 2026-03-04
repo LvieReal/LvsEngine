@@ -486,7 +486,7 @@ void PostProcessRenderer::CreateBlurResources(VulkanContext& context, const std:
             .pNext = nullptr,
             .flags = 0,
             .imageType = VK_IMAGE_TYPE_2D,
-            .format = context.GetSwapchainImageFormat(),
+            .format = context.GetOffscreenImageFormat(),
             .extent = {.width = extent.width, .height = extent.height, .depth = 1},
             .mipLevels = 1,
             .arrayLayers = 1,
@@ -525,7 +525,7 @@ void PostProcessRenderer::CreateBlurResources(VulkanContext& context, const std:
             .flags = 0,
             .image = level.Image,
             .viewType = VK_IMAGE_VIEW_TYPE_2D,
-            .format = context.GetSwapchainImageFormat(),
+            .format = context.GetOffscreenImageFormat(),
             .components = {
                 .r = VK_COMPONENT_SWIZZLE_IDENTITY,
                 .g = VK_COMPONENT_SWIZZLE_IDENTITY,
@@ -698,7 +698,7 @@ void PostProcessRenderer::CreateDescriptorSets(
 void PostProcessRenderer::CreateRenderPasses(VulkanContext& context) {
     const VkAttachmentDescription colorAttachment{
         .flags = 0,
-        .format = context.GetSwapchainImageFormat(),
+        .format = context.GetOffscreenImageFormat(),
         .samples = VK_SAMPLE_COUNT_1_BIT,
         .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
         .storeOp = VK_ATTACHMENT_STORE_OP_STORE,

@@ -48,6 +48,7 @@ public:
     [[nodiscard]] VkRenderPass GetRenderPass() const;
     [[nodiscard]] VkRenderPass GetPostProcessRenderPass() const;
     [[nodiscard]] VkFormat GetSwapchainImageFormat() const;
+    [[nodiscard]] VkFormat GetOffscreenImageFormat() const;
     [[nodiscard]] VkExtent2D GetSwapchainExtent() const;
     [[nodiscard]] std::uint32_t GetFramesInFlight() const;
 
@@ -58,6 +59,7 @@ private:
     void CreateLogicalDevice();
     void CreateSwapchain(std::uint32_t width, std::uint32_t height);
     void CreateImageViews();
+    void SelectOffscreenImageFormat();
     void CreateSceneRenderPass();
     void CreatePostProcessRenderPass();
     void CreateFramebuffers();
@@ -84,6 +86,7 @@ private:
 
     VkSwapchainKHR swapchain_{VK_NULL_HANDLE};
     VkFormat swapchainImageFormat_{VK_FORMAT_UNDEFINED};
+    VkFormat offscreenImageFormat_{VK_FORMAT_UNDEFINED};
     VkExtent2D swapchainExtent_{};
     std::vector<VkImage> swapchainImages_;
     std::vector<VkImageView> swapchainImageViews_;

@@ -1,4 +1,4 @@
-#include "Lvs/Studio/Theme.hpp"
+﻿#include "Lvs/Studio/Theme.hpp"
 
 #include "Lvs/Engine/Utils/SourcePath.hpp"
 #include "Lvs/Studio/Core/Settings.hpp"
@@ -142,10 +142,6 @@ void ApplyThemeValue(QApplication& app, const QString& theme) {
             "QToolButton#TopBarAction { padding: 2px 6px; margin: 0px; }"
             "QToolButton#TopBarAction::menu-indicator { image: none; width: 0px; }"
             "QToolBar#EditModes { spacing: 2px; padding: 1px 4px; }"
-            "QCheckBox::indicator { width: 14px; height: 14px; border-radius: 2px; }"
-            "QCheckBox::indicator:unchecked { background-color: #2f2f2f; border: 1px solid #777777; }"
-            "QCheckBox::indicator:checked { background-color: #0078d7; border: 1px solid #005ea7; }"
-            "QTreeView, QTreeWidget { background-color: palette(base); }"
             "QToolTip { color: #e8e8e8; background-color: #2f2f2f; border: 1px solid #4f4f4f; }"
         );
     } else {
@@ -159,10 +155,6 @@ void ApplyThemeValue(QApplication& app, const QString& theme) {
             "QToolButton#TopBarAction { padding: 2px 6px; margin: 0px; }"
             "QToolButton#TopBarAction::menu-indicator { image: none; width: 0px; }"
             "QToolBar#EditModes { spacing: 2px; padding: 1px 4px; }"
-            "QCheckBox::indicator { width: 14px; height: 14px; border-radius: 2px; }"
-            "QCheckBox::indicator:unchecked { background-color: #ffffff; border: 1px solid #7a7a7a; }"
-            "QCheckBox::indicator:checked { background-color: #0078d7; border: 1px solid #005ea7; }"
-            "QTreeView, QTreeWidget { background-color: palette(base); }"
             "QToolTip { color: #202020; background-color: #fffddc; border: 1px solid #cfcfcf; }"
         );
     }
@@ -197,3 +189,4 @@ void ApplyTheme(QApplication& app) {
 }
 
 } // namespace Lvs::Studio::Theme
+

@@ -16,7 +16,7 @@ float InterleavedGradientNoise(vec2 pixel, float frameSeed) {
 }
 
 void main() {
-    vec3 hdrColor = texture(sceneColor, fragUv).rgb + texture(glowColor, fragUv).rgb;
+    vec3 hdrColor = texture(sceneColor, fragUv).rgb + (texture(glowColor, fragUv).rgb);
     vec3 color = hdrColor / (vec3(1.0) + hdrColor);
 
     if (pushData.settings.x > 0.5) {
