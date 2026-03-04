@@ -1,0 +1,34 @@
+#pragma once
+
+#include "Lvs/Engine/Math/AABB.hpp"
+
+#include <memory>
+#include <optional>
+#include <vector>
+
+namespace Lvs::Engine::Math {
+struct Vector3;
+}
+
+namespace Lvs::Engine::Objects {
+class BasePart;
+class Camera;
+}
+
+namespace Lvs::Engine::Utils {
+
+struct Ray {
+    Math::Vector3 Origin;
+    Math::Vector3 Direction;
+};
+
+Ray ScreenPointToRay(double x, double y, int width, int height, const std::shared_ptr<Objects::Camera>& camera);
+Math::AABB BuildPartWorldAABB(const std::shared_ptr<Objects::BasePart>& part);
+std::optional<double> RaycastPartAABB(const Ray& ray, const std::shared_ptr<Objects::BasePart>& part);
+std::pair<std::shared_ptr<Objects::BasePart>, double> RaycastParts(
+    const Ray& ray,
+    const std::vector<std::shared_ptr<Objects::BasePart>>& parts
+);
+
+} // namespace Lvs::Engine::Utils
+

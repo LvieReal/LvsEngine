@@ -1,0 +1,43 @@
+{
+    "configurations": [
+        {
+            "name": "mingw64",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "${workspaceFolder}/src/**",
+                "C:/msys64/mingw64/include/**",
+                "${VK_SDK_PATH}/Include/**"
+            ],
+            "defines": [
+                "_DEBUG",
+                "UNICODE",
+                "_UNICODE"
+            ],
+            "windowsSdkVersion": "10.0.26100.0",
+            "intelliSenseMode": "windows-gcc-x64",
+            "compilerPath": "C:/msys64/mingw64/bin/g++.exe",
+            "cStandard": "c23",
+            "cppStandard": "c++23"
+        },
+        {
+            "name": "clang64",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "${workspaceFolder}/src/**",
+                "C:/msys64/clang64/include/**",
+                "${VK_SDK_PATH}/Include/**"
+            ],
+            "defines": [
+                "_DEBUG",
+                "UNICODE",
+                "_UNICODE"
+            ],
+            "windowsSdkVersion": "10.0.26100.0",
+            "intelliSenseMode": "windows-clang-x64",
+            "compilerPath": "C:/msys64/clang64/bin/clang++.exe",
+            "cStandard": "c23",
+            "cppStandard": "c++23"
+        }
+    ],
+    "version": 4
+}

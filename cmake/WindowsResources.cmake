@@ -1,0 +1,57 @@
+function(lvs_apply_windows_resources target)
+    if(NOT WIN32)
+        return()
+    endif()
+
+    set(app_info_json "${CMAKE_CURRENT_SOURCE_DIR}/config/AppInfo.json")
+    if(NOT EXISTS "${app_info_json}")
+        message(FATAL_ERROR "App info file not found: ${app_info_json}")
+    endif()
+    file(READ "${app_info_json}" app_info_content)
+
+    string(JSON icon_rel GET "${app_info_content}" logo_ico)
+    string(JSON company_name GET "${app_info_content}" company_name)
+    string(JSON product_version GET "${app_info_content}" version)
+    string(JSON year GET "${app_info_content}" year)
+    string(JSON product_name_studio GET "${app_info_content}" product_name_studio)
+    string(JSON product_name_app GET "${app_info_content}" product_name_app)
+
+    if(target STREQUAL "lvs_studio")
+        set(file_description "${product_name_studio}")
+    elseif(target STREQUAL "lvs_app")
+        set(file_description "${product_name_app}")
+    else()
+        set(file_description "${target}")
+    endif()
+
+    set(icon_path "${CMAKE_CURRENT_SOURCE_DIR}/src/Lvs/Engine/Content/${icon_rel}")
+    if(NOT EXISTS "${icon_path}")
+        message(FATAL_ERROR "Windows icon file not found: ${icon_path}")
+    endif()
+
+    set(rc_out "${CMAKE_CURRENT_BINARY_DIR}/${target}_version.rc")
+    set(version_numeric "${product_version}")
+    string(REPLACE "." ";" version_parts "${version_numeric}")
+    list(LENGTH version_parts version_count)
+    while(version_count LESS 4)
+        list(APPEND version_parts "0")
+        list(LENGTH version_parts version_count)
+    endwhile()
+    list(GET version_parts 0 v0)
+    list(GET version_parts 1 v1)
+    list(GET version_parts 2 v2)
+    list(GET version_parts 3 v3)
+    set(file_version_comma "${v0},${v1},${v2},${v3}")
+    set(product_version_comma "${v0},${v1},${v2},${v3}")
+    set(original_filename "${target}.exe")
+    set(internal_name "${target}")
+    set(product_name "${file_description}")
+    set(legal_copyright "Copyright (C) ${year} ${company_name}")
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/resources/version.rc.in"
+        "${rc_out}"
+        @ONLY
+    )
+
+    target_sources(${target} PRIVATE "${rc_out}")
+endfunction()

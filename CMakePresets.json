@@ -1,0 +1,108 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 27,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "studio-clang-debug",
+      "displayName": "Studio Clang Debug",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/clang-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_COMPILER": "C:/msys64/clang64/bin/clang++.exe",
+        "Qt6_DIR": "C:/msys64/clang64/lib/cmake/Qt6",
+        "LVS_STATIC_RUNTIME": "ON"
+      }
+    },
+    {
+      "name": "studio-clang-release",
+      "displayName": "Studio Clang Release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/clang-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_COMPILER": "C:/msys64/clang64/bin/clang++.exe",
+        "Qt6_DIR": "C:/msys64/clang64/lib/cmake/Qt6",
+        "LVS_STATIC_RUNTIME": "ON"
+      }
+    },
+    {
+      "name": "studio-clang-asan-debug",
+      "displayName": "Studio Clang ASAN Debug",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/clang-asan-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_COMPILER": "C:/msys64/clang64/bin/clang++.exe",
+        "Qt6_DIR": "C:/msys64/clang64/lib/cmake/Qt6",
+        "LVS_ENABLE_ASAN": "ON",
+        "LVS_STATIC_RUNTIME": "ON"
+      }
+    },
+    {
+      "name": "studio-mingw-debug",
+      "displayName": "Studio MinGW Debug",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/mingw-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_COMPILER": "C:/msys64/mingw64/bin/g++.exe",
+        "Qt6_DIR": "C:/msys64/mingw64/lib/cmake/Qt6",
+        "LVS_STATIC_RUNTIME": "ON"
+      }
+    },
+    {
+      "name": "studio-mingw-release",
+      "displayName": "Studio MinGW Release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/mingw-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_COMPILER": "C:/msys64/mingw64/bin/g++.exe",
+        "Qt6_DIR": "C:/msys64/mingw64/lib/cmake/Qt6",
+        "LVS_STATIC_RUNTIME": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "studio-clang-debug",
+      "configurePreset": "studio-clang-debug",
+      "targets": [
+        "lvs_studio"
+      ]
+    },
+    {
+      "name": "studio-clang-release",
+      "configurePreset": "studio-clang-release",
+      "targets": [
+        "lvs_studio"
+      ]
+    },
+    {
+      "name": "studio-clang-asan-debug",
+      "configurePreset": "studio-clang-asan-debug",
+      "targets": [
+        "lvs_studio"
+      ]
+    },
+    {
+      "name": "studio-mingw-debug",
+      "configurePreset": "studio-mingw-debug",
+      "targets": [
+        "lvs_studio"
+      ]
+    },
+    {
+      "name": "studio-mingw-release",
+      "configurePreset": "studio-mingw-release",
+      "targets": [
+        "lvs_studio"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,183 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "studio-configure-asan-clang",
+            "type": "shell",
+            "hide": true,
+            "command": "cmake",
+            "args": [
+                "--preset",
+                "studio-clang-asan-debug"
+            ],
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "studio-asan-clang",
+            "type": "shell",
+            "hide": true,
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "studio-clang-asan-debug",
+                "--parallel",
+                "${env:NUMBER_OF_PROCESSORS}"
+            ],
+            "dependsOn": "studio-configure-asan-clang",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "studio-package-asan-clang",
+            "type": "shell",
+            "hide": true,
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "studio-clang-asan-debug",
+                "--target",
+                "lvs_studio_dist",
+                "--parallel",
+                "${env:NUMBER_OF_PROCESSORS}"
+            ],
+            "dependsOn": "studio-configure-asan-clang",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "studio-run-asan-clang",
+            "type": "shell",
+            "hide": true,
+            "command": "powershell",
+            "args": [
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                "$env:PATH='C:\\msys64\\clang64\\bin;C:\\Windows\\System32;C:\\Windows'; $env:QT_PLUGIN_PATH='C:\\msys64\\clang64\\share\\qt6\\plugins'; $env:QT_QPA_PLATFORM_PLUGIN_PATH='C:\\msys64\\clang64\\share\\qt6\\plugins\\platforms'; $env:ASAN_OPTIONS='abort_on_error=1:halt_on_error=1:detect_leaks=0'; & '${workspaceFolder}\\build\\clang-asan-debug\\lvs_studio.exe'"
+            ],
+            "dependsOn": "studio-asan-clang",
+            "problemMatcher": []
+        },
+        {
+            "label": "studio-configure-debug-mingw",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--preset",
+                "studio-mingw-debug"
+            ],
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "studio-debug-mingw",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "studio-mingw-debug",
+                "--parallel",
+                "${env:NUMBER_OF_PROCESSORS}"
+            ],
+            "dependsOn": "studio-configure-debug-mingw",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "studio-package-debug-mingw",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "studio-mingw-debug",
+                "--target",
+                "lvs_studio_dist",
+                "--parallel",
+                "${env:NUMBER_OF_PROCESSORS}"
+            ],
+            "dependsOn": "studio-configure-debug-mingw",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "studio-configure-release-mingw",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--preset",
+                "studio-mingw-release"
+            ],
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "studio-release-mingw",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "studio-mingw-release",
+                "--parallel",
+                "${env:NUMBER_OF_PROCESSORS}"
+            ],
+            "dependsOn": "studio-configure-release-mingw",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "studio-package-release-mingw",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "studio-mingw-release",
+                "--target",
+                "lvs_studio_dist",
+                "--parallel",
+                "${env:NUMBER_OF_PROCESSORS}"
+            ],
+            "dependsOn": "studio-configure-release-mingw",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "studio-bundle-release-mingw",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "studio-mingw-release",
+                "--target",
+                "lvs_dist",
+                "--parallel",
+                "${env:NUMBER_OF_PROCESSORS}"
+            ],
+            "dependsOn": "studio-configure-release-mingw",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        }
+    ]
+}
