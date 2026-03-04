@@ -1,10 +1,14 @@
-# LvsEngine-dev-cpp
+# LvsEngine
 
-Lvs Engine / Studio prototype in modern C++ with Qt6 UI and Vulkan rendering.
+Early Lvs Engine version in modern C++ 23 with Qt6 UI and (temporary only limited to) Vulkan rendering.
+
+The engine is required to run Studio and App (which is not available yet, even in the near future).
+
+This will be expanding into online toy in the future!
 
 ## Requirements
 
-Windows 10/11, plus:
+Windows 10+, and:
 
 - CMake 3.27+
 - Ninja
@@ -12,7 +16,7 @@ Windows 10/11, plus:
 - MinGW-w64 toolchain (`mingw64`)
 - Qt6 (MSYS2 `mingw-w64-x86_64-qt6-base`, `mingw-w64-x86_64-qt6-tools`)
 - Optional: Clang toolchain for ASAN (`clang64`)
-- Vulkan SDK (temporary requirement for this repo)
+- Vulkan SDK
   - `VULKAN_SDK` env var should point to your SDK install
   - `glslangValidator` or `glslc` must be available (used for shader compilation)
 
