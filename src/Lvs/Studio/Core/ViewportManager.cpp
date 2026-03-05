@@ -77,6 +77,11 @@ void ViewportManager::BindSettings() {
             viewport_->SetGizmoAlignByMagnitude(value.toBool());
         }
     }, true));
+    settingsConnections_.push_back(Settings::Changed("TransformSnapIncrement", [this](const QVariant& value) {
+        if (viewport_ != nullptr) {
+            viewport_->SetSnapIncrement(value.toDouble());
+        }
+    }, true));
 }
 
 } // namespace Lvs::Studio::Core

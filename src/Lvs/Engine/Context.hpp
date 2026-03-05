@@ -7,6 +7,7 @@
 #include "Lvs/Studio/Controllers/TopBarController.hpp"
 #include "Lvs/Studio/Core/DockManager.hpp"
 #include "Lvs/Studio/Core/HistoryShortcuts.hpp"
+#include "Lvs/Studio/Core/StudioQuickActions.hpp"
 #include "Lvs/Studio/Core/ViewportManager.hpp"
 
 #include <memory>
@@ -24,6 +25,7 @@ struct EngineContext {
     std::unique_ptr<Studio::Controllers::TopBarController> TopBarController;
     std::unique_ptr<Studio::Controllers::ToolbarController> ToolbarController;
     std::unique_ptr<Studio::Core::HistoryShortcuts> HistoryShortcuts;
+    std::unique_ptr<Studio::Core::StudioQuickActions> StudioQuickActions;
     std::unique_ptr<Core::EditorToolState> EditorToolState;
 };
 

@@ -7,6 +7,7 @@
 #include "Lvs/Studio/Controllers/TopBarController.hpp"
 #include "Lvs/Studio/Core/DockManager.hpp"
 #include "Lvs/Studio/Core/HistoryShortcuts.hpp"
+#include "Lvs/Studio/Core/StudioQuickActions.hpp"
 #include "Lvs/Studio/Core/ViewportManager.hpp"
 
 namespace Lvs::Engine {

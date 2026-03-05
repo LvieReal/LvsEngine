@@ -241,11 +241,15 @@ float SampleDirectionalAdaptivePCF64(int cascadeIndex, vec3 baseShadowCoord, flo
 float ComputeDirectionalBias(int cascadeIndex, float pcfRadiusTexels, vec3 normal, vec3 lightDir) {
     vec2 texelSize = GetDirectionalShadowTexelSize(cascadeIndex);
     float texelScale = max(texelSize.x, texelSize.y);
+    float cascadeResolution = 1.0 / max(texelScale, 1e-6);
     float ndotl = clamp(dot(normal, lightDir), 0.0, 1.0);
     float slope = sqrt(max(1.0 - ndotl * ndotl, 0.0)) / max(ndotl, 0.05);
     float biasTexels = camera.shadowParams.x + (0.25 * slope);
     biasTexels *= (1.0 + pcfRadiusTexels * 0.25);
-    return biasTexels * texelScale;
+    const float biasReferenceResolution = 2048.0;
+    float lowResRatio = clamp(biasReferenceResolution / max(cascadeResolution, 1.0), 1.0, 8.0);
+    float lowResCompensation = sqrt(lowResRatio);
+    return (biasTexels * texelScale) / lowResCompensation;
 }
 
 float ComputeShadowFactor(vec3 normal, vec3 lightDir) {

@@ -6,6 +6,7 @@
 #include "Lvs/Studio/Core/DockManager.hpp"
 #include "Lvs/Studio/Core/HistoryShortcuts.hpp"
 #include "Lvs/Studio/Core/Settings.hpp"
+#include "Lvs/Studio/Core/StudioQuickActions.hpp"
 #include "Lvs/Studio/Core/ViewportManager.hpp"
 #include "Lvs/Studio/Theme.hpp"
 
@@ -48,6 +49,7 @@ void Run(QApplication& app, Engine::Core::Window& window, const Engine::EngineCo
     context->ToolbarController->Build();
 
     context->HistoryShortcuts = std::make_unique<Core::HistoryShortcuts>(app, window, context);
+    context->StudioQuickActions = std::make_unique<Core::StudioQuickActions>(app, window, context);
 
     context->DockManager->HidePlaceRequiredDocks();
     context->ViewportManager->Hide();

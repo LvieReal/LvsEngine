@@ -16,9 +16,13 @@ ToolbarController::ToolbarController(Engine::Core::Window& window, Engine::Core:
       toolState_(toolState) {
 }
 
-ToolbarController::~ToolbarController() = default;
+ToolbarController::~ToolbarController() {
+    toolChangedConnection_.Disconnect();
+}
 
 void ToolbarController::Build() {
+    toolChangedConnection_.Disconnect();
+
     group_ = new QActionGroup(&window_);
     group_->setExclusive(false);
 
@@ -34,6 +38,9 @@ void ToolbarController::Build() {
     AddToolAction("Size", "shape_handles.png", Engine::Core::Tool::SizeTool);
 
     window_.addToolBar(Qt::TopToolBarArea, toolbar_);
+    toolChangedConnection_ = toolState_.ToolChanged.Connect([this](const Engine::Core::Tool tool) {
+        SyncActionStates(tool);
+    });
     SetDefaultTool(Engine::Core::Tool::SelectTool);
 }
 
@@ -81,13 +88,33 @@ void ToolbarController::HandleToolAction(QAction* action, const Engine::Core::To
     toolState_.SetTool(tool);
 }
 
-void ToolbarController::SetDefaultTool(const Engine::Core::Tool tool) {
+void ToolbarController::ActivateTool(const Engine::Core::Tool tool) {
+    SyncActionStates(tool);
+    toolState_.SetTool(tool);
+}
+
+void ToolbarController::SyncActionStates(const Engine::Core::Tool tool) {
     QAction* action = actions_.value(static_cast<int>(tool), nullptr);
-    if (action == nullptr) {
+    if (tool == Engine::Core::Tool::NoneTool || action == nullptr) {
+        if (currentAction_ != nullptr) {
+            currentAction_->setChecked(false);
+        }
+        currentAction_ = nullptr;
         return;
+    }
+
+    if (currentAction_ != nullptr && currentAction_ != action) {
+        currentAction_->setChecked(false);
     }
     action->setChecked(true);
     currentAction_ = action;
+}
+
+void ToolbarController::SetDefaultTool(const Engine::Core::Tool tool) {
+    if (actions_.value(static_cast<int>(tool), nullptr) == nullptr) {
+        return;
+    }
+    SyncActionStates(tool);
     toolState_.SetTool(tool);
 }
 

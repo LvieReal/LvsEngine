@@ -21,10 +21,12 @@ public:
 
     void Build();
     void SetVisible(bool visible) const;
+    void ActivateTool(Engine::Core::Tool tool);
 
 private:
     void AddToolAction(const QString& text, const QString& iconName, Engine::Core::Tool tool);
     void HandleToolAction(QAction* action, Engine::Core::Tool tool);
+    void SyncActionStates(Engine::Core::Tool tool);
     void SetDefaultTool(Engine::Core::Tool tool);
 
     Engine::Core::Window& window_;
@@ -33,6 +35,7 @@ private:
     QActionGroup* group_{nullptr};
     QAction* currentAction_{nullptr};
     QHash<int, QAction*> actions_;
+    Engine::Utils::Signal<Engine::Core::Tool>::Connection toolChangedConnection_{};
 };
 
 } // namespace Lvs::Studio::Controllers

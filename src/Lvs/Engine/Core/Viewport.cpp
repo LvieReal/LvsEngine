@@ -3,11 +3,13 @@
 #include "Lvs/Engine/Core/CameraController.hpp"
 #include "Lvs/Engine/Core/Cursor.hpp"
 #include "Lvs/Engine/Core/RegularError.hpp"
+#include "Lvs/Engine/Core/SelectionBoxPrimitives.hpp"
 #include "Lvs/Engine/DataModel/ChangeHistoryService.hpp"
 #include "Lvs/Engine/DataModel/Place.hpp"
 #include "Lvs/Engine/DataModel/Selection.hpp"
 #include "Lvs/Engine/DataModel/Workspace.hpp"
 #include "Lvs/Engine/Objects/BasePart.hpp"
+#include "Lvs/Engine/Objects/SelectionBox.hpp"
 #include "Lvs/Engine/Math/Vector3.hpp"
 #include "Lvs/Engine/Math/CFrame.hpp"
 #include "Lvs/Engine/Objects/Camera.hpp"
@@ -15,6 +17,7 @@
 #include "Lvs/Engine/Rendering/Vulkan/VulkanContext.hpp"
 #include "Lvs/Engine/Utils/Command.hpp"
 #include "Lvs/Engine/Utils/Raycast.hpp"
+#include "Lvs/Studio/Core/StudioQuickActions.hpp"
 
 #include <QCursor>
 #include <QKeyEvent>
@@ -27,11 +30,67 @@
 
 #include <cstdint>
 #include <chrono>
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <limits>
 #include <optional>
 #include <utility>
 #include <vector>
 
 namespace Lvs::Engine::Core {
+
+namespace {
+
+double SnapToStep(const double value, const double step) {
+    if (step <= 0.0) {
+        return value;
+    }
+    return std::round(value / step) * step;
+}
+
+bool RayChanged(const Utils::Ray& a, const Math::Vector3& startOrigin, const Math::Vector3& startDirection) {
+    const Math::Vector3 originDelta = a.Origin - startOrigin;
+    const Math::Vector3 directionDelta = a.Direction - startDirection;
+    return originDelta.MagnitudeSquared() > 1e-10 || directionDelta.MagnitudeSquared() > 1e-10;
+}
+
+struct HitFace {
+    int Axis{0}; // 0=x,1=y,2=z
+    double Sign{1.0}; // +1 max face, -1 min face
+};
+
+HitFace FindClosestHitFace(const Math::AABB& aabb, const Math::Vector3& point) {
+    const std::array<double, 6> distances{
+        std::abs(point.x - aabb.Min.x),
+        std::abs(point.x - aabb.Max.x),
+        std::abs(point.y - aabb.Min.y),
+        std::abs(point.y - aabb.Max.y),
+        std::abs(point.z - aabb.Min.z),
+        std::abs(point.z - aabb.Max.z)
+    };
+
+    std::size_t best = 0;
+    double bestDistance = distances[0];
+    for (std::size_t i = 1; i < distances.size(); ++i) {
+        if (distances[i] < bestDistance) {
+            bestDistance = distances[i];
+            best = i;
+        }
+    }
+
+    switch (best) {
+        case 0: return HitFace{.Axis = 0, .Sign = -1.0};
+        case 1: return HitFace{.Axis = 0, .Sign = 1.0};
+        case 2: return HitFace{.Axis = 1, .Sign = -1.0};
+        case 3: return HitFace{.Axis = 1, .Sign = 1.0};
+        case 4: return HitFace{.Axis = 2, .Sign = -1.0};
+        case 5: return HitFace{.Axis = 2, .Sign = 1.0};
+        default: return HitFace{};
+    }
+}
+
+} // namespace
 
 Viewport::Viewport(const EngineContextPtr& context, QWidget* parent)
     : QWidget(parent),
@@ -76,6 +135,8 @@ void Viewport::Unbind() {
     gizmoHistorySnapshot_.reset();
     leftMouseDown_ = false;
     gizmoDragging_ = false;
+    partDragging_ = false;
+    partDragState_.reset();
     if (gizmoSystem_ != nullptr) {
         gizmoSystem_->Unbind();
         gizmoSystem_.reset();
@@ -84,6 +145,7 @@ void Viewport::Unbind() {
     pressedKeys_.clear();
     pressedScanCodes_.clear();
     rightMouseDown_ = false;
+    rightMousePanned_ = false;
     if (context_ != nullptr && context_->Vulkan != nullptr) {
         context_->Vulkan->Unbind();
     }
@@ -92,21 +154,28 @@ void Viewport::Unbind() {
 void Viewport::SetGizmoAlwaysOnTop(const bool value) {
     gizmoAlwaysOnTop_ = value;
     if (gizmoSystem_ != nullptr) {
-        gizmoSystem_->Configure(gizmoAlwaysOnTop_, gizmoIgnoreDiffuseSpecular_, gizmoAlignByMagnitude_);
+        gizmoSystem_->Configure(gizmoAlwaysOnTop_, gizmoIgnoreDiffuseSpecular_, gizmoAlignByMagnitude_, snapIncrement_);
     }
 }
 
 void Viewport::SetGizmoIgnoreDiffuseSpecular(const bool value) {
     gizmoIgnoreDiffuseSpecular_ = value;
     if (gizmoSystem_ != nullptr) {
-        gizmoSystem_->Configure(gizmoAlwaysOnTop_, gizmoIgnoreDiffuseSpecular_, gizmoAlignByMagnitude_);
+        gizmoSystem_->Configure(gizmoAlwaysOnTop_, gizmoIgnoreDiffuseSpecular_, gizmoAlignByMagnitude_, snapIncrement_);
     }
 }
 
 void Viewport::SetGizmoAlignByMagnitude(const bool value) {
     gizmoAlignByMagnitude_ = value;
     if (gizmoSystem_ != nullptr) {
-        gizmoSystem_->Configure(gizmoAlwaysOnTop_, gizmoIgnoreDiffuseSpecular_, gizmoAlignByMagnitude_);
+        gizmoSystem_->Configure(gizmoAlwaysOnTop_, gizmoIgnoreDiffuseSpecular_, gizmoAlignByMagnitude_, snapIncrement_);
+    }
+}
+
+void Viewport::SetSnapIncrement(const double value) {
+    snapIncrement_ = std::max(0.0, value);
+    if (gizmoSystem_ != nullptr) {
+        gizmoSystem_->Configure(gizmoAlwaysOnTop_, gizmoIgnoreDiffuseSpecular_, gizmoAlignByMagnitude_, snapIncrement_);
     }
 }
 
@@ -134,6 +203,25 @@ void Viewport::paintEvent(QPaintEvent* event) {
     UpdateCamera(delta.count());
     UpdateGizmo(std::nullopt);
 
+    if (leftMouseDown_ && (gizmoDragging_ || partDragging_) && workspace_ != nullptr) {
+        const auto camera = workspace_->GetProperty("CurrentCamera").value<std::shared_ptr<Objects::Camera>>();
+        if (camera != nullptr) {
+            const QPoint local = mapFromGlobal(QCursor::pos());
+            const Utils::Ray dragRay = Utils::ScreenPointToRay(
+                static_cast<double>(local.x()),
+                static_cast<double>(local.y()),
+                width(),
+                height(),
+                camera
+            );
+            if (gizmoDragging_ && gizmoSystem_ != nullptr) {
+                gizmoSystem_->UpdateDrag(dragRay);
+            } else if (partDragging_) {
+                UpdatePartDrag(dragRay);
+            }
+        }
+    }
+
     if (context_ != nullptr && context_->Vulkan != nullptr) {
         std::vector<Rendering::Vulkan::OverlayPrimitive> overlay;
         if (gizmoSystem_ != nullptr) {
@@ -153,6 +241,8 @@ void Viewport::paintEvent(QPaintEvent* event) {
                 });
             }
         }
+        AppendGizmoSelectionBox(overlay);
+        AppendSelectionBoxInstances(overlay);
         context_->Vulkan->SetOverlayPrimitives(std::move(overlay));
     }
 
@@ -195,6 +285,7 @@ QPaintEngine* Viewport::paintEngine() const {
 void Viewport::mousePressEvent(QMouseEvent* event) {
     if (event->button() == Qt::RightButton) {
         rightMouseDown_ = true;
+        rightMousePanned_ = false;
         lockedCursorPos_ = event->globalPosition().toPoint();
         setFocus();
         event->accept();
@@ -228,17 +319,38 @@ void Viewport::mousePressEvent(QMouseEvent* event) {
 
     UpdateGizmo(ray);
     if (CanDragGizmo() && gizmoSystem_ != nullptr && gizmoSystem_->TryBeginDrag(ray)) {
-        BeginGizmoHistory();
+        BeginGizmoHistory(gizmoSystem_->GetTargetPart());
         gizmoDragging_ = true;
         return;
     }
 
+    if (CanDragPart() && TryBeginPartDrag(ray)) {
+        BeginGizmoHistory(partDragState_.has_value() ? partDragState_->Instance : nullptr);
+        partDragging_ = true;
+        return;
+    }
+
+    const auto previousSelection = selection_ != nullptr ? selection_->GetPrimary() : nullptr;
     PickSelection(ray);
+
+    // Allow "press-select-drag" in one continuous LMB gesture.
+    const auto currentSelection = selection_ != nullptr ? selection_->GetPrimary() : nullptr;
+    if (currentSelection != nullptr && currentSelection != previousSelection && CanDragPart() && TryBeginPartDrag(ray)) {
+        BeginGizmoHistory(partDragState_.has_value() ? partDragState_->Instance : nullptr);
+        partDragging_ = true;
+    }
 }
 
 void Viewport::mouseReleaseEvent(QMouseEvent* event) {
     if (event->button() == Qt::RightButton) {
+        const bool shouldShowContextMenu = !rightMousePanned_;
         rightMouseDown_ = false;
+        rightMousePanned_ = false;
+        if (shouldShowContextMenu &&
+            context_ != nullptr &&
+            context_->StudioQuickActions != nullptr) {
+            context_->StudioQuickActions->TryShowViewportContextMenu(*this, event->globalPosition().toPoint());
+        }
         event->accept();
         return;
     }
@@ -249,6 +361,10 @@ void Viewport::mouseReleaseEvent(QMouseEvent* event) {
             gizmoSystem_->EndDrag();
         }
         gizmoDragging_ = false;
+        if (partDragging_) {
+            CommitGizmoHistory();
+            EndPartDrag();
+        }
         event->accept();
         return;
     }
@@ -260,6 +376,7 @@ void Viewport::mouseMoveEvent(QMouseEvent* event) {
         const QPoint current = event->globalPosition().toPoint();
         const QPoint delta = current - lockedCursorPos_;
         if (delta.manhattanLength() > 0) {
+            rightMousePanned_ = true;
             cameraController_->Rotate(static_cast<double>(delta.x()), static_cast<double>(delta.y()));
             QCursor::setPos(lockedCursorPos_);
         }
@@ -280,6 +397,8 @@ void Viewport::mouseMoveEvent(QMouseEvent* event) {
         UpdateGizmo(ray);
         if (gizmoDragging_ && gizmoSystem_ != nullptr) {
             gizmoSystem_->UpdateDrag(ray);
+        } else if (partDragging_) {
+            UpdatePartDrag(ray);
         }
     }
 
@@ -373,18 +492,11 @@ bool Viewport::HasScanCode(const std::uint32_t sc) const {
 }
 
 void Viewport::PickSelection(const Utils::Ray& ray) {
-    if (workspace_ == nullptr || selection_ == nullptr) {
+    if (selection_ == nullptr) {
         return;
     }
 
-    std::vector<std::shared_ptr<Objects::BasePart>> parts;
-    for (const auto& descendant : workspace_->GetDescendants()) {
-        const auto part = std::dynamic_pointer_cast<Objects::BasePart>(descendant);
-        if (part == nullptr) {
-            continue;
-        }
-        parts.push_back(part);
-    }
+    const auto parts = CollectWorkspaceParts();
 
     const auto [hitPart, distance] = Utils::RaycastParts(ray, parts);
     static_cast<void>(distance);
@@ -410,7 +522,7 @@ void Viewport::EnsureGizmoSystem() {
 
     gizmoSystem_ = std::make_unique<GizmoSystem>();
     gizmoSystem_->Bind(camera);
-    gizmoSystem_->Configure(gizmoAlwaysOnTop_, gizmoIgnoreDiffuseSpecular_, gizmoAlignByMagnitude_);
+    gizmoSystem_->Configure(gizmoAlwaysOnTop_, gizmoIgnoreDiffuseSpecular_, gizmoAlignByMagnitude_, snapIncrement_);
 }
 
 void Viewport::UpdateGizmo(const std::optional<Utils::Ray>& ray) {
@@ -420,17 +532,245 @@ void Viewport::UpdateGizmo(const std::optional<Utils::Ray>& ray) {
     }
 
     gizmoSystem_->Update(selection_, context_->EditorToolState->GetActiveTool());
-    if (ray.has_value() && !gizmoDragging_) {
+    if (ray.has_value() && !gizmoDragging_ && !partDragging_) {
         gizmoSystem_->UpdateHover(ray.value());
     }
 }
 
-void Viewport::BeginGizmoHistory() {
-    if (gizmoSystem_ == nullptr) {
-        gizmoHistorySnapshot_.reset();
+bool Viewport::CanDragPart() const {
+    if (context_ == nullptr || context_->EditorToolState == nullptr || selection_ == nullptr) {
+        return false;
+    }
+    const Tool activeTool = context_->EditorToolState->GetActiveTool();
+    if (activeTool != Tool::SelectTool && activeTool != Tool::MoveTool) {
+        return false;
+    }
+    const auto selected = std::dynamic_pointer_cast<Objects::BasePart>(selection_->GetPrimary());
+    return selected != nullptr && selected->GetParent() != nullptr;
+}
+
+bool Viewport::TryBeginPartDrag(const Utils::Ray& ray) {
+    if (!CanDragPart()) {
+        return false;
+    }
+
+    const auto selected = std::dynamic_pointer_cast<Objects::BasePart>(selection_->GetPrimary());
+    if (selected == nullptr) {
+        return false;
+    }
+    const auto hitDistance = Utils::RaycastPartAABB(ray, selected);
+    if (!hitDistance.has_value()) {
+        return false;
+    }
+
+    // Start dragging only when the selected part is the front-most hit.
+    const auto parts = CollectWorkspaceParts();
+    const auto [frontMostPart, frontMostDistance] = Utils::RaycastParts(ray, parts);
+    static_cast<void>(frontMostDistance);
+    if (frontMostPart != selected) {
+        return false;
+    }
+
+    const auto aabb = Utils::BuildPartWorldAABB(selected);
+    const Math::Vector3 halfExtents = (aabb.Max - aabb.Min) * 0.5;
+    const Math::Vector3 startPosition = selected->GetWorldPosition();
+    const Math::Vector3 hitPoint = ray.Origin + ray.Direction * hitDistance.value();
+    const Math::Vector3 grabOffset = hitPoint - startPosition;
+    const Math::Vector3 size = selected->GetProperty("Size").value<Math::Vector3>();
+    const double maxAxis = std::max({std::abs(size.x), std::abs(size.y), std::abs(size.z)});
+    const double fallbackDepth = std::max(0.1, maxAxis * 2.0);
+
+    partDragState_ = PartDragState{
+        .Instance = selected,
+        .StartPosition = startPosition,
+        .HalfExtents = halfExtents,
+        .GrabOffset = grabOffset,
+        .StartRayOrigin = ray.Origin,
+        .StartRayDirection = ray.Direction,
+        .HasMoved = false,
+        .FallbackDepth = fallbackDepth
+    };
+    return true;
+}
+
+void Viewport::UpdatePartDrag(const Utils::Ray& ray) {
+    if (!partDragState_.has_value()) {
         return;
     }
-    const auto target = gizmoSystem_->GetTargetPart();
+
+    auto& state = partDragState_.value();
+    if (state.Instance == nullptr || state.Instance->GetParent() == nullptr) {
+        EndPartDrag();
+        return;
+    }
+
+    if (!state.HasMoved) {
+        if (!RayChanged(ray, state.StartRayOrigin, state.StartRayDirection)) {
+            return;
+        }
+        state.HasMoved = true;
+    }
+
+    const Math::Vector3 fallbackHitPoint = ray.Origin + ray.Direction * std::max(0.0, state.FallbackDepth);
+    Math::Vector3 newPosition = fallbackHitPoint - state.GrabOffset;
+    bool hasHitPlacement = false;
+
+    const auto parts = CollectWorkspaceParts(state.Instance);
+    if (!parts.empty()) {
+        const auto [hitPart, hitDistance] = Utils::RaycastParts(ray, parts);
+        if (hitPart != nullptr && std::isfinite(hitDistance)) {
+            const auto hitAabb = Utils::BuildPartWorldAABB(hitPart);
+            const Math::Vector3 hitPoint = ray.Origin + ray.Direction * hitDistance;
+            const HitFace face = FindClosestHitFace(hitAabb, hitPoint);
+            newPosition = hitPoint - state.GrabOffset;
+            hasHitPlacement = true;
+
+            // Face-to-face alignment like lego bricks: exact contact on the hit face axis.
+            if (face.Axis == 0) {
+                newPosition.x = face.Sign > 0.0
+                    ? hitAabb.Max.x + state.HalfExtents.x
+                    : hitAabb.Min.x - state.HalfExtents.x;
+                if (snapIncrement_ > 0.0) {
+                    const double yAnchor = hitAabb.Min.y + state.HalfExtents.y;
+                    const double zAnchor = hitAabb.Min.z + state.HalfExtents.z;
+                    newPosition.y = yAnchor + SnapToStep(newPosition.y - yAnchor, snapIncrement_);
+                    newPosition.z = zAnchor + SnapToStep(newPosition.z - zAnchor, snapIncrement_);
+                }
+            } else if (face.Axis == 1) {
+                newPosition.y = face.Sign > 0.0
+                    ? hitAabb.Max.y + state.HalfExtents.y
+                    : hitAabb.Min.y - state.HalfExtents.y;
+                if (snapIncrement_ > 0.0) {
+                    const double xAnchor = hitAabb.Min.x + state.HalfExtents.x;
+                    const double zAnchor = hitAabb.Min.z + state.HalfExtents.z;
+                    newPosition.x = xAnchor + SnapToStep(newPosition.x - xAnchor, snapIncrement_);
+                    newPosition.z = zAnchor + SnapToStep(newPosition.z - zAnchor, snapIncrement_);
+                }
+            } else {
+                newPosition.z = face.Sign > 0.0
+                    ? hitAabb.Max.z + state.HalfExtents.z
+                    : hitAabb.Min.z - state.HalfExtents.z;
+                if (snapIncrement_ > 0.0) {
+                    const double xAnchor = hitAabb.Min.x + state.HalfExtents.x;
+                    const double yAnchor = hitAabb.Min.y + state.HalfExtents.y;
+                    newPosition.x = xAnchor + SnapToStep(newPosition.x - xAnchor, snapIncrement_);
+                    newPosition.y = yAnchor + SnapToStep(newPosition.y - yAnchor, snapIncrement_);
+                }
+            }
+        }
+    }
+
+    if (!hasHitPlacement) {
+        // Free drag snapping is relative to drag start (not world origin grid).
+        const Math::Vector3 delta = newPosition - state.StartPosition;
+        newPosition = state.StartPosition + SnapPosition(delta);
+    }
+
+    state.Instance->SetProperty("Position", QVariant::fromValue(newPosition));
+}
+
+void Viewport::EndPartDrag() {
+    partDragging_ = false;
+    partDragState_.reset();
+}
+
+Math::Vector3 Viewport::SnapPosition(const Math::Vector3& value) const {
+    return {
+        SnapToStep(value.x, snapIncrement_),
+        SnapToStep(value.y, snapIncrement_),
+        SnapToStep(value.z, snapIncrement_)
+    };
+}
+
+std::vector<std::shared_ptr<Objects::BasePart>> Viewport::CollectWorkspaceParts(
+    const std::shared_ptr<Objects::BasePart>& ignore
+) const {
+    std::vector<std::shared_ptr<Objects::BasePart>> parts;
+    if (workspace_ == nullptr) {
+        return parts;
+    }
+    for (const auto& descendant : workspace_->GetDescendants()) {
+        const auto part = std::dynamic_pointer_cast<Objects::BasePart>(descendant);
+        if (part == nullptr || part->GetParent() == nullptr || part == ignore) {
+            continue;
+        }
+        parts.push_back(part);
+    }
+    return parts;
+}
+
+void Viewport::AppendGizmoSelectionBox(std::vector<Rendering::Vulkan::OverlayPrimitive>& overlay) const {
+    if (selection_ == nullptr) {
+        return;
+    }
+
+    const auto selected = std::dynamic_pointer_cast<Objects::BasePart>(selection_->GetPrimary());
+    if (selected == nullptr || selected->GetParent() == nullptr) {
+        return;
+    }
+
+    const bool ignoreLighting = gizmoIgnoreDiffuseSpecular_;
+    const SelectionBoxStyle style{
+        .Color = {0.0, 0.5, 1.0},
+        .Alpha = 1.0F,
+        .Metalness = 0.0F,
+        .Roughness = 1.0F,
+        .Emissive = ignoreLighting ? 1.0F : 0.0F,
+        .IgnoreLighting = ignoreLighting,
+        .AlwaysOnTop = true,
+        .Thickness = 0.06
+    };
+
+    AppendSelectionBoxOutlinePrimitives(Utils::BuildPartWorldAABB(selected), style, overlay);
+}
+
+void Viewport::AppendSelectionBoxInstances(std::vector<Rendering::Vulkan::OverlayPrimitive>& overlay) const {
+    if (workspace_ == nullptr) {
+        return;
+    }
+
+    for (const auto& descendant : workspace_->GetDescendants()) {
+        const auto box = std::dynamic_pointer_cast<Objects::SelectionBox>(descendant);
+        if (box == nullptr || !box->GetProperty("Visible").toBool()) {
+            continue;
+        }
+
+        std::shared_ptr<Core::Instance> adorneeInstance = box->GetProperty("Adornee").value<std::shared_ptr<Core::Instance>>();
+        auto adorneePart = std::dynamic_pointer_cast<Objects::BasePart>(adorneeInstance);
+        if (adorneePart == nullptr) {
+            adorneePart = std::dynamic_pointer_cast<Objects::BasePart>(box->GetParent());
+        }
+        if (adorneePart == nullptr || adorneePart->GetParent() == nullptr) {
+            continue;
+        }
+
+        const float alpha = std::clamp(
+            static_cast<float>(1.0 - box->GetProperty("Transparency").toDouble()),
+            0.0F,
+            1.0F
+        );
+        const bool ignoreLighting = box->GetProperty("IgnoreLighting").toBool();
+
+        const SelectionBoxStyle style{
+            .Color = box->GetProperty("Color").value<Math::Color3>(),
+            .Alpha = alpha,
+            .Metalness = static_cast<float>(box->GetProperty("Metalness").toDouble()),
+            .Roughness = static_cast<float>(box->GetProperty("Roughness").toDouble()),
+            .Emissive = static_cast<float>(box->GetProperty("Emissive").toDouble()),
+            .IgnoreLighting = ignoreLighting,
+            .AlwaysOnTop = box->GetProperty("AlwaysOnTop").toBool(),
+            .Thickness = std::max(0.001, box->GetProperty("LineThickness").toDouble())
+        };
+
+        AppendSelectionBoxOutlinePrimitives(Utils::BuildPartWorldAABB(adorneePart), style, overlay);
+    }
+}
+
+void Viewport::BeginGizmoHistory(const std::shared_ptr<Objects::BasePart>& targetOverride) {
+    std::shared_ptr<Objects::BasePart> target = targetOverride;
+    if (target == nullptr && gizmoSystem_ != nullptr) {
+        target = gizmoSystem_->GetTargetPart();
+    }
     if (target == nullptr) {
         gizmoHistorySnapshot_.reset();
         return;

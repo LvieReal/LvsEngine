@@ -21,6 +21,7 @@ QMap<QString, SettingMeta> g_settings = {
     {"GizmoAlwaysOnTop", {"Gizmo Always On Top", "Render gizmos on top of scene geometry", true}},
     {"GizmoIgnoreDiffuseSpecular", {"Gizmo Ignore Lighting", "Ignore diffuse and specular lighting for gizmos", true}},
     {"GizmoAlignByMagnitude", {"Gizmo Align By Magnitude", "Place gizmo handles using bounds magnitude", true}},
+    {"TransformSnapIncrement", {"Transform Snap Increment", "Snap amount for drag/move/size transforms (0 disables snap)", 1.0}},
     {"DockLayoutState", {"Dock Layout State", "Serialized dock and toolbar layout", ""}}
 };
 
@@ -32,7 +33,8 @@ QMap<QString, QStringList> g_categories = {
          "ExplorerIconPack",
          "GizmoAlwaysOnTop",
          "GizmoIgnoreDiffuseSpecular",
-         "GizmoAlignByMagnitude"
+         "GizmoAlignByMagnitude",
+         "TransformSnapIncrement"
         }
     }
 };

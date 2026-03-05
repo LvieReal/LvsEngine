@@ -197,12 +197,15 @@ void Renderer::RecordShadowCommands(
     Math::Vector3 lightDirection{};
 
     if (lighting != nullptr) {
-        shadowSettings.Enabled = lighting->GetProperty("DefaultShadowsEnabled").toBool();
-        shadowSettings.BlurAmount = static_cast<float>(lighting->GetProperty("DefaultShadowBlur").toDouble());
+        shadowSettings.Enabled = lighting->GetProperty("ShadowsEnabled").toBool();
+        shadowSettings.BlurAmount = static_cast<float>(lighting->GetProperty("ShadowBlur").toDouble());
         shadowSettings.TapCount = lighting->GetProperty("DefaultShadowTapCount").toInt();
         shadowSettings.CascadeCount = lighting->GetProperty("DefaultShadowCascadeCount").toInt();
         shadowSettings.MaxDistance = static_cast<float>(lighting->GetProperty("DefaultShadowMaxDistance").toDouble());
         shadowSettings.MapResolution = static_cast<std::uint32_t>(lighting->GetProperty("DefaultShadowMapResolution").toInt());
+        shadowSettings.CascadeResolutionScale =
+            static_cast<float>(lighting->GetProperty("DefaultShadowCascadeResolutionScale").toDouble());
+        shadowSettings.CascadeSplitLambda = static_cast<float>(lighting->GetProperty("DefaultShadowCascadeSplitLambda").toDouble());
     }
 
     if (directionalLight != nullptr && directionalLight->GetProperty("Enabled").toBool()) {
@@ -277,9 +280,6 @@ void Renderer::RecordDrawCommands(
     skyboxRenderer_.Draw(context, commandBuffer, frameIndex, *camera);
     scene_.DrawTransparent(commandBuffer, *this);
     for (const auto& primitive : overlayPrimitives_) {
-        if (!primitive.AlwaysOnTop) {
-            continue;
-        }
         DrawOverlayPrimitive(commandBuffer, primitive);
     }
 }
@@ -960,10 +960,10 @@ void Renderer::UpdateCameraUniformAndLighting(VulkanContext& context, const std:
             uniform.ShadowState[2] = shadowData.JitterScaleY;
         }
 
-        if (!lighting->GetProperty("DefaultShadowsEnabled").toBool()) {
+        if (!lighting->GetProperty("ShadowsEnabled").toBool()) {
             uniform.ShadowState[0] = 0.0F;
         }
-        uniform.ShadowParams[1] = static_cast<float>(lighting->GetProperty("DefaultShadowBlur").toDouble());
+        uniform.ShadowParams[1] = static_cast<float>(lighting->GetProperty("ShadowBlur").toDouble());
         uniform.ShadowParams[2] = static_cast<float>(lighting->GetProperty("DefaultShadowTapCount").toInt());
     }
 
@@ -1090,7 +1090,9 @@ void Renderer::DrawOverlayPrimitive(const VkCommandBuffer commandBuffer, const O
         return;
     }
 
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, alwaysOnTopPipelineBackCull_);
+    const VkPipeline pipeline =
+        primitive.AlwaysOnTop ? alwaysOnTopPipelineNoCull_ : transparentPipelineNoCull_;
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
     PushConstants push{};
     const auto model = primitive.Model.FlattenColumnMajor();

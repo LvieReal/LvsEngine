@@ -145,7 +145,7 @@ void ShadowRenderer::Initialize(VulkanContext& context) {
     CreateRenderPass(context);
     CreatePipelineLayout(context);
     CreatePipeline(context);
-    EnsureDepthResources(context, 4096);
+    EnsureDepthResources(context, 4096, 0.7F);
     EnsureJitterTexture(context);
     initialized_ = true;
 }
@@ -201,7 +201,9 @@ void ShadowRenderer::Render(
 
     const std::uint32_t requestedResolution =
         std::max(128U, std::min(8192U, settings.MapResolution == 0 ? 4096U : settings.MapResolution));
-    EnsureDepthResources(context, requestedResolution);
+    const float cascadeResolutionScale = std::max(0.25F, std::min(1.0F, settings.CascadeResolutionScale));
+    const float cascadeSplitLambda = std::max(0.0F, std::min(1.0F, settings.CascadeSplitLambda));
+    EnsureDepthResources(context, requestedResolution, cascadeResolutionScale);
     EnsureJitterTexture(context);
 
     shadowData_.TapCount = std::max(1, std::min(64, settings.TapCount));
@@ -223,6 +225,7 @@ void ShadowRenderer::Render(
             cameraAspect,
             shadowData_.CascadeCount,
             shadowData_.MaxDistance,
+            cascadeSplitLambda,
             cascades
         )) {
         shadowData_.HasShadowData = false;
@@ -547,12 +550,18 @@ void ShadowRenderer::CreatePipeline(VulkanContext& context) {
     vkDestroyShaderModule(device, vertModule, nullptr);
 }
 
-void ShadowRenderer::EnsureDepthResources(VulkanContext& context, const std::uint32_t resolution) {
-    const std::array<std::uint32_t, MAX_CASCADES> targetResolutions{
-        std::max(128U, resolution),
-        std::max(128U, resolution / 2U),
-        std::max(128U, resolution / 4U)
-    };
+void ShadowRenderer::EnsureDepthResources(
+    VulkanContext& context,
+    const std::uint32_t resolution,
+    const float cascadeResolutionScale
+) {
+    const double clampedScale = Clamp(static_cast<double>(cascadeResolutionScale), 0.25, 1.0);
+    std::array<std::uint32_t, MAX_CASCADES> targetResolutions{};
+    for (int i = 0; i < MAX_CASCADES; ++i) {
+        const double scaledResolution = static_cast<double>(resolution) * std::pow(clampedScale, static_cast<double>(i));
+        targetResolutions[static_cast<std::size_t>(i)] =
+            std::max(128U, static_cast<std::uint32_t>(std::lround(std::max(128.0, scaledResolution))));
+    }
 
     if (resolution == mapResolution_ && targetResolutions == cascadeResolutions_ && shadowSampler_ != VK_NULL_HANDLE &&
         cascadeImages_[0].Image != VK_NULL_HANDLE) {
@@ -983,6 +992,7 @@ bool ShadowRenderer::ComputeCascades(
     const float cameraAspect,
     const int cascadeCount,
     const float maxDistance,
+    const float cascadeSplitLambda,
     CascadeComputation& out
 ) const {
     if (directionalLightDirection.MagnitudeSquared() <= 1e-8) {
@@ -991,7 +1001,7 @@ bool ShadowRenderer::ComputeCascades(
 
     const double nearPlane = std::max(0.01, camera.GetProperty("NearPlane").toDouble());
     const double farPlane = std::max(nearPlane + 1.0, static_cast<double>(maxDistance));
-    const auto splits = ComputeCascadeSplits(nearPlane, farPlane, cascadeCount);
+    const auto splits = ComputeCascadeSplits(nearPlane, farPlane, cascadeCount, static_cast<double>(cascadeSplitLambda));
 
     double rangeNear = nearPlane;
     for (int i = 0; i < cascadeCount; ++i) {
@@ -1114,16 +1124,17 @@ Math::Matrix4 ShadowRenderer::ComputeCascadeLightViewProjection(
 std::array<double, ShadowRenderer::MAX_CASCADES> ShadowRenderer::ComputeCascadeSplits(
     const double nearPlane,
     const double farPlane,
-    const int cascadeCount
+    const int cascadeCount,
+    const double lambda
 ) const {
     std::array<double, MAX_CASCADES> splits{farPlane, farPlane, farPlane};
     const double ratio = farPlane / std::max(nearPlane, 1e-4);
-    constexpr double lambda = 0.85;
+    const double clampedLambda = Clamp(lambda, 0.0, 1.0);
     for (int i = 1; i <= cascadeCount; ++i) {
         const double t = static_cast<double>(i) / static_cast<double>(cascadeCount);
         const double uniformSplit = nearPlane + ((farPlane - nearPlane) * t);
         const double logarithmicSplit = nearPlane * std::pow(ratio, t);
-        const double split = (logarithmicSplit * lambda) + (uniformSplit * (1.0 - lambda));
+        const double split = (logarithmicSplit * clampedLambda) + (uniformSplit * (1.0 - clampedLambda));
         splits[static_cast<std::size_t>(i - 1)] = Clamp(split, nearPlane, farPlane);
     }
     splits[static_cast<std::size_t>(cascadeCount - 1)] = farPlane;

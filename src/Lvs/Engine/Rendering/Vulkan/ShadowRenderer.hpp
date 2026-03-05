@@ -28,6 +28,8 @@ public:
         int CascadeCount{1};
         float MaxDistance{220.0F};
         std::uint32_t MapResolution{4096};
+        float CascadeResolutionScale{0.7F};
+        float CascadeSplitLambda{0.75F};
     };
 
     struct ShadowData {
@@ -107,7 +109,7 @@ private:
     void CreateRenderPass(VulkanContext& context);
     void CreatePipelineLayout(VulkanContext& context);
     void CreatePipeline(VulkanContext& context);
-    void EnsureDepthResources(VulkanContext& context, std::uint32_t resolution);
+    void EnsureDepthResources(VulkanContext& context, std::uint32_t resolution, float cascadeResolutionScale);
     void EnsureJitterTexture(VulkanContext& context);
     void DestroyDepthResources(VulkanContext& context);
     void DestroyJitterTexture(VulkanContext& context);
@@ -119,6 +121,7 @@ private:
         float cameraAspect,
         int cascadeCount,
         float maxDistance,
+        float cascadeSplitLambda,
         CascadeComputation& out
     ) const;
 
@@ -132,7 +135,7 @@ private:
         bool& success
     ) const;
 
-    std::array<double, MAX_CASCADES> ComputeCascadeSplits(double nearPlane, double farPlane, int cascadeCount) const;
+    std::array<double, MAX_CASCADES> ComputeCascadeSplits(double nearPlane, double farPlane, int cascadeCount, double lambda) const;
     Math::Matrix4 BuildOrthographicZeroToOne(double left, double right, double bottom, double top, double nearPlane, double farPlane) const;
     Math::Matrix4 StabilizeProjection(const Math::Matrix4& projection, const Math::Matrix4& lightView, double resolution) const;
 

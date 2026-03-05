@@ -43,46 +43,60 @@ Core::ClassDescriptor& Lighting::Descriptor() {
             "Selects per-fragment or legacy per-vertex lighting."
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
-            "DefaultShadowsEnabled",
+            "ShadowsEnabled",
             true,
             true,
             "Rendering",
-            "Enables directional shadows in Default mode."
+            "Enables directional shadows."
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
-            "DefaultShadowBlur",
+            "ShadowBlur",
             4.0,
             true,
             "Rendering",
-            "Shadow blur radius for Default PCF shadows."
+            "Shadow blur radius for shadow PCF."
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<int>(
             "DefaultShadowTapCount",
             16,
             true,
             "Rendering",
-            "Number of Poisson PCF taps for Default shadows."
+            "Number of Poisson PCF taps."
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<int>(
             "DefaultShadowCascadeCount",
             3,
             true,
             "Rendering",
-            "Directional shadow cascades in Default mode."
+            "Directional shadow cascade count (1-3)."
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
             "DefaultShadowMaxDistance",
-            250.0,
+            1000.0,
             true,
             "Rendering",
-            "Maximum distance for directional shadows in Default mode."
+            "Maximum distance for directional shadows."
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<int>(
             "DefaultShadowMapResolution",
             8192,
             true,
             "Rendering",
-            "Directional shadow map resolution in Default mode."
+            "Directional shadow map resolution."
+        ));
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
+            "DefaultShadowCascadeResolutionScale",
+            0.9,
+            true,
+            "Rendering",
+            "Per-cascade resolution scale (0-1). Higher keeps farther cascades sharper."
+        ));
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
+            "DefaultShadowCascadeSplitLambda",
+            0.75,
+            true,
+            "Rendering",
+            "Cascade split weighting (0 uniform, 1 logarithmic). Lower preserves near/mid detail."
         ));
 
         Core::ClassDescriptor::RegisterClassDescriptor(&descriptor);

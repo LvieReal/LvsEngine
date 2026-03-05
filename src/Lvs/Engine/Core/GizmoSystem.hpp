@@ -51,7 +51,7 @@ public:
     void UpdateDrag(const Utils::Ray& ray);
     void EndDrag();
 
-    void Configure(bool alwaysOnTop, bool ignoreDiffuseSpecular, bool alignByMagnitude);
+    void Configure(bool alwaysOnTop, bool ignoreDiffuseSpecular, bool alignByMagnitude, double snapIncrement);
     [[nodiscard]] std::shared_ptr<Objects::BasePart> GetTargetPart() const;
     [[nodiscard]] const std::vector<RenderPrimitive>& GetRenderPrimitives() const;
 
@@ -93,6 +93,7 @@ private:
     bool alwaysOnTop_{true};
     bool ignoreDiffuseSpecular_{true};
     bool alignByMagnitude_{true};
+    double snapIncrement_{1.0};
     std::shared_ptr<Objects::BasePart> targetPart_;
     QString hoveredAxis_;
     QString activeAxis_;

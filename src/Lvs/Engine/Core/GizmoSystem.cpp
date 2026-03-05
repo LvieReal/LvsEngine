@@ -14,6 +14,17 @@
 
 namespace Lvs::Engine::Core {
 
+namespace {
+
+double SnapToStep(const double value, const double step) {
+    if (step <= 0.0) {
+        return value;
+    }
+    return std::round(value / step) * step;
+}
+
+} // namespace
+
 void GizmoSystem::Bind(const std::shared_ptr<Objects::Camera>& camera) {
     camera_ = camera;
     axes_.clear();
@@ -109,7 +120,8 @@ void GizmoSystem::UpdateDrag(const Utils::Ray& ray) {
     }
 
     const Math::Vector3 delta = currentPoint.value() - dragStartPoint_.value();
-    const double amount = delta.Dot(activeAxisDirection_);
+    double amount = delta.Dot(activeAxisDirection_);
+    amount = SnapToStep(amount, snapIncrement_);
 
     if (activeTool_ == Tool::MoveTool) {
         targetPart_->SetProperty("Position", QVariant::fromValue(startPosition_.value() + activeAxisDirection_ * amount));
@@ -123,6 +135,15 @@ void GizmoSystem::UpdateDrag(const Utils::Ray& ray) {
             std::max(0.05, startSize.y + std::abs(activeAxisDirection_.y) * amount),
             std::max(0.05, startSize.z + std::abs(activeAxisDirection_.z) * amount)
         };
+        if (snapIncrement_ > 0.0) {
+            if (std::abs(activeAxisDirection_.x) > 0.0) {
+                newSize.x = std::max(0.05, SnapToStep(newSize.x, snapIncrement_));
+            } else if (std::abs(activeAxisDirection_.y) > 0.0) {
+                newSize.y = std::max(0.05, SnapToStep(newSize.y, snapIncrement_));
+            } else if (std::abs(activeAxisDirection_.z) > 0.0) {
+                newSize.z = std::max(0.05, SnapToStep(newSize.z, snapIncrement_));
+            }
+        }
 
         double appliedAmount = 0.0;
         if (std::abs(activeAxisDirection_.x) > 0.0) {
@@ -149,10 +170,11 @@ void GizmoSystem::EndDrag() {
     RefreshRenderPrimitives();
 }
 
-void GizmoSystem::Configure(const bool alwaysOnTop, const bool ignoreDiffuseSpecular, const bool alignByMagnitude) {
+void GizmoSystem::Configure(const bool alwaysOnTop, const bool ignoreDiffuseSpecular, const bool alignByMagnitude, const double snapIncrement) {
     alwaysOnTop_ = alwaysOnTop;
     ignoreDiffuseSpecular_ = ignoreDiffuseSpecular;
     alignByMagnitude_ = alignByMagnitude;
+    snapIncrement_ = std::max(0.0, snapIncrement);
     RefreshTransforms();
     RefreshRenderPrimitives();
 }
