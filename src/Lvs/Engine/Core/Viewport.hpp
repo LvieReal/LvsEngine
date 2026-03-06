@@ -124,6 +124,7 @@ private:
     bool rightMouseDown_{false};
     bool rightMousePanned_{false};
     bool vulkanBound_{false};
+    bool vulkanUnavailable_{false};
     bool gizmoAlwaysOnTop_{true};
     bool gizmoIgnoreDiffuseSpecular_{true};
     bool gizmoAlignByMagnitude_{true};

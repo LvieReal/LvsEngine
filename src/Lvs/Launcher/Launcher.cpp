@@ -3,6 +3,7 @@
 #include "Lvs/Engine/Bootstrap.hpp"
 #include "Lvs/Engine/Core/CriticalError.hpp"
 #include "Lvs/Engine/Core/Window.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/VulkanContext.hpp"
 #include "Lvs/Engine/Utils/SourcePath.hpp"
 #include "Lvs/Studio/Bootstrap.hpp"
 
@@ -39,6 +40,8 @@ int Run(int argc, char* argv[], const BuildType buildType, const char* appName, 
         }
 
         return app.exec();
+    } catch (const Engine::Rendering::Vulkan::VulkanInitializationError& ex) {
+        Engine::Core::CriticalError::ShowVulkanUnsupportedError(QString::fromUtf8(ex.what()));
     } catch (const std::exception& ex) {
         Engine::Core::CriticalError::ShowCriticalErrorFromException(ex);
     } catch (...) {

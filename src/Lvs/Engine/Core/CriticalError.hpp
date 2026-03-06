@@ -7,6 +7,7 @@
 namespace Lvs::Engine::Core::CriticalError {
 
 void ShowCriticalError(const QString& text);
+void ShowVulkanUnsupportedError(const QString& text);
 void ShowCriticalErrorFromException(const std::exception& ex);
 void ShowUnknownCriticalError();
 

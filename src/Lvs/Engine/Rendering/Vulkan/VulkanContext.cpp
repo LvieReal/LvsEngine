@@ -6,7 +6,9 @@
 #include "Lvs/Engine/Rendering/Vulkan/VulkanSwapchainUtils.hpp"
 
 #include <array>
+#include <algorithm>
 #include <cstring>
+#include <string>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -18,6 +20,69 @@
 namespace Lvs::Engine::Rendering::Vulkan {
 
 namespace {
+
+[[nodiscard]] std::string ApiVersionToString(const std::uint32_t version) {
+    return std::to_string(VK_API_VERSION_MAJOR(version)) + "." +
+        std::to_string(VK_API_VERSION_MINOR(version)) + "." +
+        std::to_string(VK_API_VERSION_PATCH(version));
+}
+
+[[nodiscard]] const char* VkResultToString(const VkResult result) {
+    switch (result) {
+        case VK_SUCCESS: return "VK_SUCCESS";
+        case VK_ERROR_INCOMPATIBLE_DRIVER: return "VK_ERROR_INCOMPATIBLE_DRIVER";
+        case VK_ERROR_EXTENSION_NOT_PRESENT: return "VK_ERROR_EXTENSION_NOT_PRESENT";
+        case VK_ERROR_LAYER_NOT_PRESENT: return "VK_ERROR_LAYER_NOT_PRESENT";
+        case VK_ERROR_INITIALIZATION_FAILED: return "VK_ERROR_INITIALIZATION_FAILED";
+        default: return "VK_RESULT_UNKNOWN";
+    }
+}
+
+[[nodiscard]] std::uint32_t QueryLoaderApiVersion() {
+    const auto enumerateInstanceVersion =
+        reinterpret_cast<PFN_vkEnumerateInstanceVersion>(
+            vkGetInstanceProcAddr(VK_NULL_HANDLE, "vkEnumerateInstanceVersion")
+        );
+
+    if (enumerateInstanceVersion == nullptr) {
+        return VK_API_VERSION_1_0;
+    }
+
+    std::uint32_t loaderVersion = VK_API_VERSION_1_0;
+    if (enumerateInstanceVersion(&loaderVersion) != VK_SUCCESS) {
+        return VK_API_VERSION_1_0;
+    }
+
+    return loaderVersion;
+}
+
+[[nodiscard]] bool HasRequiredInstanceExtensions(const std::vector<const char*>& requiredExtensions) {
+    std::uint32_t extensionCount = 0;
+    if (vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr) != VK_SUCCESS) {
+        return false;
+    }
+
+    std::vector<VkExtensionProperties> availableExtensions(extensionCount);
+    if (extensionCount > 0 &&
+        vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, availableExtensions.data()) != VK_SUCCESS) {
+        return false;
+    }
+
+    for (const char* required : requiredExtensions) {
+        const auto it = std::find_if(
+            availableExtensions.begin(),
+            availableExtensions.end(),
+            [required](const VkExtensionProperties& extension) {
+                return std::strcmp(extension.extensionName, required) == 0;
+            }
+        );
+        if (it == availableExtensions.end()) {
+            return false;
+        }
+    }
+
+    return true;
+}
 
 [[nodiscard]] bool IsSuccess(const VkResult result) {
     return result == VK_SUCCESS;
@@ -43,6 +108,15 @@ VkFormat FindSupportedFormat(
 }
 
 } // namespace
+
+VulkanInitializationError::VulkanInitializationError(const Reason reason, std::string message)
+    : std::runtime_error(std::move(message)),
+      reason_(reason) {
+}
+
+VulkanInitializationError::Reason VulkanInitializationError::GetReason() const noexcept {
+    return reason_;
+}
 
 VulkanContext::~VulkanContext() {
     Shutdown();
@@ -244,35 +318,75 @@ std::uint32_t VulkanContext::GetFramesInFlight() const {
 }
 
 void VulkanContext::CreateInstance() {
-    const VkApplicationInfo appInfo{
-        .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
-        .pNext = nullptr,
-        .pApplicationName = "Lvs Engine",
-        .applicationVersion = VK_MAKE_VERSION(0, 1, 0),
-        .pEngineName = "Lvs Engine",
-        .engineVersion = VK_MAKE_VERSION(0, 1, 0),
-        .apiVersion = VK_API_VERSION_1_3
-    };
-
     std::vector<const char*> extensions{VK_KHR_SURFACE_EXTENSION_NAME};
 #ifdef _WIN32
     extensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
 #endif
 
-    const VkInstanceCreateInfo instanceInfo{
-        .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-        .pNext = nullptr,
-        .flags = 0,
-        .pApplicationInfo = &appInfo,
-        .enabledLayerCount = 0,
-        .ppEnabledLayerNames = nullptr,
-        .enabledExtensionCount = static_cast<std::uint32_t>(extensions.size()),
-        .ppEnabledExtensionNames = extensions.data()
+    if (!HasRequiredInstanceExtensions(extensions)) {
+        throw VulkanInitializationError(
+            VulkanInitializationError::Reason::UnsupportedApi,
+            "Vulkan runtime is missing required instance extensions for window surfaces."
+        );
+    }
+
+    const std::uint32_t loaderVersion = QueryLoaderApiVersion();
+    const std::array<std::uint32_t, 4> preferredApiVersions{
+        VK_API_VERSION_1_3,
+        VK_API_VERSION_1_2,
+        VK_API_VERSION_1_1,
+        VK_API_VERSION_1_0
     };
 
-    if (!IsSuccess(vkCreateInstance(&instanceInfo, nullptr, &instance_))) {
-        throw std::runtime_error("Failed to create Vulkan instance.");
+    VkResult lastError = VK_SUCCESS;
+    bool attempted = false;
+    for (const std::uint32_t apiVersion : preferredApiVersions) {
+        if (apiVersion > loaderVersion) {
+            continue;
+        }
+
+        attempted = true;
+        const VkApplicationInfo appInfo{
+            .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+            .pNext = nullptr,
+            .pApplicationName = "Lvs Engine",
+            .applicationVersion = VK_MAKE_VERSION(0, 1, 0),
+            .pEngineName = "Lvs Engine",
+            .engineVersion = VK_MAKE_VERSION(0, 1, 0),
+            .apiVersion = apiVersion
+        };
+
+        const VkInstanceCreateInfo instanceInfo{
+            .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .pApplicationInfo = &appInfo,
+            .enabledLayerCount = 0,
+            .ppEnabledLayerNames = nullptr,
+            .enabledExtensionCount = static_cast<std::uint32_t>(extensions.size()),
+            .ppEnabledExtensionNames = extensions.data()
+        };
+
+        lastError = vkCreateInstance(&instanceInfo, nullptr, &instance_);
+        if (lastError == VK_SUCCESS) {
+            instanceApiVersion_ = apiVersion;
+            return;
+        }
     }
+
+    if (!attempted) {
+        throw VulkanInitializationError(
+            VulkanInitializationError::Reason::UnsupportedApi,
+            "No supported Vulkan API version was reported by the Vulkan loader."
+        );
+    }
+
+    throw VulkanInitializationError(
+        VulkanInitializationError::Reason::UnsupportedApi,
+        "Failed to create Vulkan instance with fallback API versions (1.3 -> 1.0). "
+        "Loader max version: " + ApiVersionToString(loaderVersion) +
+        ". Last error: " + std::string(VkResultToString(lastError)) + "."
+    );
 }
 
 void VulkanContext::CreateSurface(void* nativeWindowHandle) {
@@ -302,7 +416,10 @@ void VulkanContext::CreateSurface(void* nativeWindowHandle) {
 void VulkanContext::PickPhysicalDevice() {
     std::uint32_t deviceCount = 0;
     if (!IsSuccess(vkEnumeratePhysicalDevices(instance_, &deviceCount, nullptr)) || deviceCount == 0) {
-        throw std::runtime_error("No Vulkan physical devices available.");
+        throw VulkanInitializationError(
+            VulkanInitializationError::Reason::NoPhysicalDevices,
+            "No Vulkan physical devices were found on this system."
+        );
     }
 
     std::vector<VkPhysicalDevice> devices(deviceCount);
@@ -318,7 +435,10 @@ void VulkanContext::PickPhysicalDevice() {
         }
     }
 
-    throw std::runtime_error("No suitable Vulkan physical device found.");
+    throw VulkanInitializationError(
+        VulkanInitializationError::Reason::NoSuitableDevice,
+        "No suitable Vulkan physical device found. A graphics+present queue and swapchain support are required."
+    );
 }
 
 void VulkanContext::CreateLogicalDevice() {

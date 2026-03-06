@@ -1,6 +1,7 @@
 #include "Lvs/Engine/Core/Viewport.hpp"
 
 #include "Lvs/Engine/Core/CameraController.hpp"
+#include "Lvs/Engine/Core/CriticalError.hpp"
 #include "Lvs/Engine/Core/Cursor.hpp"
 #include "Lvs/Engine/Core/RegularError.hpp"
 #include "Lvs/Engine/Core/SelectionBoxPrimitives.hpp"
@@ -195,6 +196,10 @@ void Viewport::SetCameraShiftSpeed(const double speed) {
 
 void Viewport::paintEvent(QPaintEvent* event) {
     static_cast<void>(event);
+    if (vulkanUnavailable_) {
+        return;
+    }
+
     static auto previous = std::chrono::steady_clock::now();
     const auto now = std::chrono::steady_clock::now();
     const std::chrono::duration<double> delta = now - previous;
@@ -251,6 +256,10 @@ void Viewport::paintEvent(QPaintEvent* event) {
         if (context_ != nullptr && context_->Vulkan != nullptr) {
             context_->Vulkan->Render();
         }
+    } catch (const Rendering::Vulkan::VulkanInitializationError& ex) {
+        vulkanUnavailable_ = true;
+        CriticalError::ShowVulkanUnsupportedError(QString::fromUtf8(ex.what()));
+        return;
     } catch (const std::exception& ex) {
         RegularError::ShowErrorFromException(ex);
     } catch (...) {
@@ -834,6 +843,9 @@ void Viewport::CommitGizmoHistory() {
 }
 
 void Viewport::EnsureVulkanBound() {
+    if (vulkanUnavailable_) {
+        return;
+    }
     if (vulkanBound_) {
         return;
     }

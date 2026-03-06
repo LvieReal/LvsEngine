@@ -9,6 +9,8 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace Lvs::Engine::Core {
@@ -16,6 +18,22 @@ class Window;
 }
 
 namespace Lvs::Engine::Rendering::Vulkan {
+
+class VulkanInitializationError final : public std::runtime_error {
+public:
+    enum class Reason {
+        UnsupportedApi,
+        NoPhysicalDevices,
+        NoSuitableDevice
+    };
+
+    VulkanInitializationError(Reason reason, std::string message);
+
+    [[nodiscard]] Reason GetReason() const noexcept;
+
+private:
+    Reason reason_;
+};
 
 class Renderer;
 class PostProcessRenderer;
@@ -116,6 +134,7 @@ private:
     void* nativeWindowHandle_{nullptr};
     std::uint32_t lastWidth_{0};
     std::uint32_t lastHeight_{0};
+    std::uint32_t instanceApiVersion_{VK_API_VERSION_1_0};
     VkClearColorValue clearColor_{{1.0F, 1.0F, 1.0F, 1.0F}};
     std::vector<OverlayPrimitive> overlayPrimitives_;
     std::unique_ptr<Renderer> renderer_;
