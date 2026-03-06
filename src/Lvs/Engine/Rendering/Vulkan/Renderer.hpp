@@ -93,7 +93,8 @@ private:
         VkCullModeFlags cullMode,
         bool depthTest,
         bool depthWrite,
-        VkCompareOp depthCompare
+        VkCompareOp depthCompare,
+        bool enableBlending
     );
     void CreateUniformBuffers(VulkanContext& context);
     void CreateDescriptorPool(VulkanContext& context);

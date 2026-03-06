@@ -376,20 +376,21 @@ void Renderer::CreatePipelineLayout(VulkanContext& context) {
 
 void Renderer::CreateGraphicsPipeline(VulkanContext& context) {
     graphicsPipelineBackCull_ =
-        CreateGraphicsPipelineVariant(context, VK_CULL_MODE_BACK_BIT, true, true, VK_COMPARE_OP_GREATER_OR_EQUAL);
+        CreateGraphicsPipelineVariant(context, VK_CULL_MODE_BACK_BIT, true, true, VK_COMPARE_OP_GREATER_OR_EQUAL, false);
     graphicsPipelineFrontCull_ =
-        CreateGraphicsPipelineVariant(context, VK_CULL_MODE_FRONT_BIT, true, true, VK_COMPARE_OP_GREATER_OR_EQUAL);
+        CreateGraphicsPipelineVariant(context, VK_CULL_MODE_FRONT_BIT, true, true, VK_COMPARE_OP_GREATER_OR_EQUAL, false);
     graphicsPipelineNoCull_ =
-        CreateGraphicsPipelineVariant(context, VK_CULL_MODE_NONE, true, true, VK_COMPARE_OP_GREATER_OR_EQUAL);
+        CreateGraphicsPipelineVariant(context, VK_CULL_MODE_NONE, true, true, VK_COMPARE_OP_GREATER_OR_EQUAL, false);
     transparentPipelineBackCull_ =
-        CreateGraphicsPipelineVariant(context, VK_CULL_MODE_BACK_BIT, true, false, VK_COMPARE_OP_GREATER_OR_EQUAL);
+        CreateGraphicsPipelineVariant(context, VK_CULL_MODE_BACK_BIT, true, false, VK_COMPARE_OP_GREATER_OR_EQUAL, true);
     transparentPipelineFrontCull_ =
-        CreateGraphicsPipelineVariant(context, VK_CULL_MODE_FRONT_BIT, true, false, VK_COMPARE_OP_GREATER_OR_EQUAL);
+        CreateGraphicsPipelineVariant(context, VK_CULL_MODE_FRONT_BIT, true, false, VK_COMPARE_OP_GREATER_OR_EQUAL, true);
     transparentPipelineNoCull_ =
-        CreateGraphicsPipelineVariant(context, VK_CULL_MODE_NONE, true, false, VK_COMPARE_OP_GREATER_OR_EQUAL);
+        CreateGraphicsPipelineVariant(context, VK_CULL_MODE_NONE, true, false, VK_COMPARE_OP_GREATER_OR_EQUAL, true);
     alwaysOnTopPipelineBackCull_ =
-        CreateGraphicsPipelineVariant(context, VK_CULL_MODE_BACK_BIT, false, false, VK_COMPARE_OP_ALWAYS);
-    alwaysOnTopPipelineNoCull_ = CreateGraphicsPipelineVariant(context, VK_CULL_MODE_NONE, false, false, VK_COMPARE_OP_ALWAYS);
+        CreateGraphicsPipelineVariant(context, VK_CULL_MODE_BACK_BIT, false, false, VK_COMPARE_OP_ALWAYS, true);
+    alwaysOnTopPipelineNoCull_ =
+        CreateGraphicsPipelineVariant(context, VK_CULL_MODE_NONE, false, false, VK_COMPARE_OP_ALWAYS, true);
 }
 
 VkPipeline Renderer::CreateGraphicsPipelineVariant(
@@ -397,7 +398,8 @@ VkPipeline Renderer::CreateGraphicsPipelineVariant(
     const VkCullModeFlags cullMode,
     const bool depthTest,
     const bool depthWrite,
-    const VkCompareOp depthCompare
+    const VkCompareOp depthCompare,
+    const bool enableBlending
 ) {
     const VkDevice device = context.GetDevice();
     const QString vertPath = Utils::SourcePath::GetResourcePath("Shaders/Vulkan/Main.vert.spv");
@@ -496,7 +498,7 @@ VkPipeline Renderer::CreateGraphicsPipelineVariant(
         .maxDepthBounds = 1.0F
     };
     const VkPipelineColorBlendAttachmentState sceneBlendAttachment{
-        .blendEnable = VK_TRUE,
+        .blendEnable = enableBlending ? VK_TRUE : VK_FALSE,
         .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
         .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
         .colorBlendOp = VK_BLEND_OP_ADD,
