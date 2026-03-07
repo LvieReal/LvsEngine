@@ -1,19 +1,13 @@
 #include "Lvs/Engine/Rendering/Vulkan/VulkanShaderUtils.hpp"
 
-#include <QFile>
+#include "Lvs/Engine/Utils/FileIO.hpp"
 
 #include <stdexcept>
 
 namespace Lvs::Engine::Rendering::Vulkan::ShaderUtils {
 
-std::vector<char> ReadBinaryFile(const QString& path) {
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly)) {
-        throw std::runtime_error(QString("Failed to open shader file: %1").arg(path).toStdString());
-    }
-    const QByteArray data = file.readAll();
-    file.close();
-    return std::vector<char>(data.begin(), data.end());
+std::vector<char> ReadBinaryFile(const std::filesystem::path& path) {
+    return Utils::FileIO::ReadBinaryFile(path);
 }
 
 VkShaderModule CreateShaderModule(const VkDevice device, const std::vector<char>& bytecode) {

@@ -81,6 +81,7 @@ bool Instance::IsInsertable() const {
 void Instance::SetProperty(const QString& name, const QVariant& value) {
     ObjectBase::SetProperty(name, value);
     PropertyChanged.Fire(name, GetProperty(name));
+    PropertyInvalidated.Fire();
 }
 
 bool Instance::CanParentTo(const std::shared_ptr<Instance>& parent) const {

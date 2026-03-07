@@ -2,10 +2,13 @@
 
 #include "Lvs/Engine/Math/Color3.hpp"
 #include "Lvs/Engine/Enums/MeshCullMode.hpp"
+#include "Lvs/Engine/Core/Instance.hpp"
 #include "Lvs/Engine/Math/Matrix4.hpp"
 #include "Lvs/Engine/Math/Vector3.hpp"
-#include "Lvs/Engine/Rendering/Vulkan/RenderProxy.hpp"
-#include "Lvs/Engine/Utils/Signal.hpp"
+#include "Lvs/Engine/Rendering/Common/CommandBuffer.hpp"
+#include "Lvs/Engine/Rendering/Common/SceneRenderer.hpp"
+#include "Lvs/Engine/Rendering/Common/MeshUploader.hpp"
+#include "Lvs/Engine/Rendering/Common/RenderProxy.hpp"
 
 #include <memory>
 #include <optional>
@@ -23,16 +26,16 @@ namespace Lvs::Engine::Rendering::Vulkan {
 class Mesh;
 class Renderer;
 
-class RenderPartProxy final : public RenderProxy {
+class RenderPartProxy final : public Common::RenderProxy {
 public:
     explicit RenderPartProxy(std::shared_ptr<Objects::BasePart> part);
     ~RenderPartProxy() override;
 
-    void SyncFromInstance(Renderer& renderer) override;
-    void Draw(VkCommandBuffer commandBuffer, Renderer& renderer) override;
-    void Draw(VkCommandBuffer commandBuffer, Renderer& renderer, bool transparent);
+    void SyncFromRenderer(Common::SceneRenderer& renderer) override;
+    void Draw(Common::CommandBuffer& commandBuffer, Common::SceneRenderer& renderer) override;
+    void Draw(Common::CommandBuffer& commandBuffer, Common::SceneRenderer& renderer, bool transparent);
 
-    [[nodiscard]] const std::shared_ptr<Mesh>& GetMesh() const;
+    [[nodiscard]] const std::shared_ptr<Common::UploadedMesh>& GetMesh() const;
     [[nodiscard]] Math::Vector3 GetWorldPosition() const;
     [[nodiscard]] const Math::Matrix4& GetModelMatrix() const;
     [[nodiscard]] const Math::Color3& GetColor() const;
@@ -51,10 +54,10 @@ public:
     [[nodiscard]] const std::shared_ptr<Objects::BasePart>& GetInstance() const;
 
 private:
-    void MarkDirty(const QString& propertyName);
+    void MarkDirty();
 
     std::shared_ptr<Objects::BasePart> instance_;
-    std::shared_ptr<Mesh> mesh_;
+    std::shared_ptr<Common::UploadedMesh> mesh_;
     Math::Matrix4 modelMatrix_{Math::Matrix4::Identity()};
     Math::Color3 color_{};
     float alpha_{1.0F};
@@ -70,8 +73,8 @@ private:
     int leftSurfaceType_{0};
     int rightSurfaceType_{0};
     bool dirty_{true};
-    std::optional<Engine::Utils::Signal<const QString&, const QVariant&>::Connection> propertyChangedConnection_;
-    std::optional<Engine::Utils::Signal<const std::shared_ptr<Engine::Core::Instance>&>::Connection> ancestryChangedConnection_;
+    std::optional<Engine::Core::Instance::PropertyInvalidatedConnection> propertyChangedConnection_;
+    std::optional<Engine::Core::Instance::InstanceConnection> ancestryChangedConnection_;
 };
 
 } // namespace Lvs::Engine::Rendering::Vulkan

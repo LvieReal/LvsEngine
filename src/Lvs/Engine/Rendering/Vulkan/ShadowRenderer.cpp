@@ -3,13 +3,14 @@
 #include "Lvs/Engine/Math/CFrame.hpp"
 #include "Lvs/Engine/Objects/Camera.hpp"
 #include "Lvs/Engine/Objects/BasePart.hpp"
-#include "Lvs/Engine/Rendering/Vulkan/Mesh.hpp"
+#include "Lvs/Engine/Rendering/Common/Mesh.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/RenderPartProxy.hpp"
-#include "Lvs/Engine/Rendering/Vulkan/Vertex.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/VulkanGpuResources.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/VulkanVertexLayout.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanBufferUtils.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanContext.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanShaderUtils.hpp"
-#include "Lvs/Engine/Utils/SourcePath.hpp"
+#include "Lvs/Engine/Utils/PathUtils.hpp"
 
 #include <algorithm>
 #include <array>
@@ -194,7 +195,7 @@ void ShadowRenderer::Render(
     if (!initialized_) {
         Initialize(context);
     }
-    if (pipeline_ == VK_NULL_HANDLE || renderPass_ == VK_NULL_HANDLE) {
+    if (pipelineVariants_.empty() || renderPass_ == VK_NULL_HANDLE) {
         shadowData_.HasShadowData = false;
         return;
     }
@@ -266,7 +267,12 @@ void ShadowRenderer::Render(
         };
 
         vkCmdBeginRenderPass(commandBuffer, &passInfo, VK_SUBPASS_CONTENTS_INLINE);
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+        const Common::PipelineVariantKey pipelineKey{
+            .CullMode = Common::PipelineCullMode::None,
+            .DepthMode = Common::PipelineDepthMode::ReadWrite,
+            .BlendMode = Common::PipelineBlendMode::Opaque
+        };
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, GetPipeline(pipelineKey));
 
         for (const auto& proxy : shadowCasters) {
             if (proxy == nullptr) {
@@ -280,7 +286,8 @@ void ShadowRenderer::Render(
                 continue;
             }
 
-            const auto& mesh = proxy->GetMesh();
+            const auto& uploadedMesh = proxy->GetMesh();
+            const auto mesh = std::dynamic_pointer_cast<Common::Mesh>(uploadedMesh);
             if (mesh == nullptr) {
                 continue;
             }
@@ -294,8 +301,9 @@ void ShadowRenderer::Render(
             }
             vkCmdPushConstants(commandBuffer, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &push);
 
-            mesh->EnsureUploaded(context.GetPhysicalDevice(), context.GetDevice());
-            mesh->Draw(commandBuffer);
+            mesh->EnsureUploaded(context);
+            VulkanRenderCommandBuffer renderCommandBuffer(commandBuffer);
+            mesh->Draw(renderCommandBuffer);
         }
 
         vkCmdEndRenderPass(commandBuffer);
@@ -413,9 +421,19 @@ void ShadowRenderer::CreatePipelineLayout(VulkanContext& context) {
 }
 
 void ShadowRenderer::CreatePipeline(VulkanContext& context) {
+    pipelineVariants_.clear();
+    const Common::PipelineVariantKey key{
+        .CullMode = Common::PipelineCullMode::None,
+        .DepthMode = Common::PipelineDepthMode::ReadWrite,
+        .BlendMode = Common::PipelineBlendMode::Opaque
+    };
+    pipelineVariants_.emplace(key, CreatePipelineVariant(context, key));
+}
+
+VkPipeline ShadowRenderer::CreatePipelineVariant(VulkanContext& context, const Common::PipelineVariantKey& key) {
     const VkDevice device = context.GetDevice();
-    const QString vertPath = Utils::SourcePath::GetResourcePath("Shaders/Vulkan/Shadow.vert.spv");
-    const QString fragPath = Utils::SourcePath::GetResourcePath("Shaders/Vulkan/Shadow.frag.spv");
+    const auto vertPath = Utils::PathUtils::GetResourcePath("Shaders/Vulkan/Shadow.vert.spv");
+    const auto fragPath = Utils::PathUtils::GetResourcePath("Shaders/Vulkan/Shadow.frag.spv");
 
     const auto vertCode = ShaderUtils::ReadBinaryFile(vertPath);
     const auto fragCode = ShaderUtils::ReadBinaryFile(fragPath);
@@ -442,8 +460,8 @@ void ShadowRenderer::CreatePipeline(VulkanContext& context) {
     };
     const VkPipelineShaderStageCreateInfo stages[] = {vertStage, fragStage};
 
-    const auto binding = Vertex::BindingDescription();
-    const auto attributes = Vertex::AttributeDescriptions();
+    const auto binding = VulkanVertexLayout::BindingDescription();
+    const auto attributes = VulkanVertexLayout::AttributeDescriptions();
     const VkPipelineVertexInputStateCreateInfo vertexInput{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
         .pNext = nullptr,
@@ -476,7 +494,10 @@ void ShadowRenderer::CreatePipeline(VulkanContext& context) {
         .depthClampEnable = VK_TRUE,
         .rasterizerDiscardEnable = VK_FALSE,
         .polygonMode = VK_POLYGON_MODE_FILL,
-        .cullMode = VK_CULL_MODE_NONE,
+        .cullMode = key.CullMode == Common::PipelineCullMode::Front ? VK_CULL_MODE_FRONT_BIT
+                                                                    : key.CullMode == Common::PipelineCullMode::Back
+                                                                          ? VK_CULL_MODE_BACK_BIT
+                                                                          : VK_CULL_MODE_NONE,
         .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
         .depthBiasEnable = VK_FALSE,
         .depthBiasConstantFactor = 0.0F,
@@ -499,8 +520,8 @@ void ShadowRenderer::CreatePipeline(VulkanContext& context) {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
         .pNext = nullptr,
         .flags = 0,
-        .depthTestEnable = VK_TRUE,
-        .depthWriteEnable = VK_TRUE,
+        .depthTestEnable = key.DepthMode == Common::PipelineDepthMode::Disabled ? VK_FALSE : VK_TRUE,
+        .depthWriteEnable = key.DepthMode == Common::PipelineDepthMode::ReadWrite ? VK_TRUE : VK_FALSE,
         .depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL,
         .depthBoundsTestEnable = VK_FALSE,
         .stencilTestEnable = VK_FALSE,
@@ -540,7 +561,8 @@ void ShadowRenderer::CreatePipeline(VulkanContext& context) {
         .basePipelineIndex = -1
     };
 
-    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline_) != VK_SUCCESS) {
+    VkPipeline pipeline = VK_NULL_HANDLE;
+    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline) != VK_SUCCESS) {
         vkDestroyShaderModule(device, fragModule, nullptr);
         vkDestroyShaderModule(device, vertModule, nullptr);
         throw std::runtime_error("Failed to create shadow graphics pipeline.");
@@ -548,6 +570,7 @@ void ShadowRenderer::CreatePipeline(VulkanContext& context) {
 
     vkDestroyShaderModule(device, fragModule, nullptr);
     vkDestroyShaderModule(device, vertModule, nullptr);
+    return pipeline;
 }
 
 void ShadowRenderer::EnsureDepthResources(
@@ -980,10 +1003,13 @@ void ShadowRenderer::DestroyJitterTexture(VulkanContext& context) {
 }
 
 void ShadowRenderer::DestroySwapchainResources(VulkanContext& context) {
-    if (pipeline_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(context.GetDevice(), pipeline_, nullptr);
-        pipeline_ = VK_NULL_HANDLE;
+    for (auto& [key, pipeline] : pipelineVariants_) {
+        static_cast<void>(key);
+        if (pipeline != VK_NULL_HANDLE) {
+            vkDestroyPipeline(context.GetDevice(), pipeline, nullptr);
+        }
     }
+    pipelineVariants_.clear();
 }
 
 bool ShadowRenderer::ComputeCascades(
@@ -1189,6 +1215,14 @@ Math::Matrix4 ShadowRenderer::StabilizeProjection(
     rows[0][3] += roundOffset.x;
     rows[1][3] += roundOffset.y;
     return Math::Matrix4(rows);
+}
+
+VkPipeline ShadowRenderer::GetPipeline(const Common::PipelineVariantKey& key) const {
+    const auto it = pipelineVariants_.find(key);
+    if (it == pipelineVariants_.end() || it->second == VK_NULL_HANDLE) {
+        throw std::runtime_error("Shadow pipeline variant is not available.");
+    }
+    return it->second;
 }
 
 } // namespace Lvs::Engine::Rendering::Vulkan

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Lvs/Engine/Rendering/Common/PipelineVariant.hpp"
 #include "Lvs/Engine/Math/Matrix4.hpp"
 #include "Lvs/Engine/Math/Vector3.hpp"
 
@@ -8,6 +9,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 namespace Lvs::Engine::Objects {
@@ -109,11 +111,13 @@ private:
     void CreateRenderPass(VulkanContext& context);
     void CreatePipelineLayout(VulkanContext& context);
     void CreatePipeline(VulkanContext& context);
+    VkPipeline CreatePipelineVariant(VulkanContext& context, const Common::PipelineVariantKey& key);
     void EnsureDepthResources(VulkanContext& context, std::uint32_t resolution, float cascadeResolutionScale);
     void EnsureJitterTexture(VulkanContext& context);
     void DestroyDepthResources(VulkanContext& context);
     void DestroyJitterTexture(VulkanContext& context);
     void DestroySwapchainResources(VulkanContext& context);
+    [[nodiscard]] VkPipeline GetPipeline(const Common::PipelineVariantKey& key) const;
 
     bool ComputeCascades(
         const Objects::Camera& camera,
@@ -142,7 +146,7 @@ private:
     VkFormat depthFormat_{VK_FORMAT_UNDEFINED};
     VkRenderPass renderPass_{VK_NULL_HANDLE};
     VkPipelineLayout pipelineLayout_{VK_NULL_HANDLE};
-    VkPipeline pipeline_{VK_NULL_HANDLE};
+    std::unordered_map<Common::PipelineVariantKey, VkPipeline, Common::PipelineVariantKeyHash> pipelineVariants_;
     VkSampler shadowSampler_{VK_NULL_HANDLE};
     std::array<ImageResource, MAX_CASCADES> cascadeImages_{};
     std::array<VkImageView, MAX_CASCADES> cascadeImageViews_{VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE};

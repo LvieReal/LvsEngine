@@ -1,14 +1,13 @@
 #include "Lvs/Engine/Rendering/Vulkan/VulkanTextureUtils.hpp"
 
 #include "Lvs/Engine/Rendering/Vulkan/VulkanBufferUtils.hpp"
-#include "Lvs/Engine/Utils/SourcePath.hpp"
-
-#include <QFileInfo>
-#include <QImage>
-#include <QString>
+#include "Lvs/Engine/Utils/FileIO.hpp"
+#include "Lvs/Engine/Utils/ImageIO.hpp"
+#include "Lvs/Engine/Utils/PathUtils.hpp"
 
 #include <array>
 #include <cstring>
+#include <filesystem>
 #include <stdexcept>
 #include <vector>
 
@@ -16,15 +15,14 @@ namespace Lvs::Engine::Rendering::Vulkan::TextureUtils {
 
 namespace {
 
-QString ResolvePath(const QString& path) {
-    if (path.isEmpty()) {
+std::filesystem::path ResolvePath(const std::filesystem::path& path) {
+    if (path.empty()) {
         return path;
     }
-    QFileInfo info(path);
-    if (info.exists()) {
+    if (Utils::FileIO::Exists(path)) {
         return path;
     }
-    return Utils::SourcePath::ToOsPath(path);
+    return Utils::PathUtils::ToOsPath(path.string());
 }
 
 VkCommandBuffer BeginOneTimeCommands(
@@ -104,23 +102,19 @@ CubemapHandle CreateCubemapFromPaths(
     const VkDevice device,
     const VkQueue queue,
     const std::uint32_t queueFamilyIndex,
-    const std::array<QString, 6>& facePaths,
+    const std::array<std::filesystem::path, 6>& facePaths,
     const bool linearFiltering
 ) {
-    std::array<QImage, 6> faces;
+    std::array<Utils::ImageIO::ImageRgba8, 6> faces;
     std::uint32_t width = 0;
     std::uint32_t height = 0;
     for (std::size_t i = 0; i < faces.size(); ++i) {
-        const QString resolved = ResolvePath(facePaths[i]);
-        QImage image(resolved);
-        if (image.isNull()) {
-            throw std::runtime_error(QString("Failed to load skybox face: %1").arg(resolved).toStdString());
-        }
-        image = image.convertToFormat(QImage::Format_RGBA8888);
+        const auto resolved = ResolvePath(facePaths[i]);
+        const auto image = Utils::ImageIO::LoadRgba8(resolved);
         if (i == 0) {
-            width = static_cast<std::uint32_t>(image.width());
-            height = static_cast<std::uint32_t>(image.height());
-        } else if (static_cast<std::uint32_t>(image.width()) != width || static_cast<std::uint32_t>(image.height()) != height) {
+            width = image.Width;
+            height = image.Height;
+        } else if (image.Width != width || image.Height != height) {
             throw std::runtime_error("Skybox faces must have identical dimensions.");
         }
         faces[i] = image;
@@ -141,7 +135,11 @@ CubemapHandle CreateCubemapFromPaths(
     vkMapMemory(device, staging.Memory, 0, totalSize, 0, &mapped);
     auto* bytes = static_cast<std::uint8_t*>(mapped);
     for (std::size_t i = 0; i < faces.size(); ++i) {
-        std::memcpy(bytes + static_cast<std::size_t>(faceSize * static_cast<VkDeviceSize>(i)), faces[i].constBits(), static_cast<std::size_t>(faceSize));
+        std::memcpy(
+            bytes + static_cast<std::size_t>(faceSize * static_cast<VkDeviceSize>(i)),
+            faces[i].Pixels.data(),
+            static_cast<std::size_t>(faceSize)
+        );
     }
     vkUnmapMemory(device, staging.Memory);
 
@@ -331,20 +329,16 @@ Texture2DHandle CreateTexture2DFromPath(
     const VkDevice device,
     const VkQueue queue,
     const std::uint32_t queueFamilyIndex,
-    const QString& imagePath,
+    const std::filesystem::path& imagePath,
     const bool linearFiltering,
     const VkFormat format,
     const VkSamplerAddressMode addressMode
 ) {
-    const QString resolvedPath = ResolvePath(imagePath);
-    QImage image(resolvedPath);
-    if (image.isNull()) {
-        throw std::runtime_error(QString("Failed to load texture: %1").arg(resolvedPath).toStdString());
-    }
-    image = image.convertToFormat(QImage::Format_RGBA8888);
+    const auto resolvedPath = ResolvePath(imagePath);
+    const auto image = Utils::ImageIO::LoadRgba8(resolvedPath);
 
-    const auto width = static_cast<std::uint32_t>(image.width());
-    const auto height = static_cast<std::uint32_t>(image.height());
+    const auto width = image.Width;
+    const auto height = image.Height;
     const VkDeviceSize imageSize = static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4;
 
     auto staging = BufferUtils::CreateBuffer(
@@ -357,7 +351,7 @@ Texture2DHandle CreateTexture2DFromPath(
 
     void* mapped = nullptr;
     vkMapMemory(device, staging.Memory, 0, imageSize, 0, &mapped);
-    std::memcpy(mapped, image.constBits(), static_cast<std::size_t>(imageSize));
+    std::memcpy(mapped, image.Pixels.data(), static_cast<std::size_t>(imageSize));
     vkUnmapMemory(device, staging.Memory);
 
     Texture2DHandle texture{};

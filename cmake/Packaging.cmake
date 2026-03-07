@@ -6,23 +6,17 @@ function(lvs_attach_content_packaging target)
 
     get_property(content_pack_target GLOBAL PROPERTY LVS_CONTENT_PACKAGE_TARGET)
     if(NOT content_pack_target)
-        file(GLOB_RECURSE content_files CONFIGURE_DEPENDS "${content_src}/*")
-        set(content_stamp "${CMAKE_CURRENT_BINARY_DIR}/.lvs_content_packaged.stamp")
-
-        add_custom_command(
-            OUTPUT "${content_stamp}"
+        set(content_pack_target lvs_package_content)
+        add_custom_target(${content_pack_target}
             COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/Lvs/Engine"
             COMMAND ${CMAKE_COMMAND}
-                -DSOURCE_DIR="${content_src}"
-                -DDEST_DIR="${CMAKE_BINARY_DIR}/Lvs/Engine/Content"
+                -DSOURCE_DIR=${content_src}
+                -DDEST_DIR=${CMAKE_BINARY_DIR}/Lvs/Engine/Content
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CopyContentAssets.cmake"
-            COMMAND ${CMAKE_COMMAND} -E touch "${content_stamp}"
-            DEPENDS ${content_files}
             COMMENT "Packaging Engine/Content assets"
+            VERBATIM
         )
 
-        set(content_pack_target lvs_package_content)
-        add_custom_target(${content_pack_target} DEPENDS "${content_stamp}")
         set_property(GLOBAL PROPERTY LVS_CONTENT_PACKAGE_TARGET "${content_pack_target}")
     endif()
 

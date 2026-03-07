@@ -2,31 +2,28 @@
 
 #include "Lvs/Engine/Rendering/Vulkan/VulkanBufferUtils.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanImageUtils.hpp"
-#include "Lvs/Engine/Utils/SourcePath.hpp"
-
-#include <QFileInfo>
-#include <QImage>
-#include <QTransform>
-#include <Qt>
+#include "Lvs/Engine/Utils/FileIO.hpp"
+#include "Lvs/Engine/Utils/ImageIO.hpp"
+#include "Lvs/Engine/Utils/PathUtils.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <filesystem>
 #include <stdexcept>
 
 namespace Lvs::Engine::Rendering::Vulkan::CubemapUtils {
 
 namespace {
 
-QString ResolvePath(const QString& path) {
-    if (path.isEmpty()) {
+std::filesystem::path ResolvePath(const std::filesystem::path& path) {
+    if (path.empty()) {
         return path;
     }
-    QFileInfo info(path);
-    if (info.exists()) {
+    if (Utils::FileIO::Exists(path)) {
         return path;
     }
-    return Utils::SourcePath::ToOsPath(path);
+    return Utils::PathUtils::ToOsPath(path.string());
 }
 
 VkCommandBuffer BeginOneTimeCommands(
@@ -100,33 +97,34 @@ void EndOneTimeCommands(
 }
 
 void ApplySkyboxFaceProcessing(
-    QImage& image,
+    Utils::ImageIO::ImageRgba8& image,
     const std::size_t faceIndex,
     const int resolutionCap,
     const bool compression
 ) {
+    static_cast<void>(faceIndex);
     if (resolutionCap > 0) {
-        const int maxSide = std::max(image.width(), image.height());
+        const int maxSide = std::max(static_cast<int>(image.Width), static_cast<int>(image.Height));
         if (maxSide > resolutionCap) {
-            image = image.scaled(
+            image = Utils::ImageIO::ResizeRgba8(
+                image,
                 resolutionCap,
                 resolutionCap,
-                Qt::KeepAspectRatio,
-                Qt::SmoothTransformation
+                true,
+                true
             );
         }
     }
 
     if (compression) {
-        image = image.scaled(
-            std::max(1, image.width() / 2),
-            std::max(1, image.height() / 2),
-            Qt::IgnoreAspectRatio,
-            Qt::FastTransformation
+        image = Utils::ImageIO::ResizeRgba8(
+            image,
+            std::max(1, static_cast<int>(image.Width) / 2),
+            std::max(1, static_cast<int>(image.Height) / 2),
+            false,
+            false
         );
     }
-
-    image = image.convertToFormat(QImage::Format_RGBA8888);
 }
 
 CubemapHandle CreateCubemapFromFaceImages(
@@ -134,11 +132,11 @@ CubemapHandle CreateCubemapFromFaceImages(
     const VkDevice device,
     const VkQueue queue,
     const std::uint32_t queueFamilyIndex,
-    const std::array<QImage, 6>& faces,
+    const std::array<Utils::ImageIO::ImageRgba8, 6>& faces,
     const bool linearFiltering
 ) {
-    const std::uint32_t width = static_cast<std::uint32_t>(faces[0].width());
-    const std::uint32_t height = static_cast<std::uint32_t>(faces[0].height());
+    const std::uint32_t width = faces[0].Width;
+    const std::uint32_t height = faces[0].Height;
 
     const VkDeviceSize faceSize = static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4;
     const VkDeviceSize totalSize = faceSize * 6;
@@ -156,7 +154,7 @@ CubemapHandle CreateCubemapFromFaceImages(
     for (std::size_t i = 0; i < faces.size(); ++i) {
         std::memcpy(
             bytes + static_cast<std::size_t>(faceSize * static_cast<VkDeviceSize>(i)),
-            faces[i].constBits(),
+            faces[i].Pixels.data(),
             static_cast<std::size_t>(faceSize)
         );
     }
@@ -281,20 +279,17 @@ CubemapHandle CreateCubemapFromPaths(
     const VkDevice device,
     const VkQueue queue,
     const std::uint32_t queueFamilyIndex,
-    const std::array<QString, 6>& facePaths,
+    const std::array<std::filesystem::path, 6>& facePaths,
     const bool linearFiltering,
     const int resolutionCap,
     const bool compression
 ) {
-    std::array<QImage, 6> faces;
+    std::array<Utils::ImageIO::ImageRgba8, 6> faces;
     for (std::size_t i = 0; i < faces.size(); ++i) {
-        const QString resolved = ResolvePath(facePaths[i]);
-        QImage image(resolved);
-        if (image.isNull()) {
-            throw std::runtime_error(QString("Failed to load skybox face: %1").arg(resolved).toStdString());
-        }
+        const auto resolved = ResolvePath(facePaths[i]);
+        auto image = Utils::ImageIO::LoadRgba8(resolved);
         ApplySkyboxFaceProcessing(image, i, resolutionCap, compression);
-        if (i > 0U && (image.width() != faces[0].width() || image.height() != faces[0].height())) {
+        if (i > 0U && (image.Width != faces[0].Width || image.Height != faces[0].Height)) {
             throw std::runtime_error("Skybox faces must have identical dimensions.");
         }
         faces[i] = image;
@@ -315,34 +310,31 @@ CubemapHandle CreateCubemapFromCrossPath(
     const VkDevice device,
     const VkQueue queue,
     const std::uint32_t queueFamilyIndex,
-    const QString& crossPath,
+    const std::filesystem::path& crossPath,
     const bool linearFiltering,
     const int resolutionCap,
     const bool compression
 ) {
-    const QString resolved = ResolvePath(crossPath);
-    QImage cross(resolved);
-    if (cross.isNull()) {
-        throw std::runtime_error(QString("Failed to load skybox cross texture: %1").arg(resolved).toStdString());
-    }
+    const auto resolved = ResolvePath(crossPath);
+    const auto cross = Utils::ImageIO::LoadRgba8(resolved);
 
-    if (cross.width() % 4 != 0 || cross.height() % 3 != 0) {
+    if (cross.Width % 4 != 0 || cross.Height % 3 != 0) {
         throw std::runtime_error("Skybox cross texture dimensions must be divisible by 4x3.");
     }
 
-    const int faceWidth = cross.width() / 4;
-    const int faceHeight = cross.height() / 3;
+    const int faceWidth = static_cast<int>(cross.Width) / 4;
+    const int faceHeight = static_cast<int>(cross.Height) / 3;
     if (faceWidth <= 0 || faceHeight <= 0 || faceWidth != faceHeight) {
         throw std::runtime_error("Skybox cross texture must contain square faces in a 4x3 layout.");
     }
 
-    std::array<QImage, 6> faces{
-        cross.copy(faceWidth * 2, faceHeight, faceWidth, faceHeight), // Right
-        cross.copy(faceWidth * 0, faceHeight, faceWidth, faceHeight), // Left
-        cross.copy(faceWidth * 1, faceHeight * 0, faceWidth, faceHeight), // Up
-        cross.copy(faceWidth * 1, faceHeight * 2, faceWidth, faceHeight), // Down
-        cross.copy(faceWidth * 1, faceHeight, faceWidth, faceHeight), // Front
-        cross.copy(faceWidth * 3, faceHeight, faceWidth, faceHeight), // Back
+    std::array<Utils::ImageIO::ImageRgba8, 6> faces{
+        Utils::ImageIO::CropRgba8(cross, faceWidth * 2, faceHeight, faceWidth, faceHeight),
+        Utils::ImageIO::CropRgba8(cross, faceWidth * 0, faceHeight, faceWidth, faceHeight),
+        Utils::ImageIO::CropRgba8(cross, faceWidth * 1, faceHeight * 0, faceWidth, faceHeight),
+        Utils::ImageIO::CropRgba8(cross, faceWidth * 1, faceHeight * 2, faceWidth, faceHeight),
+        Utils::ImageIO::CropRgba8(cross, faceWidth * 1, faceHeight, faceWidth, faceHeight),
+        Utils::ImageIO::CropRgba8(cross, faceWidth * 3, faceHeight, faceWidth, faceHeight),
     };
 
     for (std::size_t i = 0; i < faces.size(); ++i) {

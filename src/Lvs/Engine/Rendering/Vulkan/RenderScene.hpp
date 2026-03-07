@@ -2,13 +2,12 @@
 
 #include "Lvs/Engine/Utils/Signal.hpp"
 #include "Lvs/Engine/Math/Vector3.hpp"
-
-#include <vulkan/vulkan.h>
-
-#include <QHash>
+#include "Lvs/Engine/Rendering/Common/CommandBuffer.hpp"
 
 #include <memory>
 #include <optional>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace Lvs::Engine::DataModel {
@@ -31,8 +30,8 @@ public:
 
     void Build(const std::shared_ptr<DataModel::Place>& place);
     void BuildDrawLists(Renderer& renderer, const Math::Vector3& cameraPosition);
-    void DrawOpaque(VkCommandBuffer commandBuffer, Renderer& renderer);
-    void DrawTransparent(VkCommandBuffer commandBuffer, Renderer& renderer);
+    void DrawOpaque(Common::CommandBuffer& commandBuffer, Renderer& renderer);
+    void DrawTransparent(Common::CommandBuffer& commandBuffer, Renderer& renderer);
     [[nodiscard]] const std::vector<std::shared_ptr<RenderPartProxy>>& GetOpaqueProxies() const;
 
 private:
@@ -48,8 +47,8 @@ private:
     std::vector<std::shared_ptr<RenderPartProxy>> partProxies_;
     std::vector<std::shared_ptr<RenderPartProxy>> opaqueProxies_;
     std::vector<std::shared_ptr<RenderPartProxy>> transparentProxies_;
-    QHash<QString, std::shared_ptr<RenderPartProxy>> proxyById_;
-    QHash<QString, InstanceConnections> instanceConnections_;
+    std::unordered_map<std::string, std::shared_ptr<RenderPartProxy>> proxyById_;
+    std::unordered_map<std::string, InstanceConnections> instanceConnections_;
 };
 
 } // namespace Lvs::Engine::Rendering::Vulkan

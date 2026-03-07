@@ -2,12 +2,16 @@
 
 #include "Lvs/Engine/Math/Matrix4.hpp"
 #include "Lvs/Engine/Enums/MeshCullMode.hpp"
-#include "Lvs/Engine/Rendering/Vulkan/OverlayPrimitive.hpp"
-#include "Lvs/Engine/Rendering/Vulkan/MeshCache.hpp"
+#include "Lvs/Engine/Rendering/Common/CommandBuffer.hpp"
+#include "Lvs/Engine/Rendering/Common/MeshCache.hpp"
+#include "Lvs/Engine/Rendering/Common/OverlayPrimitive.hpp"
+#include "Lvs/Engine/Rendering/Common/PipelineVariant.hpp"
+#include "Lvs/Engine/Rendering/Common/SceneRenderer.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/RenderScene.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/SkyboxRenderer.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/ShadowRenderer.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanBufferUtils.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/VulkanMeshUploader.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanTextureUtils.hpp"
 
 #include <vulkan/vulkan.h>
@@ -15,6 +19,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 namespace Lvs::Engine::DataModel {
@@ -32,11 +37,10 @@ namespace Lvs::Engine::Rendering::Vulkan {
 
 class RenderPartProxy;
 class VulkanContext;
-class Mesh;
-
-class Renderer final {
+class VulkanRenderCommandBuffer;
+class Renderer final : public Common::SceneRenderer {
 public:
-    Renderer() = default;
+    Renderer();
     ~Renderer() = default;
 
     Renderer(const Renderer&) = delete;
@@ -44,20 +48,35 @@ public:
     Renderer(Renderer&&) = delete;
     Renderer& operator=(Renderer&&) = delete;
 
+    void Initialize(Common::GraphicsContext& context, const Common::RenderSurface& surface) override;
+    void RecreateSwapchain(Common::GraphicsContext& context, const Common::RenderSurface& surface) override;
+    void DestroySwapchainResources(Common::GraphicsContext& context, const Common::RenderSurface& surface) override;
+    void Shutdown(Common::GraphicsContext& context) override;
+
     void Initialize(VulkanContext& context);
     void RecreateSwapchain(VulkanContext& context);
     void DestroySwapchainResources(VulkanContext& context);
     void Shutdown(VulkanContext& context);
 
-    void BindToPlace(const std::shared_ptr<DataModel::Place>& place);
-    void Unbind();
-    void SetOverlayPrimitives(std::vector<OverlayPrimitive> primitives);
-    void RecordShadowCommands(VulkanContext& context, VkCommandBuffer commandBuffer, std::uint32_t frameIndex);
-    void RecordDrawCommands(VulkanContext& context, VkCommandBuffer commandBuffer, std::uint32_t frameIndex);
+    void BindToPlace(const std::shared_ptr<DataModel::Place>& place) override;
+    void Unbind() override;
+    void SetOverlayPrimitives(std::vector<Rendering::Common::OverlayPrimitive> primitives) override;
+    void RecordShadowCommands(
+        Common::GraphicsContext& context,
+        const Common::RenderSurface& surface,
+        Common::CommandBuffer& commandBuffer,
+        std::uint32_t frameIndex
+    ) override;
+    void RecordDrawCommands(
+        Common::GraphicsContext& context,
+        const Common::RenderSurface& surface,
+        Common::CommandBuffer& commandBuffer,
+        std::uint32_t frameIndex
+    ) override;
 
-    MeshCache& GetMeshCache();
-    void DrawPart(VkCommandBuffer commandBuffer, const RenderPartProxy& proxy, bool transparent = false);
-    void DrawOverlayPrimitive(VkCommandBuffer commandBuffer, const OverlayPrimitive& primitive);
+    Common::MeshCache& GetMeshCache() override;
+    void DrawPart(Common::CommandBuffer& commandBuffer, const RenderPartProxy& proxy, bool transparent = false);
+    void DrawOverlayPrimitive(Common::CommandBuffer& commandBuffer, const Rendering::Common::OverlayPrimitive& primitive);
 
 private:
     struct CameraUniform {
@@ -88,14 +107,7 @@ private:
     void CreateDescriptorSetLayout(VulkanContext& context);
     void CreatePipelineLayout(VulkanContext& context);
     void CreateGraphicsPipeline(VulkanContext& context);
-    VkPipeline CreateGraphicsPipelineVariant(
-        VulkanContext& context,
-        VkCullModeFlags cullMode,
-        bool depthTest,
-        bool depthWrite,
-        VkCompareOp depthCompare,
-        bool enableBlending
-    );
+    VkPipeline CreateGraphicsPipelineVariant(VulkanContext& context, const Common::PipelineVariantKey& key);
     void CreateUniformBuffers(VulkanContext& context);
     void CreateDescriptorPool(VulkanContext& context);
     void CreateDescriptorSets(VulkanContext& context);
@@ -111,24 +123,19 @@ private:
         const std::shared_ptr<DataModel::Lighting>& lighting
     ) const;
     float GetAspect(const VulkanContext& context) const;
+    [[nodiscard]] VkPipeline GetPipeline(const Common::PipelineVariantKey& key) const;
 
     std::shared_ptr<DataModel::Place> place_;
     std::shared_ptr<DataModel::Workspace> workspace_;
     RenderScene scene_;
-    MeshCache meshCache_;
+    VulkanMeshUploader meshUploader_;
+    Common::MeshCache meshCache_;
     SkyboxRenderer skyboxRenderer_;
     ShadowRenderer shadowRenderer_;
 
     VkDescriptorSetLayout descriptorSetLayout_{VK_NULL_HANDLE};
     VkPipelineLayout pipelineLayout_{VK_NULL_HANDLE};
-    VkPipeline graphicsPipelineBackCull_{VK_NULL_HANDLE};
-    VkPipeline graphicsPipelineFrontCull_{VK_NULL_HANDLE};
-    VkPipeline graphicsPipelineNoCull_{VK_NULL_HANDLE};
-    VkPipeline transparentPipelineBackCull_{VK_NULL_HANDLE};
-    VkPipeline transparentPipelineFrontCull_{VK_NULL_HANDLE};
-    VkPipeline transparentPipelineNoCull_{VK_NULL_HANDLE};
-    VkPipeline alwaysOnTopPipelineBackCull_{VK_NULL_HANDLE};
-    VkPipeline alwaysOnTopPipelineNoCull_{VK_NULL_HANDLE};
+    std::unordered_map<Common::PipelineVariantKey, VkPipeline, Common::PipelineVariantKeyHash> pipelineVariants_;
     VkDescriptorPool descriptorPool_{VK_NULL_HANDLE};
     std::vector<BufferUtils::BufferHandle> uniformBuffers_;
     std::vector<VkDescriptorSet> descriptorSets_;
@@ -138,9 +145,11 @@ private:
     TextureUtils::Texture2DHandle surfaceAtlas_{};
     TextureUtils::Texture2DHandle surfaceNormalAtlas_{};
     bool hasSurfaceNormalAtlas_{false};
-    std::vector<OverlayPrimitive> overlayPrimitives_;
+    std::vector<Rendering::Common::OverlayPrimitive> overlayPrimitives_;
     bool initialized_{false};
     VulkanContext* context_{nullptr};
 };
+
+using VulkanRenderer = Renderer;
 
 } // namespace Lvs::Engine::Rendering::Vulkan

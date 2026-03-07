@@ -5,11 +5,12 @@
 #include "Lvs/Engine/Rendering/Vulkan/VulkanBufferUtils.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanContext.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanShaderUtils.hpp"
-#include "Lvs/Engine/Utils/SourcePath.hpp"
+#include "Lvs/Engine/Utils/PathUtils.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <filesystem>
 #include <stdexcept>
 #include <vector>
 
@@ -752,11 +753,11 @@ void PostProcessRenderer::CreateRenderPasses(VulkanContext& context) {
 void PostProcessRenderer::CreatePipelines(VulkanContext& context) {
     const VkDevice device = context.GetDevice();
 
-    const QString vertPath = Utils::SourcePath::GetResourcePath("Shaders/Vulkan/PostProcess.vert.spv");
+    const auto vertPath = Utils::PathUtils::GetResourcePath("Shaders/Vulkan/PostProcess.vert.spv");
     const auto vertCode = ShaderUtils::ReadBinaryFile(vertPath);
     const VkShaderModule vertModule = ShaderUtils::CreateShaderModule(device, vertCode);
 
-    const auto createPipeline = [&](const QString& fragPath, const VkRenderPass renderPass, const VkPipelineLayout pipelineLayout) {
+    const auto createPipeline = [&](const std::filesystem::path& fragPath, const VkRenderPass renderPass, const VkPipelineLayout pipelineLayout) {
         const auto fragCode = ShaderUtils::ReadBinaryFile(fragPath);
         const VkShaderModule fragModule = ShaderUtils::CreateShaderModule(device, fragCode);
 
@@ -907,17 +908,17 @@ void PostProcessRenderer::CreatePipelines(VulkanContext& context) {
     };
 
     compositePipeline_ = createPipeline(
-        Utils::SourcePath::GetResourcePath("Shaders/Vulkan/PostProcess.frag.spv"),
+        Utils::PathUtils::GetResourcePath("Shaders/Vulkan/PostProcess.frag.spv"),
         context.GetPostProcessRenderPass(),
         compositePipelineLayout_
     );
     blurDownPipeline_ = createPipeline(
-        Utils::SourcePath::GetResourcePath("Shaders/Vulkan/DualKawaseDown.frag.spv"),
+        Utils::PathUtils::GetResourcePath("Shaders/Vulkan/DualKawaseDown.frag.spv"),
         blurRenderPass_,
         blurPipelineLayout_
     );
     blurUpPipeline_ = createPipeline(
-        Utils::SourcePath::GetResourcePath("Shaders/Vulkan/DualKawaseUp.frag.spv"),
+        Utils::PathUtils::GetResourcePath("Shaders/Vulkan/DualKawaseUp.frag.spv"),
         blurRenderPass_,
         blurPipelineLayout_
     );

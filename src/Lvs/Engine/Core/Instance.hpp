@@ -17,6 +17,13 @@ namespace Lvs::Engine::Core {
 
 class Instance : public ObjectBase, public std::enable_shared_from_this<Instance> {
 public:
+    using PropertyChangedSignal = Utils::Signal<const QString&, const QVariant&>;
+    using PropertyInvalidatedSignal = Utils::Signal<>;
+    using InstanceSignal = Utils::Signal<const std::shared_ptr<Instance>&>;
+    using PropertyChangedConnection = PropertyChangedSignal::Connection;
+    using PropertyInvalidatedConnection = PropertyInvalidatedSignal::Connection;
+    using InstanceConnection = InstanceSignal::Connection;
+
     Instance();
     ~Instance() override = default;
 
@@ -46,10 +53,11 @@ public:
 
     virtual void Destroy();
 
-    Utils::Signal<const QString&, const QVariant&> PropertyChanged;
-    Utils::Signal<const std::shared_ptr<Instance>&> ChildAdded;
-    Utils::Signal<const std::shared_ptr<Instance>&> ChildRemoved;
-    Utils::Signal<const std::shared_ptr<Instance>&> AncestryChanged;
+    PropertyChangedSignal PropertyChanged;
+    PropertyInvalidatedSignal PropertyInvalidated;
+    InstanceSignal ChildAdded;
+    InstanceSignal ChildRemoved;
+    InstanceSignal AncestryChanged;
     Utils::Signal<> Destroying;
 
 protected:

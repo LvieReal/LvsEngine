@@ -12,7 +12,7 @@ namespace Lvs::Engine::Core {
 
 namespace {
 
-Rendering::Vulkan::OverlayPrimitive BuildEdgePrimitive(
+Rendering::Common::OverlayPrimitive BuildEdgePrimitive(
     const Math::Vector3& a,
     const Math::Vector3& b,
     const SelectionBoxStyle& style
@@ -33,7 +33,7 @@ Rendering::Vulkan::OverlayPrimitive BuildEdgePrimitive(
         scale.z = std::max(thickness, absDelta.z + extendedLength);
     }
 
-    return Rendering::Vulkan::OverlayPrimitive{
+    return Rendering::Common::OverlayPrimitive{
         .Model = Math::Matrix4::Translation(center) * Math::Matrix4::Scale(scale),
         .Shape = Enums::PartShape::Cube,
         .Color = style.Color,
@@ -51,7 +51,7 @@ Rendering::Vulkan::OverlayPrimitive BuildEdgePrimitive(
 void AppendSelectionBoxOutlinePrimitives(
     const Math::AABB& bounds,
     const SelectionBoxStyle& style,
-    std::vector<Rendering::Vulkan::OverlayPrimitive>& out
+    std::vector<Rendering::Common::OverlayPrimitive>& out
 ) {
     // Push the box slightly outside the target bounds to avoid z-fighting when depth-tested.
     const double thickness = std::max(0.001, style.Thickness);

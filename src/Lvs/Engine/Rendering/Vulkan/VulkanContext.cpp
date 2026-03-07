@@ -1,5 +1,7 @@
 #include "Lvs/Engine/Rendering/Vulkan/VulkanContext.hpp"
 
+#include "Lvs/Engine/Rendering/Vulkan/VulkanGpuResources.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/VulkanFrameManager.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/PostProcessRenderer.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/Renderer.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanBufferUtils.hpp"
@@ -88,23 +90,81 @@ namespace {
     return result == VK_SUCCESS;
 }
 
-VkFormat FindSupportedFormat(
-    const VkPhysicalDevice physicalDevice,
-    const std::vector<VkFormat>& candidates,
-    const VkImageTiling tiling,
-    const VkFormatFeatureFlags features
-) {
-    for (const auto format : candidates) {
-        VkFormatProperties props{};
-        vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &props);
-        if (tiling == VK_IMAGE_TILING_LINEAR && (props.linearTilingFeatures & features) == features) {
-            return format;
-        }
-        if (tiling == VK_IMAGE_TILING_OPTIMAL && (props.optimalTilingFeatures & features) == features) {
-            return format;
-        }
+VkBufferUsageFlags ToVkBufferUsage(const Rendering::Common::BufferUsage usage) {
+    VkBufferUsageFlags flags = 0;
+    if (Rendering::Common::HasFlag(usage, Rendering::Common::BufferUsage::Vertex)) {
+        flags |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
     }
-    throw std::runtime_error("Failed to find supported Vulkan format.");
+    if (Rendering::Common::HasFlag(usage, Rendering::Common::BufferUsage::Index)) {
+        flags |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+    }
+    if (Rendering::Common::HasFlag(usage, Rendering::Common::BufferUsage::Uniform)) {
+        flags |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    }
+    if (Rendering::Common::HasFlag(usage, Rendering::Common::BufferUsage::TransferSource)) {
+        flags |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    }
+    if (Rendering::Common::HasFlag(usage, Rendering::Common::BufferUsage::TransferDestination)) {
+        flags |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    }
+    return flags;
+}
+
+VkMemoryPropertyFlags ToVkMemoryProperties(const Rendering::Common::MemoryUsage usage) {
+    switch (usage) {
+        case Rendering::Common::MemoryUsage::CpuVisible:
+            return VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        case Rendering::Common::MemoryUsage::DeviceLocal:
+        default:
+            return VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    }
+}
+
+VkFormat ToVkFormat(const Rendering::Common::PixelFormat format) {
+    switch (format) {
+        case Rendering::Common::PixelFormat::RGBA8Unorm: return VK_FORMAT_R8G8B8A8_UNORM;
+        case Rendering::Common::PixelFormat::RGBA8Srgb: return VK_FORMAT_R8G8B8A8_SRGB;
+        case Rendering::Common::PixelFormat::RGBA16Float: return VK_FORMAT_R16G16B16A16_SFLOAT;
+        case Rendering::Common::PixelFormat::RGBA32Float: return VK_FORMAT_R32G32B32A32_SFLOAT;
+        case Rendering::Common::PixelFormat::D32Float: return VK_FORMAT_D32_SFLOAT;
+        case Rendering::Common::PixelFormat::D32FloatS8: return VK_FORMAT_D32_SFLOAT_S8_UINT;
+        case Rendering::Common::PixelFormat::D24UnormS8: return VK_FORMAT_D24_UNORM_S8_UINT;
+        case Rendering::Common::PixelFormat::Unknown:
+        default:
+            return VK_FORMAT_UNDEFINED;
+    }
+}
+
+VkImageUsageFlags ToVkImageUsage(const Rendering::Common::ImageUsage usage) {
+    VkImageUsageFlags flags = 0;
+    if (Rendering::Common::HasFlag(usage, Rendering::Common::ImageUsage::Sampled)) {
+        flags |= VK_IMAGE_USAGE_SAMPLED_BIT;
+    }
+    if (Rendering::Common::HasFlag(usage, Rendering::Common::ImageUsage::ColorAttachment)) {
+        flags |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    }
+    if (Rendering::Common::HasFlag(usage, Rendering::Common::ImageUsage::DepthStencilAttachment)) {
+        flags |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    }
+    if (Rendering::Common::HasFlag(usage, Rendering::Common::ImageUsage::TransferSource)) {
+        flags |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    }
+    if (Rendering::Common::HasFlag(usage, Rendering::Common::ImageUsage::TransferDestination)) {
+        flags |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    }
+    return flags;
+}
+
+VkFilter ToVkFilter(const Rendering::Common::FilterMode filter) {
+    return filter == Rendering::Common::FilterMode::Nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+}
+
+VkSamplerAddressMode ToVkAddressMode(const Rendering::Common::AddressMode mode) {
+    return mode == Rendering::Common::AddressMode::Repeat ? VK_SAMPLER_ADDRESS_MODE_REPEAT : VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+}
+
+VkSamplerMipmapMode ToVkMipmapMode(const Rendering::Common::MipmapMode mode) {
+    return mode == Rendering::Common::MipmapMode::Nearest ? VK_SAMPLER_MIPMAP_MODE_NEAREST : VK_SAMPLER_MIPMAP_MODE_LINEAR;
 }
 
 } // namespace
@@ -122,7 +182,9 @@ VulkanContext::~VulkanContext() {
     Shutdown();
 }
 
-VulkanContext::VulkanContext() = default;
+VulkanContext::VulkanContext()
+    : frameManager_(std::make_unique<VulkanFrameManager>()) {
+}
 
 void VulkanContext::Initialize() {
     CreateInstance();
@@ -143,7 +205,7 @@ void VulkanContext::AttachToNativeWindow(
         return;
     }
 
-    if (nativeWindowHandle_ == nativeWindowHandle && swapchain_ != VK_NULL_HANDLE) {
+    if (nativeWindowHandle_ == nativeWindowHandle && frameManager_ != nullptr && frameManager_->HasSwapchain()) {
         Resize(width, height);
         return;
     }
@@ -168,76 +230,31 @@ void VulkanContext::Resize(const std::uint32_t width, const std::uint32_t height
 }
 
 void VulkanContext::Render() {
-    if (device_ == VK_NULL_HANDLE || swapchain_ == VK_NULL_HANDLE) {
+    if (device_ == VK_NULL_HANDLE || frameManager_ == nullptr || !frameManager_->HasSwapchain()) {
         return;
     }
 
-    vkWaitForFences(device_, 1, &inFlightFences_[currentFrame_], VK_TRUE, UINT64_MAX);
-
-    std::uint32_t imageIndex = 0;
-    VkResult result = vkAcquireNextImageKHR(
-        device_,
-        swapchain_,
-        UINT64_MAX,
-        imageAvailableSemaphores_[currentFrame_],
-        VK_NULL_HANDLE,
-        &imageIndex
-    );
-    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+    bool needsRecreate = false;
+    const auto frameState = frameManager_->BeginFrame(*this, needsRecreate);
+    if (needsRecreate) {
         RecreateSwapchain(lastWidth_, lastHeight_);
         return;
     }
-    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-        throw std::runtime_error("Failed to acquire swapchain image.");
+    if (frameState.CommandBuffer == VK_NULL_HANDLE) {
+        return;
     }
 
-    vkResetFences(device_, 1, &inFlightFences_[currentFrame_]);
-    vkResetCommandBuffer(commandBuffers_[currentFrame_], 0);
-    RecordCommandBuffer(commandBuffers_[currentFrame_], imageIndex);
-
-    constexpr VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
-    const VkSubmitInfo submitInfo{
-        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .pNext = nullptr,
-        .waitSemaphoreCount = 1,
-        .pWaitSemaphores = &imageAvailableSemaphores_[currentFrame_],
-        .pWaitDstStageMask = waitStages,
-        .commandBufferCount = 1,
-        .pCommandBuffers = &commandBuffers_[currentFrame_],
-        .signalSemaphoreCount = 1,
-        .pSignalSemaphores = &renderFinishedSemaphores_[currentFrame_]
-    };
-
-    if (!IsSuccess(vkQueueSubmit(graphicsQueue_, 1, &submitInfo, inFlightFences_[currentFrame_]))) {
-        throw std::runtime_error("Failed to submit draw command buffer.");
-    }
-
-    const VkPresentInfoKHR presentInfo{
-        .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-        .pNext = nullptr,
-        .waitSemaphoreCount = 1,
-        .pWaitSemaphores = &renderFinishedSemaphores_[currentFrame_],
-        .swapchainCount = 1,
-        .pSwapchains = &swapchain_,
-        .pImageIndices = &imageIndex,
-        .pResults = nullptr
-    };
-
-    result = vkQueuePresentKHR(graphicsQueue_, &presentInfo);
-    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+    RecordCommandBuffer(frameState.CommandBuffer, frameState.ImageIndex, frameState.FrameIndex);
+    if (!frameManager_->EndFrame(*this, frameState)) {
         RecreateSwapchain(lastWidth_, lastHeight_);
-    } else if (result != VK_SUCCESS) {
-        throw std::runtime_error("Failed to present swapchain image.");
     }
-
-    currentFrame_ = (currentFrame_ + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
 void VulkanContext::SetClearColor(const float r, const float g, const float b, const float a) {
     clearColor_ = {{r, g, b, a}};
 }
 
-void VulkanContext::SetOverlayPrimitives(std::vector<OverlayPrimitive> primitives) {
+void VulkanContext::SetOverlayPrimitives(std::vector<Rendering::Common::OverlayPrimitive> primitives) {
     overlayPrimitives_ = std::move(primitives);
     if (renderer_ != nullptr) {
         renderer_->SetOverlayPrimitives(overlayPrimitives_);
@@ -294,27 +311,117 @@ std::uint32_t VulkanContext::GetGraphicsQueueFamily() const {
 }
 
 VkRenderPass VulkanContext::GetRenderPass() const {
-    return sceneRenderPass_;
+    return frameManager_ != nullptr ? frameManager_->GetSceneRenderPass() : VK_NULL_HANDLE;
 }
 
 VkRenderPass VulkanContext::GetPostProcessRenderPass() const {
-    return postProcessRenderPass_;
+    return frameManager_ != nullptr ? frameManager_->GetPostProcessRenderPass() : VK_NULL_HANDLE;
 }
 
 VkFormat VulkanContext::GetSwapchainImageFormat() const {
-    return swapchainImageFormat_;
+    return frameManager_ != nullptr ? frameManager_->GetSwapchainImageFormat() : VK_FORMAT_UNDEFINED;
 }
 
 VkFormat VulkanContext::GetOffscreenImageFormat() const {
-    return offscreenImageFormat_;
+    return frameManager_ != nullptr ? frameManager_->GetOffscreenImageFormat() : VK_FORMAT_UNDEFINED;
 }
 
 VkExtent2D VulkanContext::GetSwapchainExtent() const {
-    return swapchainExtent_;
+    return frameManager_ != nullptr ? frameManager_->GetSwapchainExtentVk() : VkExtent2D{};
 }
 
 std::uint32_t VulkanContext::GetFramesInFlight() const {
-    return MAX_FRAMES_IN_FLIGHT;
+    return frameManager_ != nullptr ? frameManager_->GetFramesInFlight() : 0;
+}
+
+std::unique_ptr<Rendering::Common::BufferResource> VulkanContext::CreateBuffer(const Rendering::Common::BufferDesc& desc) {
+    const auto handle = BufferUtils::CreateBuffer(
+        physicalDevice_,
+        device_,
+        static_cast<VkDeviceSize>(desc.Size),
+        ToVkBufferUsage(desc.Usage),
+        ToVkMemoryProperties(desc.Memory)
+    );
+    return std::make_unique<VulkanBufferResource>(device_, handle.Buffer, handle.Memory, desc.Size);
+}
+
+std::unique_ptr<Rendering::Common::ImageResource> VulkanContext::CreateImage(const Rendering::Common::ImageDesc& desc) {
+    const VkFormat format = ToVkFormat(desc.Format);
+    const VkImageCreateFlags flags = desc.CubeCompatible ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0;
+    const VkImageCreateInfo imageInfo{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = flags,
+        .imageType = desc.Depth > 1 ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D,
+        .format = format,
+        .extent = {.width = desc.Width, .height = desc.Height, .depth = desc.Depth},
+        .mipLevels = desc.MipLevels,
+        .arrayLayers = desc.Layers,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .tiling = VK_IMAGE_TILING_OPTIMAL,
+        .usage = ToVkImageUsage(desc.Usage),
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .queueFamilyIndexCount = 0,
+        .pQueueFamilyIndices = nullptr,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
+    };
+
+    VkImage image = VK_NULL_HANDLE;
+    if (vkCreateImage(device_, &imageInfo, nullptr, &image) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create Vulkan image.");
+    }
+
+    VkMemoryRequirements memRequirements{};
+    vkGetImageMemoryRequirements(device_, image, &memRequirements);
+    const VkMemoryAllocateInfo allocInfo{
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .pNext = nullptr,
+        .allocationSize = memRequirements.size,
+        .memoryTypeIndex = BufferUtils::FindMemoryType(
+            physicalDevice_,
+            memRequirements.memoryTypeBits,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+        )
+    };
+
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+    if (vkAllocateMemory(device_, &allocInfo, nullptr, &memory) != VK_SUCCESS) {
+        vkDestroyImage(device_, image, nullptr);
+        throw std::runtime_error("Failed to allocate Vulkan image memory.");
+    }
+    vkBindImageMemory(device_, image, memory, 0);
+    return std::make_unique<VulkanImageResource>(device_, image, memory, desc.Width, desc.Height);
+}
+
+std::unique_ptr<Rendering::Common::SamplerResource> VulkanContext::CreateSampler(
+    const Rendering::Common::SamplerDesc& desc
+) {
+    const VkSamplerCreateInfo samplerInfo{
+        .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .magFilter = ToVkFilter(desc.Filter),
+        .minFilter = ToVkFilter(desc.Filter),
+        .mipmapMode = ToVkMipmapMode(desc.Mipmap),
+        .addressModeU = ToVkAddressMode(desc.Address),
+        .addressModeV = ToVkAddressMode(desc.Address),
+        .addressModeW = ToVkAddressMode(desc.Address),
+        .mipLodBias = 0.0F,
+        .anisotropyEnable = VK_FALSE,
+        .maxAnisotropy = 1.0F,
+        .compareEnable = VK_FALSE,
+        .compareOp = VK_COMPARE_OP_ALWAYS,
+        .minLod = 0.0F,
+        .maxLod = 0.0F,
+        .borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK,
+        .unnormalizedCoordinates = VK_FALSE
+    };
+
+    VkSampler sampler = VK_NULL_HANDLE;
+    if (vkCreateSampler(device_, &samplerInfo, nullptr, &sampler) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create Vulkan sampler.");
+    }
+    return std::make_unique<VulkanSamplerResource>(device_, sampler);
 }
 
 void VulkanContext::CreateInstance() {
@@ -474,540 +581,11 @@ void VulkanContext::CreateLogicalDevice() {
     vkGetDeviceQueue(device_, graphicsQueueFamily_, 0, &graphicsQueue_);
 }
 
-void VulkanContext::CreateSwapchain(const std::uint32_t width, const std::uint32_t height) {
-    const auto support = SwapchainUtils::QuerySwapchainSupport(physicalDevice_, surface_);
-    if (support.Formats.empty() || support.PresentModes.empty()) {
-        throw std::runtime_error("Swapchain support details are incomplete.");
-    }
-
-    const VkSurfaceFormatKHR surfaceFormat = SwapchainUtils::ChooseSurfaceFormat(support.Formats);
-    const VkPresentModeKHR presentMode = SwapchainUtils::ChoosePresentMode(support.PresentModes);
-    const VkExtent2D extent = SwapchainUtils::ChooseExtent(support.Capabilities, width, height);
-
-    std::uint32_t imageCount = support.Capabilities.minImageCount + 1;
-    if (support.Capabilities.maxImageCount > 0 && imageCount > support.Capabilities.maxImageCount) {
-        imageCount = support.Capabilities.maxImageCount;
-    }
-
-    const VkSwapchainCreateInfoKHR createInfo{
-        .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-        .pNext = nullptr,
-        .flags = 0,
-        .surface = surface_,
-        .minImageCount = imageCount,
-        .imageFormat = surfaceFormat.format,
-        .imageColorSpace = surfaceFormat.colorSpace,
-        .imageExtent = extent,
-        .imageArrayLayers = 1,
-        .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-        .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
-        .queueFamilyIndexCount = 0,
-        .pQueueFamilyIndices = nullptr,
-        .preTransform = support.Capabilities.currentTransform,
-        .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-        .presentMode = presentMode,
-        .clipped = VK_TRUE,
-        .oldSwapchain = VK_NULL_HANDLE
-    };
-
-    if (!IsSuccess(vkCreateSwapchainKHR(device_, &createInfo, nullptr, &swapchain_))) {
-        throw std::runtime_error("Failed to create swapchain.");
-    }
-
-    vkGetSwapchainImagesKHR(device_, swapchain_, &imageCount, nullptr);
-    swapchainImages_.resize(imageCount);
-    vkGetSwapchainImagesKHR(device_, swapchain_, &imageCount, swapchainImages_.data());
-
-    swapchainImageFormat_ = surfaceFormat.format;
-    swapchainExtent_ = extent;
-}
-
-void VulkanContext::CreateImageViews() {
-    swapchainImageViews_.resize(swapchainImages_.size());
-
-    for (std::size_t i = 0; i < swapchainImages_.size(); ++i) {
-        const VkImageViewCreateInfo createInfo{
-            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-            .pNext = nullptr,
-            .flags = 0,
-            .image = swapchainImages_[i],
-            .viewType = VK_IMAGE_VIEW_TYPE_2D,
-            .format = swapchainImageFormat_,
-            .components = {.r = VK_COMPONENT_SWIZZLE_IDENTITY,
-                           .g = VK_COMPONENT_SWIZZLE_IDENTITY,
-                           .b = VK_COMPONENT_SWIZZLE_IDENTITY,
-                           .a = VK_COMPONENT_SWIZZLE_IDENTITY},
-            .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                                 .baseMipLevel = 0,
-                                 .levelCount = 1,
-                                 .baseArrayLayer = 0,
-                                 .layerCount = 1}
-        };
-
-        if (!IsSuccess(vkCreateImageView(device_, &createInfo, nullptr, &swapchainImageViews_[i]))) {
-            throw std::runtime_error("Failed to create swapchain image view.");
-        }
-    }
-}
-
-void VulkanContext::SelectOffscreenImageFormat() {
-    offscreenImageFormat_ = FindSupportedFormat(
-        physicalDevice_,
-        {VK_FORMAT_R16G16B16A16_SFLOAT, VK_FORMAT_R32G32B32A32_SFLOAT},
-        VK_IMAGE_TILING_OPTIMAL,
-        VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT
-    );
-}
-
-void VulkanContext::CreateSceneRenderPass() {
-    const VkAttachmentDescription sceneColorAttachment{
-        .flags = 0,
-        .format = offscreenImageFormat_,
-        .samples = VK_SAMPLE_COUNT_1_BIT,
-        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-        .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-        .finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-    };
-    const VkAttachmentDescription glowColorAttachment{
-        .flags = 0,
-        .format = offscreenImageFormat_,
-        .samples = VK_SAMPLE_COUNT_1_BIT,
-        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-        .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-        .finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-    };
-    const VkAttachmentDescription depthAttachment{
-        .flags = 0,
-        .format = depthFormat_,
-        .samples = VK_SAMPLE_COUNT_1_BIT,
-        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-        .finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
-    };
-
-    const VkAttachmentReference sceneColorAttachmentRef{
-        .attachment = 0,
-        .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-    };
-    const VkAttachmentReference glowColorAttachmentRef{
-        .attachment = 1,
-        .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-    };
-    const std::array colorAttachmentRefs{sceneColorAttachmentRef, glowColorAttachmentRef};
-    const VkAttachmentReference depthAttachmentRef{
-        .attachment = 2,
-        .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-    };
-
-    const VkSubpassDescription subpass{
-        .flags = 0,
-        .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
-        .inputAttachmentCount = 0,
-        .pInputAttachments = nullptr,
-        .colorAttachmentCount = static_cast<std::uint32_t>(colorAttachmentRefs.size()),
-        .pColorAttachments = colorAttachmentRefs.data(),
-        .pResolveAttachments = nullptr,
-        .pDepthStencilAttachment = &depthAttachmentRef,
-        .preserveAttachmentCount = 0,
-        .pPreserveAttachments = nullptr
-    };
-
-    const VkSubpassDependency dependency{
-        .srcSubpass = VK_SUBPASS_EXTERNAL,
-        .dstSubpass = 0,
-        .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
-        .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
-        .srcAccessMask = 0,
-        .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-        .dependencyFlags = 0
-    };
-    const std::array attachments{sceneColorAttachment, glowColorAttachment, depthAttachment};
-
-    const VkRenderPassCreateInfo renderPassInfo{
-        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-        .pNext = nullptr,
-        .flags = 0,
-        .attachmentCount = static_cast<std::uint32_t>(attachments.size()),
-        .pAttachments = attachments.data(),
-        .subpassCount = 1,
-        .pSubpasses = &subpass,
-        .dependencyCount = 1,
-        .pDependencies = &dependency
-    };
-
-    if (!IsSuccess(vkCreateRenderPass(device_, &renderPassInfo, nullptr, &sceneRenderPass_))) {
-        throw std::runtime_error("Failed to create Vulkan scene render pass.");
-    }
-}
-
-void VulkanContext::CreatePostProcessRenderPass() {
-    const VkAttachmentDescription colorAttachment{
-        .flags = 0,
-        .format = swapchainImageFormat_,
-        .samples = VK_SAMPLE_COUNT_1_BIT,
-        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-        .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-        .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
-    };
-    const VkAttachmentReference colorAttachmentRef{
-        .attachment = 0,
-        .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-    };
-    const VkSubpassDescription subpass{
-        .flags = 0,
-        .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
-        .inputAttachmentCount = 0,
-        .pInputAttachments = nullptr,
-        .colorAttachmentCount = 1,
-        .pColorAttachments = &colorAttachmentRef,
-        .pResolveAttachments = nullptr,
-        .pDepthStencilAttachment = nullptr,
-        .preserveAttachmentCount = 0,
-        .pPreserveAttachments = nullptr
-    };
-    const VkSubpassDependency dependency{
-        .srcSubpass = VK_SUBPASS_EXTERNAL,
-        .dstSubpass = 0,
-        .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        .srcAccessMask = 0,
-        .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-        .dependencyFlags = 0
-    };
-
-    const VkRenderPassCreateInfo renderPassInfo{
-        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-        .pNext = nullptr,
-        .flags = 0,
-        .attachmentCount = 1,
-        .pAttachments = &colorAttachment,
-        .subpassCount = 1,
-        .pSubpasses = &subpass,
-        .dependencyCount = 1,
-        .pDependencies = &dependency
-    };
-    if (!IsSuccess(vkCreateRenderPass(device_, &renderPassInfo, nullptr, &postProcessRenderPass_))) {
-        throw std::runtime_error("Failed to create Vulkan post-process render pass.");
-    }
-}
-
-void VulkanContext::CreateFramebuffers() {
-    sceneFramebuffers_.resize(swapchainImageViews_.size());
-    swapchainFramebuffers_.resize(swapchainImageViews_.size());
-
-    for (std::size_t i = 0; i < swapchainImageViews_.size(); ++i) {
-        const std::array attachments{
-            offscreenColorImageViews_[i],
-            offscreenGlowImageViews_[i],
-            depthImageViews_[i],
-        };
-        const VkFramebufferCreateInfo framebufferInfo{
-            .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-            .pNext = nullptr,
-            .flags = 0,
-            .renderPass = sceneRenderPass_,
-            .attachmentCount = static_cast<std::uint32_t>(attachments.size()),
-            .pAttachments = attachments.data(),
-            .width = swapchainExtent_.width,
-            .height = swapchainExtent_.height,
-            .layers = 1
-        };
-
-        if (!IsSuccess(vkCreateFramebuffer(device_, &framebufferInfo, nullptr, &sceneFramebuffers_[i]))) {
-            throw std::runtime_error("Failed to create Vulkan scene framebuffer.");
-        }
-
-        const VkFramebufferCreateInfo postFramebufferInfo{
-            .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-            .pNext = nullptr,
-            .flags = 0,
-            .renderPass = postProcessRenderPass_,
-            .attachmentCount = 1,
-            .pAttachments = &swapchainImageViews_[i],
-            .width = swapchainExtent_.width,
-            .height = swapchainExtent_.height,
-            .layers = 1
-        };
-        if (!IsSuccess(vkCreateFramebuffer(device_, &postFramebufferInfo, nullptr, &swapchainFramebuffers_[i]))) {
-            throw std::runtime_error("Failed to create Vulkan post-process framebuffer.");
-        }
-    }
-}
-
-void VulkanContext::CreateOffscreenResources() {
-    if (offscreenImageFormat_ == VK_FORMAT_UNDEFINED) {
-        throw std::runtime_error("Offscreen image format is undefined.");
-    }
-
-    offscreenColorImages_.resize(swapchainImages_.size(), VK_NULL_HANDLE);
-    offscreenGlowImages_.resize(swapchainImages_.size(), VK_NULL_HANDLE);
-    offscreenColorImageViews_.resize(swapchainImages_.size(), VK_NULL_HANDLE);
-    offscreenGlowImageViews_.resize(swapchainImages_.size(), VK_NULL_HANDLE);
-    offscreenColorMemories_.resize(swapchainImages_.size(), VK_NULL_HANDLE);
-    offscreenGlowMemories_.resize(swapchainImages_.size(), VK_NULL_HANDLE);
-
-    for (std::size_t i = 0; i < swapchainImages_.size(); ++i) {
-        const VkImageCreateInfo imageInfo{
-            .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-            .pNext = nullptr,
-            .flags = 0,
-            .imageType = VK_IMAGE_TYPE_2D,
-            .format = offscreenImageFormat_,
-            .extent = {.width = swapchainExtent_.width, .height = swapchainExtent_.height, .depth = 1},
-            .mipLevels = 1,
-            .arrayLayers = 1,
-            .samples = VK_SAMPLE_COUNT_1_BIT,
-            .tiling = VK_IMAGE_TILING_OPTIMAL,
-            .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-            .queueFamilyIndexCount = 0,
-            .pQueueFamilyIndices = nullptr,
-            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
-        };
-        if (vkCreateImage(device_, &imageInfo, nullptr, &offscreenColorImages_[i]) != VK_SUCCESS ||
-            vkCreateImage(device_, &imageInfo, nullptr, &offscreenGlowImages_[i]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create offscreen color image.");
-        }
-
-        VkMemoryRequirements colorMemReq{};
-        vkGetImageMemoryRequirements(device_, offscreenColorImages_[i], &colorMemReq);
-        const VkMemoryAllocateInfo colorAllocInfo{
-            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-            .pNext = nullptr,
-            .allocationSize = colorMemReq.size,
-            .memoryTypeIndex = BufferUtils::FindMemoryType(
-                physicalDevice_,
-                colorMemReq.memoryTypeBits,
-                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
-            )
-        };
-        if (vkAllocateMemory(device_, &colorAllocInfo, nullptr, &offscreenColorMemories_[i]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to allocate offscreen color memory.");
-        }
-        vkBindImageMemory(device_, offscreenColorImages_[i], offscreenColorMemories_[i], 0);
-        VkMemoryRequirements glowMemReq{};
-        vkGetImageMemoryRequirements(device_, offscreenGlowImages_[i], &glowMemReq);
-        const VkMemoryAllocateInfo glowAllocInfo{
-            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-            .pNext = nullptr,
-            .allocationSize = glowMemReq.size,
-            .memoryTypeIndex = BufferUtils::FindMemoryType(
-                physicalDevice_,
-                glowMemReq.memoryTypeBits,
-                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
-            )
-        };
-        if (vkAllocateMemory(device_, &glowAllocInfo, nullptr, &offscreenGlowMemories_[i]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to allocate offscreen glow memory.");
-        }
-        vkBindImageMemory(device_, offscreenGlowImages_[i], offscreenGlowMemories_[i], 0);
-
-        const VkImageViewCreateInfo colorViewInfo{
-            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-            .pNext = nullptr,
-            .flags = 0,
-            .image = offscreenColorImages_[i],
-            .viewType = VK_IMAGE_VIEW_TYPE_2D,
-            .format = offscreenImageFormat_,
-            .components = {.r = VK_COMPONENT_SWIZZLE_IDENTITY,
-                           .g = VK_COMPONENT_SWIZZLE_IDENTITY,
-                           .b = VK_COMPONENT_SWIZZLE_IDENTITY,
-                           .a = VK_COMPONENT_SWIZZLE_IDENTITY},
-            .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                                 .baseMipLevel = 0,
-                                 .levelCount = 1,
-                                 .baseArrayLayer = 0,
-                                 .layerCount = 1}
-        };
-        if (vkCreateImageView(device_, &colorViewInfo, nullptr, &offscreenColorImageViews_[i]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create offscreen color image view.");
-        }
-
-        const VkImageViewCreateInfo glowViewInfo{
-            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-            .pNext = nullptr,
-            .flags = 0,
-            .image = offscreenGlowImages_[i],
-            .viewType = VK_IMAGE_VIEW_TYPE_2D,
-            .format = offscreenImageFormat_,
-            .components = {.r = VK_COMPONENT_SWIZZLE_IDENTITY,
-                           .g = VK_COMPONENT_SWIZZLE_IDENTITY,
-                           .b = VK_COMPONENT_SWIZZLE_IDENTITY,
-                           .a = VK_COMPONENT_SWIZZLE_IDENTITY},
-            .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                                 .baseMipLevel = 0,
-                                 .levelCount = 1,
-                                 .baseArrayLayer = 0,
-                                 .layerCount = 1}
-        };
-        if (vkCreateImageView(device_, &glowViewInfo, nullptr, &offscreenGlowImageViews_[i]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create offscreen glow image view.");
-        }
-    }
-
-    const VkSamplerCreateInfo samplerInfo{
-        .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-        .pNext = nullptr,
-        .flags = 0,
-        .magFilter = VK_FILTER_LINEAR,
-        .minFilter = VK_FILTER_LINEAR,
-        .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
-        .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-        .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-        .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-        .mipLodBias = 0.0F,
-        .anisotropyEnable = VK_FALSE,
-        .maxAnisotropy = 1.0F,
-        .compareEnable = VK_FALSE,
-        .compareOp = VK_COMPARE_OP_NEVER,
-        .minLod = 0.0F,
-        .maxLod = 0.0F,
-        .borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK,
-        .unnormalizedCoordinates = VK_FALSE
-    };
-    if (vkCreateSampler(device_, &samplerInfo, nullptr, &offscreenColorSampler_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create offscreen color sampler.");
-    }
-}
-
-void VulkanContext::CreateDepthResources() {
-    depthFormat_ = FindSupportedFormat(
-        physicalDevice_,
-        {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
-        VK_IMAGE_TILING_OPTIMAL,
-        VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
-    );
-
-    depthImages_.resize(swapchainImages_.size(), VK_NULL_HANDLE);
-    depthImageViews_.resize(swapchainImages_.size(), VK_NULL_HANDLE);
-    depthMemories_.resize(swapchainImages_.size(), VK_NULL_HANDLE);
-
-    for (std::size_t i = 0; i < swapchainImages_.size(); ++i) {
-        const VkImageCreateInfo imageInfo{
-            .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-            .pNext = nullptr,
-            .flags = 0,
-            .imageType = VK_IMAGE_TYPE_2D,
-            .format = depthFormat_,
-            .extent = {.width = swapchainExtent_.width, .height = swapchainExtent_.height, .depth = 1},
-            .mipLevels = 1,
-            .arrayLayers = 1,
-            .samples = VK_SAMPLE_COUNT_1_BIT,
-            .tiling = VK_IMAGE_TILING_OPTIMAL,
-            .usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-            .queueFamilyIndexCount = 0,
-            .pQueueFamilyIndices = nullptr,
-            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
-        };
-        if (vkCreateImage(device_, &imageInfo, nullptr, &depthImages_[i]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create depth image.");
-        }
-
-        VkMemoryRequirements memReq{};
-        vkGetImageMemoryRequirements(device_, depthImages_[i], &memReq);
-        const VkMemoryAllocateInfo allocInfo{
-            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-            .pNext = nullptr,
-            .allocationSize = memReq.size,
-            .memoryTypeIndex = BufferUtils::FindMemoryType(
-                physicalDevice_,
-                memReq.memoryTypeBits,
-                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
-            )
-        };
-        if (vkAllocateMemory(device_, &allocInfo, nullptr, &depthMemories_[i]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to allocate depth image memory.");
-        }
-        vkBindImageMemory(device_, depthImages_[i], depthMemories_[i], 0);
-
-        const VkImageViewCreateInfo viewInfo{
-            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-            .pNext = nullptr,
-            .flags = 0,
-            .image = depthImages_[i],
-            .viewType = VK_IMAGE_VIEW_TYPE_2D,
-            .format = depthFormat_,
-            .components = {.r = VK_COMPONENT_SWIZZLE_IDENTITY,
-                           .g = VK_COMPONENT_SWIZZLE_IDENTITY,
-                           .b = VK_COMPONENT_SWIZZLE_IDENTITY,
-                           .a = VK_COMPONENT_SWIZZLE_IDENTITY},
-            .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
-                                 .baseMipLevel = 0,
-                                 .levelCount = 1,
-                                 .baseArrayLayer = 0,
-                                 .layerCount = 1}
-        };
-        if (vkCreateImageView(device_, &viewInfo, nullptr, &depthImageViews_[i]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create depth image view.");
-        }
-    }
-
-}
-
-void VulkanContext::CreateCommandPool() {
-    const VkCommandPoolCreateInfo poolInfo{
-        .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-        .pNext = nullptr,
-        .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-        .queueFamilyIndex = graphicsQueueFamily_
-    };
-    if (!IsSuccess(vkCreateCommandPool(device_, &poolInfo, nullptr, &commandPool_))) {
-        throw std::runtime_error("Failed to create Vulkan command pool.");
-    }
-}
-
-void VulkanContext::CreateCommandBuffers() {
-    commandBuffers_.resize(MAX_FRAMES_IN_FLIGHT);
-    const VkCommandBufferAllocateInfo allocInfo{
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .pNext = nullptr,
-        .commandPool = commandPool_,
-        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandBufferCount = static_cast<std::uint32_t>(commandBuffers_.size())
-    };
-
-    if (!IsSuccess(vkAllocateCommandBuffers(device_, &allocInfo, commandBuffers_.data()))) {
-        throw std::runtime_error("Failed to allocate Vulkan command buffers.");
-    }
-}
-
-void VulkanContext::CreateSyncObjects() {
-    const VkSemaphoreCreateInfo semaphoreInfo{
-        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-        .pNext = nullptr,
-        .flags = 0
-    };
-    const VkFenceCreateInfo fenceInfo{
-        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-        .pNext = nullptr,
-        .flags = VK_FENCE_CREATE_SIGNALED_BIT
-    };
-
-    for (std::uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        if (!IsSuccess(vkCreateSemaphore(device_, &semaphoreInfo, nullptr, &imageAvailableSemaphores_[i])) ||
-            !IsSuccess(vkCreateSemaphore(device_, &semaphoreInfo, nullptr, &renderFinishedSemaphores_[i])) ||
-            !IsSuccess(vkCreateFence(device_, &fenceInfo, nullptr, &inFlightFences_[i]))) {
-            throw std::runtime_error("Failed to create Vulkan synchronization objects.");
-        }
-    }
-    syncObjectsCreated_ = true;
-    currentFrame_ = 0;
-}
-
-void VulkanContext::RecordCommandBuffer(const VkCommandBuffer commandBuffer, const std::uint32_t imageIndex) {
+void VulkanContext::RecordCommandBuffer(
+    const VkCommandBuffer commandBuffer,
+    const std::uint32_t imageIndex,
+    const std::uint32_t frameIndex
+) {
     const VkCommandBufferBeginInfo beginInfo{
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         .pNext = nullptr,
@@ -1018,8 +596,9 @@ void VulkanContext::RecordCommandBuffer(const VkCommandBuffer commandBuffer, con
         throw std::runtime_error("Failed to begin recording Vulkan command buffer.");
     }
 
+    VulkanRenderCommandBuffer renderCommandBuffer(commandBuffer);
     if (renderer_ != nullptr) {
-        renderer_->RecordShadowCommands(*this, commandBuffer, currentFrame_);
+        renderer_->RecordShadowCommands(*this, *frameManager_, renderCommandBuffer, frameIndex);
     }
 
     std::array<VkClearValue, 3> clearValues{};
@@ -1029,16 +608,16 @@ void VulkanContext::RecordCommandBuffer(const VkCommandBuffer commandBuffer, con
     const VkRenderPassBeginInfo sceneRenderPassInfo{
         .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
         .pNext = nullptr,
-        .renderPass = sceneRenderPass_,
-        .framebuffer = sceneFramebuffers_[imageIndex],
-        .renderArea = {.offset = {0, 0}, .extent = swapchainExtent_},
+        .renderPass = frameManager_->GetSceneRenderPass(),
+        .framebuffer = frameManager_->GetSceneFramebuffer(imageIndex),
+        .renderArea = {.offset = {0, 0}, .extent = frameManager_->GetSwapchainExtentVk()},
         .clearValueCount = static_cast<std::uint32_t>(clearValues.size()),
         .pClearValues = clearValues.data()
     };
 
     vkCmdBeginRenderPass(commandBuffer, &sceneRenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
     if (renderer_ != nullptr) {
-        renderer_->RecordDrawCommands(*this, commandBuffer, currentFrame_);
+        renderer_->RecordDrawCommands(*this, *frameManager_, renderCommandBuffer, frameIndex);
     }
     vkCmdEndRenderPass(commandBuffer);
 
@@ -1051,7 +630,7 @@ void VulkanContext::RecordCommandBuffer(const VkCommandBuffer commandBuffer, con
         .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .image = offscreenColorImages_[imageIndex],
+        .image = frameManager_->GetOffscreenColorImage(imageIndex),
         .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1}
     };
     const VkImageMemoryBarrier glowToSampleBarrier{
@@ -1063,7 +642,7 @@ void VulkanContext::RecordCommandBuffer(const VkCommandBuffer commandBuffer, con
         .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .image = offscreenGlowImages_[imageIndex],
+        .image = frameManager_->GetOffscreenGlowImage(imageIndex),
         .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1}
     };
     const std::array barriers{sceneToSampleBarrier, glowToSampleBarrier};
@@ -1088,26 +667,27 @@ void VulkanContext::RecordCommandBuffer(const VkCommandBuffer commandBuffer, con
     const VkRenderPassBeginInfo postRenderPassInfo{
         .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
         .pNext = nullptr,
-        .renderPass = postProcessRenderPass_,
-        .framebuffer = swapchainFramebuffers_[imageIndex],
-        .renderArea = {.offset = {0, 0}, .extent = swapchainExtent_},
+        .renderPass = frameManager_->GetPostProcessRenderPass(),
+        .framebuffer = frameManager_->GetSwapchainFramebuffer(imageIndex),
+        .renderArea = {.offset = {0, 0}, .extent = frameManager_->GetSwapchainExtentVk()},
         .clearValueCount = 1,
         .pClearValues = &postClearValue
     };
     vkCmdBeginRenderPass(commandBuffer, &postRenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
     if (postProcessRenderer_ != nullptr) {
+        const VkExtent2D extent = frameManager_->GetSwapchainExtentVk();
         const VkViewport viewport{
             .x = 0.0F,
             .y = 0.0F,
-            .width = static_cast<float>(swapchainExtent_.width),
-            .height = static_cast<float>(swapchainExtent_.height),
+            .width = static_cast<float>(extent.width),
+            .height = static_cast<float>(extent.height),
             .minDepth = 0.0F,
             .maxDepth = 1.0F
         };
-        const VkRect2D scissor{.offset = {0, 0}, .extent = swapchainExtent_};
+        const VkRect2D scissor{.offset = {0, 0}, .extent = extent};
         vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-        postProcessRenderer_->DrawComposite(*this, commandBuffer, imageIndex, currentFrame_);
+        postProcessRenderer_->DrawComposite(*this, commandBuffer, imageIndex, frameIndex);
     }
     vkCmdEndRenderPass(commandBuffer);
 
@@ -1117,162 +697,36 @@ void VulkanContext::RecordCommandBuffer(const VkCommandBuffer commandBuffer, con
 }
 
 void VulkanContext::RecreateSwapchain(const std::uint32_t width, const std::uint32_t height) {
-    if (device_ == VK_NULL_HANDLE || surface_ == VK_NULL_HANDLE || width == 0 || height == 0) {
+    if (device_ == VK_NULL_HANDLE || surface_ == VK_NULL_HANDLE || width == 0 || height == 0 || frameManager_ == nullptr) {
         return;
     }
-    vkDeviceWaitIdle(device_);
 
-    CleanupSwapchain();
-
-    CreateSwapchain(width, height);
-    CreateImageViews();
-    SelectOffscreenImageFormat();
-    CreateDepthResources();
-    CreateSceneRenderPass();
-    CreateOffscreenResources();
-    CreatePostProcessRenderPass();
-    CreateFramebuffers();
-    CreateCommandPool();
-    CreateCommandBuffers();
-
-    if (!syncObjectsCreated_) {
-        CreateSyncObjects();
+    if (renderer_ != nullptr) {
+        renderer_->DestroySwapchainResources(*this, *frameManager_);
     }
+    if (postProcessRenderer_ != nullptr) {
+        postProcessRenderer_->DestroySwapchainResources(*this);
+    }
+
+    frameManager_->Recreate(*this, surface_, width, height);
 
     if (renderer_ == nullptr) {
         renderer_ = std::make_unique<Renderer>();
-        renderer_->Initialize(*this);
+        renderer_->Initialize(*this, *frameManager_);
     } else {
-        renderer_->RecreateSwapchain(*this);
+        renderer_->RecreateSwapchain(*this, *frameManager_);
     }
     if (postProcessRenderer_ == nullptr) {
         postProcessRenderer_ = std::make_unique<PostProcessRenderer>();
-        postProcessRenderer_->Initialize(*this, offscreenColorImageViews_, offscreenGlowImageViews_, offscreenColorSampler_);
+        postProcessRenderer_->Initialize(*this, frameManager_->GetOffscreenColorImageViews(), frameManager_->GetOffscreenGlowImageViews(), frameManager_->GetOffscreenColorSampler());
     } else {
-        postProcessRenderer_->RecreateSwapchain(*this, offscreenColorImageViews_, offscreenGlowImageViews_, offscreenColorSampler_);
+        postProcessRenderer_->RecreateSwapchain(*this, frameManager_->GetOffscreenColorImageViews(), frameManager_->GetOffscreenGlowImageViews(), frameManager_->GetOffscreenColorSampler());
     }
     if (currentPlace_ != nullptr) {
         renderer_->BindToPlace(currentPlace_);
         postProcessRenderer_->BindToPlace(currentPlace_);
     }
     renderer_->SetOverlayPrimitives(overlayPrimitives_);
-}
-
-void VulkanContext::CleanupSwapchain() {
-    if (device_ == VK_NULL_HANDLE) {
-        return;
-    }
-
-    if (renderer_ != nullptr) {
-        renderer_->DestroySwapchainResources(*this);
-    }
-    if (postProcessRenderer_ != nullptr) {
-        postProcessRenderer_->DestroySwapchainResources(*this);
-    }
-
-    if (commandPool_ != VK_NULL_HANDLE) {
-        vkDestroyCommandPool(device_, commandPool_, nullptr);
-        commandPool_ = VK_NULL_HANDLE;
-        commandBuffers_.clear();
-    }
-
-    for (const auto framebuffer : sceneFramebuffers_) {
-        if (framebuffer != VK_NULL_HANDLE) {
-            vkDestroyFramebuffer(device_, framebuffer, nullptr);
-        }
-    }
-    sceneFramebuffers_.clear();
-
-    for (const auto framebuffer : swapchainFramebuffers_) {
-        if (framebuffer != VK_NULL_HANDLE) {
-            vkDestroyFramebuffer(device_, framebuffer, nullptr);
-        }
-    }
-    swapchainFramebuffers_.clear();
-
-    if (sceneRenderPass_ != VK_NULL_HANDLE) {
-        vkDestroyRenderPass(device_, sceneRenderPass_, nullptr);
-        sceneRenderPass_ = VK_NULL_HANDLE;
-    }
-    if (postProcessRenderPass_ != VK_NULL_HANDLE) {
-        vkDestroyRenderPass(device_, postProcessRenderPass_, nullptr);
-        postProcessRenderPass_ = VK_NULL_HANDLE;
-    }
-
-    for (const auto depthImageView : depthImageViews_) {
-        if (depthImageView != VK_NULL_HANDLE) {
-            vkDestroyImageView(device_, depthImageView, nullptr);
-        }
-    }
-    depthImageViews_.clear();
-    for (const auto depthImage : depthImages_) {
-        if (depthImage != VK_NULL_HANDLE) {
-            vkDestroyImage(device_, depthImage, nullptr);
-        }
-    }
-    depthImages_.clear();
-    for (const auto depthMemory : depthMemories_) {
-        if (depthMemory != VK_NULL_HANDLE) {
-            vkFreeMemory(device_, depthMemory, nullptr);
-        }
-    }
-    depthMemories_.clear();
-    depthFormat_ = VK_FORMAT_UNDEFINED;
-
-    if (offscreenColorSampler_ != VK_NULL_HANDLE) {
-        vkDestroySampler(device_, offscreenColorSampler_, nullptr);
-        offscreenColorSampler_ = VK_NULL_HANDLE;
-    }
-    for (const auto offscreenView : offscreenColorImageViews_) {
-        if (offscreenView != VK_NULL_HANDLE) {
-            vkDestroyImageView(device_, offscreenView, nullptr);
-        }
-    }
-    offscreenColorImageViews_.clear();
-    for (const auto offscreenView : offscreenGlowImageViews_) {
-        if (offscreenView != VK_NULL_HANDLE) {
-            vkDestroyImageView(device_, offscreenView, nullptr);
-        }
-    }
-    offscreenGlowImageViews_.clear();
-    for (const auto offscreenImage : offscreenColorImages_) {
-        if (offscreenImage != VK_NULL_HANDLE) {
-            vkDestroyImage(device_, offscreenImage, nullptr);
-        }
-    }
-    offscreenColorImages_.clear();
-    for (const auto offscreenImage : offscreenGlowImages_) {
-        if (offscreenImage != VK_NULL_HANDLE) {
-            vkDestroyImage(device_, offscreenImage, nullptr);
-        }
-    }
-    offscreenGlowImages_.clear();
-    for (const auto offscreenMemory : offscreenColorMemories_) {
-        if (offscreenMemory != VK_NULL_HANDLE) {
-            vkFreeMemory(device_, offscreenMemory, nullptr);
-        }
-    }
-    offscreenColorMemories_.clear();
-    for (const auto offscreenMemory : offscreenGlowMemories_) {
-        if (offscreenMemory != VK_NULL_HANDLE) {
-            vkFreeMemory(device_, offscreenMemory, nullptr);
-        }
-    }
-    offscreenGlowMemories_.clear();
-    offscreenImageFormat_ = VK_FORMAT_UNDEFINED;
-
-    for (const auto imageView : swapchainImageViews_) {
-        if (imageView != VK_NULL_HANDLE) {
-            vkDestroyImageView(device_, imageView, nullptr);
-        }
-    }
-    swapchainImageViews_.clear();
-    swapchainImages_.clear();
-
-    if (swapchain_ != VK_NULL_HANDLE) {
-        vkDestroySwapchainKHR(device_, swapchain_, nullptr);
-        swapchain_ = VK_NULL_HANDLE;
-    }
 }
 
 void VulkanContext::CleanupDeviceAndSurface() {
@@ -1288,9 +742,9 @@ void VulkanContext::CleanupDeviceAndSurface() {
         postProcessRenderer_->Shutdown(*this);
         postProcessRenderer_.reset();
     }
-
-    CleanupSyncObjects();
-    CleanupSwapchain();
+    if (frameManager_ != nullptr && device_ != VK_NULL_HANDLE) {
+        frameManager_->Cleanup(*this);
+    }
 
     if (device_ != VK_NULL_HANDLE) {
         vkDestroyDevice(device_, nullptr);
@@ -1304,29 +758,6 @@ void VulkanContext::CleanupDeviceAndSurface() {
         vkDestroySurfaceKHR(instance_, surface_, nullptr);
         surface_ = VK_NULL_HANDLE;
     }
-}
-
-void VulkanContext::CleanupSyncObjects() {
-    if (!syncObjectsCreated_ || device_ == VK_NULL_HANDLE) {
-        return;
-    }
-
-    for (std::uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        if (imageAvailableSemaphores_[i] != VK_NULL_HANDLE) {
-            vkDestroySemaphore(device_, imageAvailableSemaphores_[i], nullptr);
-            imageAvailableSemaphores_[i] = VK_NULL_HANDLE;
-        }
-        if (renderFinishedSemaphores_[i] != VK_NULL_HANDLE) {
-            vkDestroySemaphore(device_, renderFinishedSemaphores_[i], nullptr);
-            renderFinishedSemaphores_[i] = VK_NULL_HANDLE;
-        }
-        if (inFlightFences_[i] != VK_NULL_HANDLE) {
-            vkDestroyFence(device_, inFlightFences_[i], nullptr);
-            inFlightFences_[i] = VK_NULL_HANDLE;
-        }
-    }
-
-    syncObjectsCreated_ = false;
 }
 
 bool VulkanContext::IsPhysicalDeviceSuitable(const VkPhysicalDevice device) const {
@@ -1385,3 +816,4 @@ std::uint32_t VulkanContext::FindGraphicsPresentQueueFamily(const VkPhysicalDevi
 }
 
 } // namespace Lvs::Engine::Rendering::Vulkan
+

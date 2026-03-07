@@ -4,8 +4,7 @@
 
 #include <array>
 #include <cstdint>
-
-class QString;
+#include <filesystem>
 
 namespace Lvs::Engine::Rendering::Vulkan::CubemapUtils {
 
@@ -23,7 +22,7 @@ CubemapHandle CreateCubemapFromPaths(
     VkDevice device,
     VkQueue queue,
     std::uint32_t queueFamilyIndex,
-    const std::array<QString, 6>& facePaths,
+    const std::array<std::filesystem::path, 6>& facePaths,
     bool linearFiltering,
     int resolutionCap,
     bool compression
@@ -34,7 +33,7 @@ CubemapHandle CreateCubemapFromCrossPath(
     VkDevice device,
     VkQueue queue,
     std::uint32_t queueFamilyIndex,
-    const QString& crossPath,
+    const std::filesystem::path& crossPath,
     bool linearFiltering,
     int resolutionCap,
     bool compression

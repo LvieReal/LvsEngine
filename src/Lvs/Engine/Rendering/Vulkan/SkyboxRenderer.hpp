@@ -1,17 +1,17 @@
 #pragma once
 
 #include "Lvs/Engine/Math/Color3.hpp"
+#include "Lvs/Engine/Core/Instance.hpp"
+#include "Lvs/Engine/Rendering/Common/Mesh.hpp"
+#include "Lvs/Engine/Rendering/Common/PipelineVariant.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanCubemapUtils.hpp"
-#include "Lvs/Engine/Utils/Signal.hpp"
 
 #include <vulkan/vulkan.h>
-
-#include <QString>
-#include <QVariant>
 
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 namespace Lvs::Engine::DataModel {
@@ -26,7 +26,6 @@ class Skybox;
 
 namespace Lvs::Engine::Rendering::Vulkan {
 
-class Mesh;
 class VulkanContext;
 
 class SkyboxRenderer final {
@@ -56,28 +55,30 @@ private:
     void CreateDescriptorSetLayout(VulkanContext& context);
     void CreatePipelineLayout(VulkanContext& context);
     void CreateGraphicsPipeline(VulkanContext& context);
+    VkPipeline CreateGraphicsPipelineVariant(VulkanContext& context, const Common::PipelineVariantKey& key);
     void CreateDescriptorPool(VulkanContext& context);
     void CreateDescriptorSets(VulkanContext& context);
     void UpdateDescriptorSets(VulkanContext& context);
     void DestroySwapchainResources(VulkanContext& context);
     void UpdateSkyFromPlace();
+    [[nodiscard]] VkPipeline GetPipeline(const Common::PipelineVariantKey& key) const;
 
     std::shared_ptr<DataModel::Lighting> GetLighting() const;
     std::shared_ptr<Objects::Skybox> GetSkybox(const std::shared_ptr<DataModel::Lighting>& lighting) const;
 
     std::shared_ptr<DataModel::Place> place_;
-    std::shared_ptr<Mesh> skyboxMesh_;
+    std::shared_ptr<Common::Mesh> skyboxMesh_;
 
     VkDescriptorSetLayout descriptorSetLayout_{VK_NULL_HANDLE};
     VkPipelineLayout pipelineLayout_{VK_NULL_HANDLE};
-    VkPipeline pipeline_{VK_NULL_HANDLE};
+    std::unordered_map<Common::PipelineVariantKey, VkPipeline, Common::PipelineVariantKeyHash> pipelineVariants_;
     VkDescriptorPool descriptorPool_{VK_NULL_HANDLE};
     std::vector<VkDescriptorSet> descriptorSets_;
 
     CubemapUtils::CubemapHandle cubemap_;
     std::shared_ptr<Objects::Skybox> activeSkybox_;
     Math::Color3 skyTint_{1.0, 1.0, 1.0};
-    std::optional<Engine::Utils::Signal<const QString&, const QVariant&>::Connection> skyboxPropertyConnection_;
+    std::optional<Engine::Core::Instance::PropertyInvalidatedConnection> skyboxPropertyConnection_;
     bool skyboxDirty_{true};
     bool initialized_{false};
 };

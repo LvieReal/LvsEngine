@@ -9,20 +9,22 @@
 #include "Lvs/Engine/Math/Vector3.hpp"
 #include "Lvs/Engine/Objects/Camera.hpp"
 #include "Lvs/Engine/Objects/DirectionalLight.hpp"
-#include "Lvs/Engine/Rendering/Vulkan/Mesh.hpp"
+#include "Lvs/Engine/Rendering/Common/Mesh.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/RenderPartProxy.hpp"
-#include "Lvs/Engine/Rendering/Vulkan/Vertex.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/VulkanGpuResources.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/VulkanVertexLayout.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanContext.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanShaderUtils.hpp"
-#include "Lvs/Engine/Utils/SourcePath.hpp"
-
-#include <QFileInfo>
+#include "Lvs/Engine/Utils/FileIO.hpp"
+#include "Lvs/Engine/Utils/PathUtils.hpp"
 
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
 #include <algorithm>
 #include <stdexcept>
+#include <unordered_map>
 #include <vector>
 
 namespace Lvs::Engine::Rendering::Vulkan {
@@ -42,7 +44,54 @@ void Normalize3(float values[3]) {
     values[2] /= length;
 }
 
+Common::PipelineCullMode ToPipelineCullMode(const Enums::MeshCullMode cullMode) {
+    switch (cullMode) {
+        case Enums::MeshCullMode::NoCull:
+            return Common::PipelineCullMode::None;
+        case Enums::MeshCullMode::Front:
+            return Common::PipelineCullMode::Front;
+        case Enums::MeshCullMode::Back:
+        default:
+            return Common::PipelineCullMode::Back;
+    }
+}
+
+VkCullModeFlags ToVkCullMode(const Common::PipelineCullMode cullMode) {
+    switch (cullMode) {
+        case Common::PipelineCullMode::None:
+            return VK_CULL_MODE_NONE;
+        case Common::PipelineCullMode::Front:
+            return VK_CULL_MODE_FRONT_BIT;
+        case Common::PipelineCullMode::Back:
+        default:
+            return VK_CULL_MODE_BACK_BIT;
+    }
+}
+
 } // namespace
+
+Renderer::Renderer()
+    : meshCache_(meshUploader_) {
+}
+
+void Renderer::Initialize(Common::GraphicsContext& context, const Common::RenderSurface& surface) {
+    static_cast<void>(surface);
+    Initialize(static_cast<VulkanContext&>(context));
+}
+
+void Renderer::RecreateSwapchain(Common::GraphicsContext& context, const Common::RenderSurface& surface) {
+    static_cast<void>(surface);
+    RecreateSwapchain(static_cast<VulkanContext&>(context));
+}
+
+void Renderer::DestroySwapchainResources(Common::GraphicsContext& context, const Common::RenderSurface& surface) {
+    static_cast<void>(surface);
+    DestroySwapchainResources(static_cast<VulkanContext&>(context));
+}
+
+void Renderer::Shutdown(Common::GraphicsContext& context) {
+    Shutdown(static_cast<VulkanContext&>(context));
+}
 
 void Renderer::Initialize(VulkanContext& context) {
     context_ = &context;
@@ -80,38 +129,13 @@ void Renderer::RecreateSwapchain(VulkanContext& context) {
 
 void Renderer::DestroySwapchainResources(VulkanContext& context) {
     const VkDevice device = context.GetDevice();
-    if (graphicsPipelineBackCull_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(device, graphicsPipelineBackCull_, nullptr);
-        graphicsPipelineBackCull_ = VK_NULL_HANDLE;
+    for (auto& [key, pipeline] : pipelineVariants_) {
+        static_cast<void>(key);
+        if (pipeline != VK_NULL_HANDLE) {
+            vkDestroyPipeline(device, pipeline, nullptr);
+        }
     }
-    if (graphicsPipelineFrontCull_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(device, graphicsPipelineFrontCull_, nullptr);
-        graphicsPipelineFrontCull_ = VK_NULL_HANDLE;
-    }
-    if (graphicsPipelineNoCull_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(device, graphicsPipelineNoCull_, nullptr);
-        graphicsPipelineNoCull_ = VK_NULL_HANDLE;
-    }
-    if (transparentPipelineBackCull_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(device, transparentPipelineBackCull_, nullptr);
-        transparentPipelineBackCull_ = VK_NULL_HANDLE;
-    }
-    if (transparentPipelineFrontCull_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(device, transparentPipelineFrontCull_, nullptr);
-        transparentPipelineFrontCull_ = VK_NULL_HANDLE;
-    }
-    if (transparentPipelineNoCull_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(device, transparentPipelineNoCull_, nullptr);
-        transparentPipelineNoCull_ = VK_NULL_HANDLE;
-    }
-    if (alwaysOnTopPipelineBackCull_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(device, alwaysOnTopPipelineBackCull_, nullptr);
-        alwaysOnTopPipelineBackCull_ = VK_NULL_HANDLE;
-    }
-    if (alwaysOnTopPipelineNoCull_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(device, alwaysOnTopPipelineNoCull_, nullptr);
-        alwaysOnTopPipelineNoCull_ = VK_NULL_HANDLE;
-    }
+    pipelineVariants_.clear();
 }
 
 void Renderer::Shutdown(VulkanContext& context) {
@@ -148,7 +172,7 @@ void Renderer::Shutdown(VulkanContext& context) {
         descriptorSetLayout_ = VK_NULL_HANDLE;
     }
 
-    meshCache_.Destroy(device);
+    meshCache_.Clear();
     initialized_ = false;
 }
 
@@ -167,17 +191,22 @@ void Renderer::Unbind() {
     overlayPrimitives_.clear();
 }
 
-void Renderer::SetOverlayPrimitives(std::vector<OverlayPrimitive> primitives) {
+void Renderer::SetOverlayPrimitives(std::vector<Rendering::Common::OverlayPrimitive> primitives) {
     overlayPrimitives_ = std::move(primitives);
 }
 
 void Renderer::RecordShadowCommands(
-    VulkanContext& context,
-    const VkCommandBuffer commandBuffer,
+    Common::GraphicsContext& context,
+    const Common::RenderSurface& surface,
+    Common::CommandBuffer& commandBuffer,
     const std::uint32_t frameIndex
 ) {
+    static_cast<void>(surface);
     static_cast<void>(frameIndex);
-    context_ = &context;
+    auto& vkContext = static_cast<VulkanContext&>(context);
+    auto& vkCommandBuffer = dynamic_cast<VulkanRenderCommandBuffer&>(commandBuffer);
+    const VkCommandBuffer nativeCommandBuffer = vkCommandBuffer.GetHandle();
+    context_ = &vkContext;
     if (!initialized_ || place_ == nullptr || workspace_ == nullptr) {
         return;
     }
@@ -186,7 +215,7 @@ void Renderer::RecordShadowCommands(
     if (camera == nullptr) {
         return;
     }
-    camera->Resize(GetAspect(context));
+    camera->Resize(GetAspect(vkContext));
 
     const auto cameraPosition = camera->GetProperty("CFrame").value<Math::CFrame>().Position;
     scene_.BuildDrawLists(*this, cameraPosition);
@@ -215,23 +244,27 @@ void Renderer::RecordShadowCommands(
     }
 
     shadowRenderer_.Render(
-        context,
-        commandBuffer,
+        vkContext,
+        nativeCommandBuffer,
         scene_.GetOpaqueProxies(),
         *camera,
         lightDirection,
-        GetAspect(context),
+        GetAspect(vkContext),
         shadowSettings
     );
 }
 
 void Renderer::RecordDrawCommands(
-    VulkanContext& context,
-    const VkCommandBuffer commandBuffer,
+    Common::GraphicsContext& context,
+    const Common::RenderSurface& surface,
+    Common::CommandBuffer& commandBuffer,
     const std::uint32_t frameIndex
 ) {
-    context_ = &context;
-    if (!initialized_ || place_ == nullptr || workspace_ == nullptr || graphicsPipelineBackCull_ == VK_NULL_HANDLE) {
+    auto& vkContext = static_cast<VulkanContext&>(context);
+    auto& vkCommandBuffer = dynamic_cast<VulkanRenderCommandBuffer&>(commandBuffer);
+    const VkCommandBuffer nativeCommandBuffer = vkCommandBuffer.GetHandle();
+    context_ = &vkContext;
+    if (!initialized_ || place_ == nullptr || workspace_ == nullptr || pipelineVariants_.empty()) {
         return;
     }
 
@@ -239,9 +272,10 @@ void Renderer::RecordDrawCommands(
     if (camera == nullptr) {
         return;
     }
-    camera->Resize(GetAspect(context));
+    camera->Resize(GetAspect(vkContext));
 
-    const VkExtent2D extent = context.GetSwapchainExtent();
+    const auto extentInfo = surface.GetExtent();
+    const VkExtent2D extent{extentInfo.Width, extentInfo.Height};
     const VkViewport viewport{
         .x = 0.0F,
         .y = 0.0F,
@@ -254,17 +288,17 @@ void Renderer::RecordDrawCommands(
         .offset = {0, 0},
         .extent = extent
     };
-    vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
-    vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+    vkCmdSetViewport(nativeCommandBuffer, 0, 1, &viewport);
+    vkCmdSetScissor(nativeCommandBuffer, 0, 1, &scissor);
 
-    skyboxRenderer_.UpdateResources(context);
-    UpdateMainSkyDescriptorSets(context);
-    UpdateShadowDescriptorSets(context);
-    UpdateSurfaceDescriptorSets(context);
-    UpdateCameraUniformAndLighting(context, frameIndex);
+    skyboxRenderer_.UpdateResources(vkContext);
+    UpdateMainSkyDescriptorSets(vkContext);
+    UpdateShadowDescriptorSets(vkContext);
+    UpdateSurfaceDescriptorSets(vkContext);
+    UpdateCameraUniformAndLighting(vkContext, frameIndex);
 
     vkCmdBindDescriptorSets(
-        commandBuffer,
+        nativeCommandBuffer,
         VK_PIPELINE_BIND_POINT_GRAPHICS,
         pipelineLayout_,
         0,
@@ -277,14 +311,14 @@ void Renderer::RecordDrawCommands(
     const auto cameraPosition = camera->GetProperty("CFrame").value<Math::CFrame>().Position;
     scene_.BuildDrawLists(*this, cameraPosition);
     scene_.DrawOpaque(commandBuffer, *this);
-    skyboxRenderer_.Draw(context, commandBuffer, frameIndex, *camera);
+    skyboxRenderer_.Draw(vkContext, nativeCommandBuffer, frameIndex, *camera);
     scene_.DrawTransparent(commandBuffer, *this);
     for (const auto& primitive : overlayPrimitives_) {
         DrawOverlayPrimitive(commandBuffer, primitive);
     }
 }
 
-MeshCache& Renderer::GetMeshCache() {
+Common::MeshCache& Renderer::GetMeshCache() {
     return meshCache_;
 }
 
@@ -375,35 +409,47 @@ void Renderer::CreatePipelineLayout(VulkanContext& context) {
 }
 
 void Renderer::CreateGraphicsPipeline(VulkanContext& context) {
-    graphicsPipelineBackCull_ =
-        CreateGraphicsPipelineVariant(context, VK_CULL_MODE_BACK_BIT, true, true, VK_COMPARE_OP_GREATER_OR_EQUAL, false);
-    graphicsPipelineFrontCull_ =
-        CreateGraphicsPipelineVariant(context, VK_CULL_MODE_FRONT_BIT, true, true, VK_COMPARE_OP_GREATER_OR_EQUAL, false);
-    graphicsPipelineNoCull_ =
-        CreateGraphicsPipelineVariant(context, VK_CULL_MODE_NONE, true, true, VK_COMPARE_OP_GREATER_OR_EQUAL, false);
-    transparentPipelineBackCull_ =
-        CreateGraphicsPipelineVariant(context, VK_CULL_MODE_BACK_BIT, true, false, VK_COMPARE_OP_GREATER_OR_EQUAL, true);
-    transparentPipelineFrontCull_ =
-        CreateGraphicsPipelineVariant(context, VK_CULL_MODE_FRONT_BIT, true, false, VK_COMPARE_OP_GREATER_OR_EQUAL, true);
-    transparentPipelineNoCull_ =
-        CreateGraphicsPipelineVariant(context, VK_CULL_MODE_NONE, true, false, VK_COMPARE_OP_GREATER_OR_EQUAL, true);
-    alwaysOnTopPipelineBackCull_ =
-        CreateGraphicsPipelineVariant(context, VK_CULL_MODE_BACK_BIT, false, false, VK_COMPARE_OP_ALWAYS, true);
-    alwaysOnTopPipelineNoCull_ =
-        CreateGraphicsPipelineVariant(context, VK_CULL_MODE_NONE, false, false, VK_COMPARE_OP_ALWAYS, true);
+    pipelineVariants_.clear();
+
+    const std::array variantKeys{
+        Common::PipelineVariantKey{.CullMode = Common::PipelineCullMode::Back,
+                                   .DepthMode = Common::PipelineDepthMode::ReadWrite,
+                                   .BlendMode = Common::PipelineBlendMode::Opaque},
+        Common::PipelineVariantKey{.CullMode = Common::PipelineCullMode::Front,
+                                   .DepthMode = Common::PipelineDepthMode::ReadWrite,
+                                   .BlendMode = Common::PipelineBlendMode::Opaque},
+        Common::PipelineVariantKey{.CullMode = Common::PipelineCullMode::None,
+                                   .DepthMode = Common::PipelineDepthMode::ReadWrite,
+                                   .BlendMode = Common::PipelineBlendMode::Opaque},
+        Common::PipelineVariantKey{.CullMode = Common::PipelineCullMode::Back,
+                                   .DepthMode = Common::PipelineDepthMode::ReadOnly,
+                                   .BlendMode = Common::PipelineBlendMode::AlphaBlend},
+        Common::PipelineVariantKey{.CullMode = Common::PipelineCullMode::Front,
+                                   .DepthMode = Common::PipelineDepthMode::ReadOnly,
+                                   .BlendMode = Common::PipelineBlendMode::AlphaBlend},
+        Common::PipelineVariantKey{.CullMode = Common::PipelineCullMode::None,
+                                   .DepthMode = Common::PipelineDepthMode::ReadOnly,
+                                   .BlendMode = Common::PipelineBlendMode::AlphaBlend},
+        Common::PipelineVariantKey{.CullMode = Common::PipelineCullMode::Back,
+                                   .DepthMode = Common::PipelineDepthMode::Disabled,
+                                   .BlendMode = Common::PipelineBlendMode::AlphaBlend},
+        Common::PipelineVariantKey{.CullMode = Common::PipelineCullMode::Front,
+                                   .DepthMode = Common::PipelineDepthMode::Disabled,
+                                   .BlendMode = Common::PipelineBlendMode::AlphaBlend},
+        Common::PipelineVariantKey{.CullMode = Common::PipelineCullMode::None,
+                                   .DepthMode = Common::PipelineDepthMode::Disabled,
+                                   .BlendMode = Common::PipelineBlendMode::AlphaBlend}
+    };
+
+    for (const auto& key : variantKeys) {
+        pipelineVariants_.emplace(key, CreateGraphicsPipelineVariant(context, key));
+    }
 }
 
-VkPipeline Renderer::CreateGraphicsPipelineVariant(
-    VulkanContext& context,
-    const VkCullModeFlags cullMode,
-    const bool depthTest,
-    const bool depthWrite,
-    const VkCompareOp depthCompare,
-    const bool enableBlending
-) {
+VkPipeline Renderer::CreateGraphicsPipelineVariant(VulkanContext& context, const Common::PipelineVariantKey& key) {
     const VkDevice device = context.GetDevice();
-    const QString vertPath = Utils::SourcePath::GetResourcePath("Shaders/Vulkan/Main.vert.spv");
-    const QString fragPath = Utils::SourcePath::GetResourcePath("Shaders/Vulkan/Main.frag.spv");
+    const auto vertPath = Utils::PathUtils::GetResourcePath("Shaders/Vulkan/Main.vert.spv");
+    const auto fragPath = Utils::PathUtils::GetResourcePath("Shaders/Vulkan/Main.frag.spv");
 
     const auto vertCode = ShaderUtils::ReadBinaryFile(vertPath);
     const auto fragCode = ShaderUtils::ReadBinaryFile(fragPath);
@@ -430,8 +476,8 @@ VkPipeline Renderer::CreateGraphicsPipelineVariant(
     };
     const VkPipelineShaderStageCreateInfo stages[] = {vertStage, fragStage};
 
-    const auto binding = Vertex::BindingDescription();
-    const auto attributes = Vertex::AttributeDescriptions();
+    const auto binding = VulkanVertexLayout::BindingDescription();
+    const auto attributes = VulkanVertexLayout::AttributeDescriptions();
     const VkPipelineVertexInputStateCreateInfo vertexInput{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
         .pNext = nullptr,
@@ -464,7 +510,7 @@ VkPipeline Renderer::CreateGraphicsPipelineVariant(
         .depthClampEnable = VK_FALSE,
         .rasterizerDiscardEnable = VK_FALSE,
         .polygonMode = VK_POLYGON_MODE_FILL,
-        .cullMode = cullMode,
+        .cullMode = ToVkCullMode(key.CullMode),
         .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
         .depthBiasEnable = VK_FALSE,
         .depthBiasConstantFactor = 0.0F,
@@ -487,9 +533,10 @@ VkPipeline Renderer::CreateGraphicsPipelineVariant(
         .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
         .pNext = nullptr,
         .flags = 0,
-        .depthTestEnable = depthTest ? VK_TRUE : VK_FALSE,
-        .depthWriteEnable = depthWrite ? VK_TRUE : VK_FALSE,
-        .depthCompareOp = depthCompare,
+        .depthTestEnable = key.DepthMode == Common::PipelineDepthMode::Disabled ? VK_FALSE : VK_TRUE,
+        .depthWriteEnable = key.DepthMode == Common::PipelineDepthMode::ReadWrite ? VK_TRUE : VK_FALSE,
+        .depthCompareOp = key.DepthMode == Common::PipelineDepthMode::Disabled ? VK_COMPARE_OP_ALWAYS
+                                                                                : VK_COMPARE_OP_GREATER_OR_EQUAL,
         .depthBoundsTestEnable = VK_FALSE,
         .stencilTestEnable = VK_FALSE,
         .front = {},
@@ -498,7 +545,7 @@ VkPipeline Renderer::CreateGraphicsPipelineVariant(
         .maxDepthBounds = 1.0F
     };
     const VkPipelineColorBlendAttachmentState sceneBlendAttachment{
-        .blendEnable = enableBlending ? VK_TRUE : VK_FALSE,
+        .blendEnable = key.BlendMode == Common::PipelineBlendMode::AlphaBlend ? VK_TRUE : VK_FALSE,
         .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
         .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
         .colorBlendOp = VK_BLEND_OP_ADD,
@@ -743,7 +790,7 @@ void Renderer::CreateSurfaceTextures(VulkanContext& context) {
     const auto queue = context.GetGraphicsQueue();
     const auto queueFamily = context.GetGraphicsQueueFamily();
 
-    const QString atlasPath = Utils::SourcePath::GetResourcePath("Surfaces/Surfaces2.png");
+    const auto atlasPath = Utils::PathUtils::GetResourcePath("Surfaces/Surfaces2.png");
     surfaceAtlas_ = TextureUtils::CreateTexture2DFromPath(
         physicalDevice,
         device,
@@ -755,8 +802,8 @@ void Renderer::CreateSurfaceTextures(VulkanContext& context) {
         VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE
     );
 
-    const QString normalAtlasPath = Utils::SourcePath::GetResourcePath("Surfaces/Surfaces2_normals.png");
-    hasSurfaceNormalAtlas_ = QFileInfo::exists(normalAtlasPath);
+    const auto normalAtlasPath = Utils::PathUtils::GetResourcePath("Surfaces/Surfaces2_normals.png");
+    hasSurfaceNormalAtlas_ = Utils::FileIO::Exists(normalAtlasPath);
     if (hasSurfaceNormalAtlas_) {
         surfaceNormalAtlas_ = TextureUtils::CreateTexture2DFromPath(
             physicalDevice,
@@ -1011,41 +1058,19 @@ float Renderer::GetAspect(const VulkanContext& context) const {
     return static_cast<float>(extent.width) / static_cast<float>(extent.height);
 }
 
-void Renderer::DrawPart(const VkCommandBuffer commandBuffer, const RenderPartProxy& proxy, const bool transparent) {
-    auto mesh = proxy.GetMesh();
+void Renderer::DrawPart(Common::CommandBuffer& commandBuffer, const RenderPartProxy& proxy, const bool transparent) {
+    auto& vkCommandBuffer = dynamic_cast<VulkanRenderCommandBuffer&>(commandBuffer);
+    const auto mesh = std::dynamic_pointer_cast<Common::Mesh>(proxy.GetMesh());
     if (mesh == nullptr) {
         return;
     }
 
-    VkPipeline selectedPipeline = graphicsPipelineBackCull_;
-    if (!transparent) {
-        switch (proxy.GetCullMode()) {
-            case Enums::MeshCullMode::NoCull:
-                selectedPipeline = graphicsPipelineNoCull_;
-                break;
-            case Enums::MeshCullMode::Front:
-                selectedPipeline = graphicsPipelineFrontCull_;
-                break;
-            case Enums::MeshCullMode::Back:
-            default:
-                selectedPipeline = graphicsPipelineBackCull_;
-                break;
-        }
-    } else {
-        switch (proxy.GetCullMode()) {
-            case Enums::MeshCullMode::NoCull:
-                selectedPipeline = transparentPipelineNoCull_;
-                break;
-            case Enums::MeshCullMode::Front:
-                selectedPipeline = transparentPipelineFrontCull_;
-                break;
-            case Enums::MeshCullMode::Back:
-            default:
-                selectedPipeline = transparentPipelineBackCull_;
-                break;
-        }
-    }
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, selectedPipeline);
+    const Common::PipelineVariantKey pipelineKey{
+        .CullMode = ToPipelineCullMode(proxy.GetCullMode()),
+        .DepthMode = transparent ? Common::PipelineDepthMode::ReadOnly : Common::PipelineDepthMode::ReadWrite,
+        .BlendMode = transparent ? Common::PipelineBlendMode::AlphaBlend : Common::PipelineBlendMode::Opaque
+    };
+    vkCmdBindPipeline(vkCommandBuffer.GetHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, GetPipeline(pipelineKey));
 
     PushConstants push{};
     const auto model = proxy.GetModelMatrix().FlattenColumnMajor();
@@ -1071,7 +1096,7 @@ void Renderer::DrawPart(const VkCommandBuffer commandBuffer, const RenderPartPro
     push.SurfaceData1[3] = hasSurfaceNormalAtlas_ ? 1.0F : 0.0F;
 
     vkCmdPushConstants(
-        commandBuffer,
+        vkCommandBuffer.GetHandle(),
         pipelineLayout_,
         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
         0,
@@ -1082,19 +1107,26 @@ void Renderer::DrawPart(const VkCommandBuffer commandBuffer, const RenderPartPro
     if (context_ == nullptr) {
         return;
     }
-    mesh->EnsureUploaded(context_->GetPhysicalDevice(), context_->GetDevice());
+    mesh->EnsureUploaded(*context_);
     mesh->Draw(commandBuffer);
 }
 
-void Renderer::DrawOverlayPrimitive(const VkCommandBuffer commandBuffer, const OverlayPrimitive& primitive) {
-    const auto mesh = meshCache_.GetPrimitive(primitive.Shape);
+void Renderer::DrawOverlayPrimitive(
+    Common::CommandBuffer& commandBuffer,
+    const Rendering::Common::OverlayPrimitive& primitive
+) {
+    auto& vkCommandBuffer = dynamic_cast<VulkanRenderCommandBuffer&>(commandBuffer);
+    const auto mesh = std::dynamic_pointer_cast<Common::Mesh>(meshCache_.GetPrimitive(primitive.Shape));
     if (mesh == nullptr || context_ == nullptr) {
         return;
     }
 
-    const VkPipeline pipeline =
-        primitive.AlwaysOnTop ? alwaysOnTopPipelineNoCull_ : transparentPipelineNoCull_;
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+    const Common::PipelineVariantKey pipelineKey{
+        .CullMode = Common::PipelineCullMode::None,
+        .DepthMode = primitive.AlwaysOnTop ? Common::PipelineDepthMode::Disabled : Common::PipelineDepthMode::ReadOnly,
+        .BlendMode = Common::PipelineBlendMode::AlphaBlend
+    };
+    vkCmdBindPipeline(vkCommandBuffer.GetHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, GetPipeline(pipelineKey));
 
     PushConstants push{};
     const auto model = primitive.Model.FlattenColumnMajor();
@@ -1119,7 +1151,7 @@ void Renderer::DrawOverlayPrimitive(const VkCommandBuffer commandBuffer, const O
     push.SurfaceData1[3] = 0.0F;
 
     vkCmdPushConstants(
-        commandBuffer,
+        vkCommandBuffer.GetHandle(),
         pipelineLayout_,
         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
         0,
@@ -1127,8 +1159,16 @@ void Renderer::DrawOverlayPrimitive(const VkCommandBuffer commandBuffer, const O
         &push
     );
 
-    mesh->EnsureUploaded(context_->GetPhysicalDevice(), context_->GetDevice());
+    mesh->EnsureUploaded(*context_);
     mesh->Draw(commandBuffer);
+}
+
+VkPipeline Renderer::GetPipeline(const Common::PipelineVariantKey& key) const {
+    const auto it = pipelineVariants_.find(key);
+    if (it == pipelineVariants_.end() || it->second == VK_NULL_HANDLE) {
+        throw std::runtime_error("Requested graphics pipeline variant is not available.");
+    }
+    return it->second;
 }
 
 } // namespace Lvs::Engine::Rendering::Vulkan

@@ -4,7 +4,7 @@
 #include "Lvs/Engine/Math/Color3.hpp"
 #include "Lvs/Engine/Math/Matrix4.hpp"
 
-namespace Lvs::Engine::Rendering::Vulkan {
+namespace Lvs::Engine::Rendering::Common {
 
 struct OverlayPrimitive {
     Math::Matrix4 Model{Math::Matrix4::Identity()};
@@ -18,4 +18,4 @@ struct OverlayPrimitive {
     bool AlwaysOnTop{true};
 };
 
-} // namespace Lvs::Engine::Rendering::Vulkan
+} // namespace Lvs::Engine::Rendering::Common

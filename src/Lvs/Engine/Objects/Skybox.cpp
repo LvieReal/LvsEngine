@@ -17,7 +17,7 @@ Core::ClassDescriptor& Skybox::Descriptor() {
 
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<QString>(
             "RightTexture",
-            Utils::SourcePath::GetResourcePath("Sky/nullsky/null_plainsky512_rt.jpg"),
+            Utils::SourcePath::GetResourcePath("Sky/nullsky/RT.png"),
             true,
             "Textures",
             {},
@@ -26,7 +26,7 @@ Core::ClassDescriptor& Skybox::Descriptor() {
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<QString>(
             "LeftTexture",
-            Utils::SourcePath::GetResourcePath("Sky/nullsky/null_plainsky512_lf.jpg"),
+            Utils::SourcePath::GetResourcePath("Sky/nullsky/LF.png"),
             true,
             "Textures",
             {},
@@ -35,7 +35,7 @@ Core::ClassDescriptor& Skybox::Descriptor() {
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<QString>(
             "UpTexture",
-            Utils::SourcePath::GetResourcePath("Sky/nullsky/null_plainsky512_up.jpg"),
+            Utils::SourcePath::GetResourcePath("Sky/nullsky/UP.png"),
             true,
             "Textures",
             {},
@@ -44,7 +44,7 @@ Core::ClassDescriptor& Skybox::Descriptor() {
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<QString>(
             "DownTexture",
-            Utils::SourcePath::GetResourcePath("Sky/nullsky/null_plainsky512_dn.jpg"),
+            Utils::SourcePath::GetResourcePath("Sky/nullsky/DN.png"),
             true,
             "Textures",
             {},
@@ -53,7 +53,7 @@ Core::ClassDescriptor& Skybox::Descriptor() {
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<QString>(
             "FrontTexture",
-            Utils::SourcePath::GetResourcePath("Sky/nullsky/null_plainsky512_ft.jpg"),
+            Utils::SourcePath::GetResourcePath("Sky/nullsky/FT.png"),
             true,
             "Textures",
             {},
@@ -62,7 +62,7 @@ Core::ClassDescriptor& Skybox::Descriptor() {
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<QString>(
             "BackTexture",
-            Utils::SourcePath::GetResourcePath("Sky/nullsky/null_plainsky512_bk.jpg"),
+            Utils::SourcePath::GetResourcePath("Sky/nullsky/BK.png"),
             true,
             "Textures",
             {},
@@ -80,7 +80,7 @@ Core::ClassDescriptor& Skybox::Descriptor() {
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Enums::SkyboxTextureLayout>(
             "TextureLayout",
-            Enums::SkyboxTextureLayout::Cross,
+            Enums::SkyboxTextureLayout::Individual,
             true,
             "Textures"
         ));

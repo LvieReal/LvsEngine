@@ -2,7 +2,7 @@
 
 #include "Lvs/Engine/Math/AABB.hpp"
 #include "Lvs/Engine/Math/Color3.hpp"
-#include "Lvs/Engine/Rendering/Vulkan/OverlayPrimitive.hpp"
+#include "Lvs/Engine/Rendering/Common/OverlayPrimitive.hpp"
 
 #include <vector>
 
@@ -22,7 +22,7 @@ struct SelectionBoxStyle {
 void AppendSelectionBoxOutlinePrimitives(
     const Math::AABB& bounds,
     const SelectionBoxStyle& style,
-    std::vector<Rendering::Vulkan::OverlayPrimitive>& out
+    std::vector<Rendering::Common::OverlayPrimitive>& out
 );
 
 } // namespace Lvs::Engine::Core

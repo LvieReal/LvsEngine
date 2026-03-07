@@ -1,9 +1,9 @@
-#include "Lvs/Engine/Rendering/Vulkan/Primitives.hpp"
+#include "Lvs/Engine/Rendering/Common/Primitives.hpp"
 
 #include <algorithm>
 #include <cmath>
 
-namespace Lvs::Engine::Rendering::Vulkan::Primitives {
+namespace Lvs::Engine::Rendering::Common::Primitives {
 
 namespace {
 constexpr double PI = 3.14159265358979323846;
@@ -20,32 +20,26 @@ Vertex MakeVertex(const float x, const float y, const float z, const float nx, c
 MeshData GenerateCube() {
     MeshData data;
     data.Vertices = {
-        // Front
         MakeVertex(-0.5F, -0.5F, 0.5F, 0.0F, 0.0F, 1.0F),
         MakeVertex(0.5F, -0.5F, 0.5F, 0.0F, 0.0F, 1.0F),
         MakeVertex(0.5F, 0.5F, 0.5F, 0.0F, 0.0F, 1.0F),
         MakeVertex(-0.5F, 0.5F, 0.5F, 0.0F, 0.0F, 1.0F),
-        // Back
         MakeVertex(0.5F, -0.5F, -0.5F, 0.0F, 0.0F, -1.0F),
         MakeVertex(-0.5F, -0.5F, -0.5F, 0.0F, 0.0F, -1.0F),
         MakeVertex(-0.5F, 0.5F, -0.5F, 0.0F, 0.0F, -1.0F),
         MakeVertex(0.5F, 0.5F, -0.5F, 0.0F, 0.0F, -1.0F),
-        // Left
         MakeVertex(-0.5F, -0.5F, -0.5F, -1.0F, 0.0F, 0.0F),
         MakeVertex(-0.5F, -0.5F, 0.5F, -1.0F, 0.0F, 0.0F),
         MakeVertex(-0.5F, 0.5F, 0.5F, -1.0F, 0.0F, 0.0F),
         MakeVertex(-0.5F, 0.5F, -0.5F, -1.0F, 0.0F, 0.0F),
-        // Right
         MakeVertex(0.5F, -0.5F, 0.5F, 1.0F, 0.0F, 0.0F),
         MakeVertex(0.5F, -0.5F, -0.5F, 1.0F, 0.0F, 0.0F),
         MakeVertex(0.5F, 0.5F, -0.5F, 1.0F, 0.0F, 0.0F),
         MakeVertex(0.5F, 0.5F, 0.5F, 1.0F, 0.0F, 0.0F),
-        // Top
         MakeVertex(-0.5F, 0.5F, 0.5F, 0.0F, 1.0F, 0.0F),
         MakeVertex(0.5F, 0.5F, 0.5F, 0.0F, 1.0F, 0.0F),
         MakeVertex(0.5F, 0.5F, -0.5F, 0.0F, 1.0F, 0.0F),
         MakeVertex(-0.5F, 0.5F, -0.5F, 0.0F, 1.0F, 0.0F),
-        // Bottom
         MakeVertex(-0.5F, -0.5F, -0.5F, 0.0F, -1.0F, 0.0F),
         MakeVertex(0.5F, -0.5F, -0.5F, 0.0F, -1.0F, 0.0F),
         MakeVertex(0.5F, -0.5F, 0.5F, 0.0F, -1.0F, 0.0F),
@@ -198,4 +192,4 @@ MeshData GenerateCone(const int segments, const bool caps) {
     return data;
 }
 
-} // namespace Lvs::Engine::Rendering::Vulkan::Primitives
+} // namespace Lvs::Engine::Rendering::Common::Primitives

@@ -14,7 +14,7 @@
 #include "Lvs/Engine/Math/Vector3.hpp"
 #include "Lvs/Engine/Math/CFrame.hpp"
 #include "Lvs/Engine/Objects/Camera.hpp"
-#include "Lvs/Engine/Rendering/Vulkan/OverlayPrimitive.hpp"
+#include "Lvs/Engine/Rendering/Common/OverlayPrimitive.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanContext.hpp"
 #include "Lvs/Engine/Utils/Command.hpp"
 #include "Lvs/Engine/Utils/Raycast.hpp"
@@ -228,12 +228,12 @@ void Viewport::paintEvent(QPaintEvent* event) {
     }
 
     if (context_ != nullptr && context_->Vulkan != nullptr) {
-        std::vector<Rendering::Vulkan::OverlayPrimitive> overlay;
+        std::vector<Rendering::Common::OverlayPrimitive> overlay;
         if (gizmoSystem_ != nullptr) {
             const auto& primitives = gizmoSystem_->GetRenderPrimitives();
             overlay.reserve(primitives.size());
             for (const auto& p : primitives) {
-                overlay.push_back(Rendering::Vulkan::OverlayPrimitive{
+                overlay.push_back(Rendering::Common::OverlayPrimitive{
                     .Model = p.Model,
                     .Shape = p.Shape,
                     .Color = p.Color,
@@ -708,7 +708,7 @@ std::vector<std::shared_ptr<Objects::BasePart>> Viewport::CollectWorkspaceParts(
     return parts;
 }
 
-void Viewport::AppendGizmoSelectionBox(std::vector<Rendering::Vulkan::OverlayPrimitive>& overlay) const {
+void Viewport::AppendGizmoSelectionBox(std::vector<Rendering::Common::OverlayPrimitive>& overlay) const {
     if (selection_ == nullptr) {
         return;
     }
@@ -733,7 +733,7 @@ void Viewport::AppendGizmoSelectionBox(std::vector<Rendering::Vulkan::OverlayPri
     AppendSelectionBoxOutlinePrimitives(Utils::BuildPartWorldAABB(selected), style, overlay);
 }
 
-void Viewport::AppendSelectionBoxInstances(std::vector<Rendering::Vulkan::OverlayPrimitive>& overlay) const {
+void Viewport::AppendSelectionBoxInstances(std::vector<Rendering::Common::OverlayPrimitive>& overlay) const {
     if (workspace_ == nullptr) {
         return;
     }

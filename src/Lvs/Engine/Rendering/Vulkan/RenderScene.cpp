@@ -6,7 +6,6 @@
 #include "Lvs/Engine/Objects/BasePart.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/RenderPartProxy.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/Renderer.hpp"
-
 #include <algorithm>
 
 namespace Lvs::Engine::Rendering::Vulkan {
@@ -32,7 +31,7 @@ void RenderScene::BuildDrawLists(Renderer& renderer, const Math::Vector3& camera
     transparentProxies_.reserve(partProxies_.size());
 
     for (auto& proxy : partProxies_) {
-        proxy->SyncFromInstance(renderer);
+        proxy->SyncFromRenderer(renderer);
         if (proxy->GetAlpha() < 0.999F) {
             transparentProxies_.push_back(proxy);
         } else {
@@ -47,13 +46,13 @@ void RenderScene::BuildDrawLists(Renderer& renderer, const Math::Vector3& camera
     });
 }
 
-void RenderScene::DrawOpaque(const VkCommandBuffer commandBuffer, Renderer& renderer) {
+void RenderScene::DrawOpaque(Common::CommandBuffer& commandBuffer, Renderer& renderer) {
     for (auto& proxy : opaqueProxies_) {
         proxy->Draw(commandBuffer, renderer);
     }
 }
 
-void RenderScene::DrawTransparent(const VkCommandBuffer commandBuffer, Renderer& renderer) {
+void RenderScene::DrawTransparent(Common::CommandBuffer& commandBuffer, Renderer& renderer) {
     for (auto& proxy : transparentProxies_) {
         proxy->Draw(commandBuffer, renderer, true);
     }
@@ -65,8 +64,8 @@ const std::vector<std::shared_ptr<RenderPartProxy>>& RenderScene::GetOpaqueProxi
 
 void RenderScene::Clear() {
     for (auto it = instanceConnections_.begin(); it != instanceConnections_.end(); ++it) {
-        it->ChildAdded.Disconnect();
-        it->ChildRemoved.Disconnect();
+        it->second.ChildAdded.Disconnect();
+        it->second.ChildRemoved.Disconnect();
     }
     instanceConnections_.clear();
     proxyById_.clear();
@@ -80,18 +79,18 @@ void RenderScene::AddRecursive(const std::shared_ptr<Core::Instance>& instance) 
         return;
     }
 
-    const QString id = instance->GetId();
+    const std::string id = instance->GetId().toStdString();
     if (!instanceConnections_.contains(id)) {
         InstanceConnections connections;
         connections.ChildAdded = instance->ChildAdded.Connect([this](const auto& child) { AddRecursive(child); });
         connections.ChildRemoved = instance->ChildRemoved.Connect([this](const auto& child) { RemoveRecursive(child); });
-        instanceConnections_.insert(id, std::move(connections));
+        instanceConnections_.emplace(id, std::move(connections));
     }
 
     if (const auto part = std::dynamic_pointer_cast<Objects::BasePart>(instance); part != nullptr) {
         if (!proxyById_.contains(id)) {
             auto proxy = std::make_shared<RenderPartProxy>(part);
-            proxyById_.insert(id, proxy);
+            proxyById_.emplace(id, proxy);
             partProxies_.push_back(proxy);
         }
     }
@@ -110,17 +109,17 @@ void RenderScene::RemoveRecursive(const std::shared_ptr<Core::Instance>& instanc
         RemoveRecursive(child);
     }
 
-    const QString id = instance->GetId();
+    const std::string id = instance->GetId().toStdString();
     if (instanceConnections_.contains(id)) {
-        auto& connections = instanceConnections_[id];
+        auto& connections = instanceConnections_.at(id);
         connections.ChildAdded.Disconnect();
         connections.ChildRemoved.Disconnect();
-        instanceConnections_.remove(id);
+        instanceConnections_.erase(id);
     }
 
     if (proxyById_.contains(id)) {
-        const auto proxy = proxyById_.value(id);
-        proxyById_.remove(id);
+        const auto proxy = proxyById_.at(id);
+        proxyById_.erase(id);
         partProxies_.erase(
             std::remove_if(
                 partProxies_.begin(),

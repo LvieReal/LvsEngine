@@ -4,8 +4,7 @@
 
 #include <array>
 #include <cstdint>
-
-class QString;
+#include <filesystem>
 
 namespace Lvs::Engine::Rendering::Vulkan::TextureUtils {
 
@@ -32,7 +31,7 @@ CubemapHandle CreateCubemapFromPaths(
     VkDevice device,
     VkQueue queue,
     std::uint32_t queueFamilyIndex,
-    const std::array<QString, 6>& facePaths,
+    const std::array<std::filesystem::path, 6>& facePaths,
     bool linearFiltering
 );
 
@@ -41,7 +40,7 @@ Texture2DHandle CreateTexture2DFromPath(
     VkDevice device,
     VkQueue queue,
     std::uint32_t queueFamilyIndex,
-    const QString& imagePath,
+    const std::filesystem::path& imagePath,
     bool linearFiltering,
     VkFormat format = VK_FORMAT_R8G8B8A8_UNORM,
     VkSamplerAddressMode addressMode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE

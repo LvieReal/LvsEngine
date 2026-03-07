@@ -7,8 +7,8 @@
 #include "Lvs/Engine/Objects/BasePart.hpp"
 #include "Lvs/Engine/Objects/MeshPart.hpp"
 #include "Lvs/Engine/Objects/Part.hpp"
-#include "Lvs/Engine/Rendering/Vulkan/Mesh.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/Renderer.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/VulkanGpuResources.hpp"
 
 #include <utility>
 
@@ -17,9 +17,7 @@ namespace Lvs::Engine::Rendering::Vulkan {
 RenderPartProxy::RenderPartProxy(std::shared_ptr<Objects::BasePart> part)
     : instance_(std::move(part)) {
     if (instance_ != nullptr) {
-        propertyChangedConnection_ = instance_->PropertyChanged.Connect(
-            [this](const QString& propertyName, const QVariant&) { MarkDirty(propertyName); }
-        );
+        propertyChangedConnection_ = instance_->PropertyInvalidated.Connect([this]() { MarkDirty(); });
         ancestryChangedConnection_ = instance_->AncestryChanged.Connect(
             [this](const std::shared_ptr<Core::Instance>&) { dirty_ = true; }
         );
@@ -37,7 +35,7 @@ RenderPartProxy::~RenderPartProxy() {
     }
 }
 
-void RenderPartProxy::SyncFromInstance(Renderer& renderer) {
+void RenderPartProxy::SyncFromRenderer(Common::SceneRenderer& renderer) {
     if (instance_ == nullptr) {
         mesh_.reset();
         return;
@@ -52,7 +50,13 @@ void RenderPartProxy::SyncFromInstance(Renderer& renderer) {
         return;
     }
 
-    mesh_ = renderer.GetMeshCache().Get(instance_);
+    if (const auto meshPart = std::dynamic_pointer_cast<Objects::MeshPart>(instance_); meshPart != nullptr) {
+        mesh_ = renderer.GetMeshCache().GetMeshPart(meshPart->GetProperty("ContentId").toString().trimmed().toStdString());
+    } else if (const auto part = std::dynamic_pointer_cast<Objects::Part>(instance_); part != nullptr) {
+        mesh_ = renderer.GetMeshCache().GetPrimitive(part->GetProperty("Shape").value<Enums::PartShape>());
+    } else {
+        mesh_ = renderer.GetMeshCache().GetPrimitive(Enums::PartShape::Cube);
+    }
     color_ = instance_->GetProperty("Color").value<Math::Color3>();
     alpha_ = static_cast<float>(1.0 - instance_->GetProperty("Transparency").toDouble());
     cullMode_ = instance_->GetProperty("CullMode").value<Enums::MeshCullMode>();
@@ -87,21 +91,25 @@ void RenderPartProxy::SyncFromInstance(Renderer& renderer) {
     dirty_ = false;
 }
 
-void RenderPartProxy::Draw(const VkCommandBuffer commandBuffer, Renderer& renderer) {
+void RenderPartProxy::Draw(Common::CommandBuffer& commandBuffer, Common::SceneRenderer& renderer) {
     Draw(commandBuffer, renderer, false);
 }
 
-void RenderPartProxy::Draw(const VkCommandBuffer commandBuffer, Renderer& renderer, const bool transparent) {
+void RenderPartProxy::Draw(Common::CommandBuffer& commandBuffer, Common::SceneRenderer& renderer, const bool transparent) {
     if (instance_ == nullptr || mesh_ == nullptr) {
         return;
     }
     if (!instance_->GetProperty("Renders").toBool()) {
         return;
     }
-    renderer.DrawPart(commandBuffer, *this, transparent);
+    auto* vulkanRenderer = dynamic_cast<Renderer*>(&renderer);
+    if (vulkanRenderer == nullptr) {
+        return;
+    }
+    vulkanRenderer->DrawPart(commandBuffer, *this, transparent);
 }
 
-const std::shared_ptr<Mesh>& RenderPartProxy::GetMesh() const {
+const std::shared_ptr<Common::UploadedMesh>& RenderPartProxy::GetMesh() const {
     return mesh_;
 }
 
@@ -172,8 +180,7 @@ const std::shared_ptr<Objects::BasePart>& RenderPartProxy::GetInstance() const {
     return instance_;
 }
 
-void RenderPartProxy::MarkDirty(const QString& propertyName) {
-    static_cast<void>(propertyName);
+void RenderPartProxy::MarkDirty() {
     dirty_ = true;
 }
 

@@ -3,8 +3,9 @@
 #include <vulkan/vulkan.h>
 
 #include "Lvs/Engine/DataModel/Place.hpp"
-#include "Lvs/Engine/Rendering/Vulkan/OverlayPrimitive.hpp"
-#include "Lvs/Engine/Rendering/Vulkan/VulkanBufferUtils.hpp"
+#include "Lvs/Engine/Rendering/Common/GraphicsContext.hpp"
+#include "Lvs/Engine/Rendering/Common/OverlayPrimitive.hpp"
+#include "Lvs/Engine/Rendering/Common/SceneRenderer.hpp"
 
 #include <array>
 #include <cstdint>
@@ -37,8 +38,9 @@ private:
 
 class Renderer;
 class PostProcessRenderer;
+class VulkanFrameManager;
 
-class VulkanContext final {
+class VulkanContext final : public Rendering::Common::GraphicsContext {
 public:
     VulkanContext();
     ~VulkanContext();
@@ -53,7 +55,7 @@ public:
     void Resize(std::uint32_t width, std::uint32_t height);
     void Render();
     void SetClearColor(float r, float g, float b, float a);
-    void SetOverlayPrimitives(std::vector<OverlayPrimitive> primitives);
+    void SetOverlayPrimitives(std::vector<Rendering::Common::OverlayPrimitive> primitives);
     void BindToPlace(const std::shared_ptr<DataModel::Place>& place);
     void Unbind();
     void Shutdown();
@@ -70,27 +72,24 @@ public:
     [[nodiscard]] VkExtent2D GetSwapchainExtent() const;
     [[nodiscard]] std::uint32_t GetFramesInFlight() const;
 
+    [[nodiscard]] std::unique_ptr<Rendering::Common::BufferResource> CreateBuffer(
+        const Rendering::Common::BufferDesc& desc
+    ) override;
+    [[nodiscard]] std::unique_ptr<Rendering::Common::ImageResource> CreateImage(
+        const Rendering::Common::ImageDesc& desc
+    ) override;
+    [[nodiscard]] std::unique_ptr<Rendering::Common::SamplerResource> CreateSampler(
+        const Rendering::Common::SamplerDesc& desc
+    ) override;
+
 private:
     void CreateInstance();
     void CreateSurface(void* nativeWindowHandle);
     void PickPhysicalDevice();
     void CreateLogicalDevice();
-    void CreateSwapchain(std::uint32_t width, std::uint32_t height);
-    void CreateImageViews();
-    void SelectOffscreenImageFormat();
-    void CreateSceneRenderPass();
-    void CreatePostProcessRenderPass();
-    void CreateFramebuffers();
-    void CreateOffscreenResources();
-    void CreateDepthResources();
-    void CreateCommandPool();
-    void CreateCommandBuffers();
-    void CreateSyncObjects();
-    void RecordCommandBuffer(VkCommandBuffer commandBuffer, std::uint32_t imageIndex);
+    void RecordCommandBuffer(VkCommandBuffer commandBuffer, std::uint32_t imageIndex, std::uint32_t frameIndex);
     void RecreateSwapchain(std::uint32_t width, std::uint32_t height);
-    void CleanupSwapchain();
     void CleanupDeviceAndSurface();
-    void CleanupSyncObjects();
     bool IsPhysicalDeviceSuitable(VkPhysicalDevice device) const;
 
     std::uint32_t FindGraphicsPresentQueueFamily(VkPhysicalDevice device) const;
@@ -102,42 +101,14 @@ private:
     VkQueue graphicsQueue_{VK_NULL_HANDLE};
     std::uint32_t graphicsQueueFamily_{0};
 
-    VkSwapchainKHR swapchain_{VK_NULL_HANDLE};
-    VkFormat swapchainImageFormat_{VK_FORMAT_UNDEFINED};
-    VkFormat offscreenImageFormat_{VK_FORMAT_UNDEFINED};
-    VkExtent2D swapchainExtent_{};
-    std::vector<VkImage> swapchainImages_;
-    std::vector<VkImageView> swapchainImageViews_;
-    VkRenderPass sceneRenderPass_{VK_NULL_HANDLE};
-    VkRenderPass postProcessRenderPass_{VK_NULL_HANDLE};
-    std::vector<VkFramebuffer> sceneFramebuffers_;
-    std::vector<VkFramebuffer> swapchainFramebuffers_;
-    std::vector<VkImage> offscreenColorImages_;
-    std::vector<VkImage> offscreenGlowImages_;
-    std::vector<VkImageView> offscreenColorImageViews_;
-    std::vector<VkImageView> offscreenGlowImageViews_;
-    std::vector<VkDeviceMemory> offscreenColorMemories_;
-    std::vector<VkDeviceMemory> offscreenGlowMemories_;
-    VkSampler offscreenColorSampler_{VK_NULL_HANDLE};
-    std::vector<VkImage> depthImages_;
-    std::vector<VkImageView> depthImageViews_;
-    std::vector<VkDeviceMemory> depthMemories_;
-    VkFormat depthFormat_{VK_FORMAT_UNDEFINED};
-    VkCommandPool commandPool_{VK_NULL_HANDLE};
-    std::vector<VkCommandBuffer> commandBuffers_;
-    static constexpr std::uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-    std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> imageAvailableSemaphores_{};
-    std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> renderFinishedSemaphores_{};
-    std::array<VkFence, MAX_FRAMES_IN_FLIGHT> inFlightFences_{};
-    std::uint32_t currentFrame_{0};
-    bool syncObjectsCreated_{false};
     void* nativeWindowHandle_{nullptr};
     std::uint32_t lastWidth_{0};
     std::uint32_t lastHeight_{0};
     std::uint32_t instanceApiVersion_{VK_API_VERSION_1_0};
     VkClearColorValue clearColor_{{1.0F, 1.0F, 1.0F, 1.0F}};
-    std::vector<OverlayPrimitive> overlayPrimitives_;
-    std::unique_ptr<Renderer> renderer_;
+    std::vector<Rendering::Common::OverlayPrimitive> overlayPrimitives_;
+    std::unique_ptr<VulkanFrameManager> frameManager_;
+    std::unique_ptr<Rendering::Common::SceneRenderer> renderer_;
     std::unique_ptr<PostProcessRenderer> postProcessRenderer_;
     std::shared_ptr<DataModel::Place> currentPlace_;
 };

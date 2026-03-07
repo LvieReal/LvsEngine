@@ -2,7 +2,7 @@
 
 #include "Lvs/Engine/Context.hpp"
 #include "Lvs/Engine/Core/GizmoSystem.hpp"
-#include "Lvs/Engine/Rendering/Vulkan/OverlayPrimitive.hpp"
+#include "Lvs/Engine/Rendering/Common/OverlayPrimitive.hpp"
 
 #include <QWidget>
 
@@ -74,10 +74,10 @@ private:
         const std::shared_ptr<Objects::BasePart>& ignore = nullptr
     ) const;
     void AppendGizmoSelectionBox(
-        std::vector<Rendering::Vulkan::OverlayPrimitive>& overlay
+        std::vector<Rendering::Common::OverlayPrimitive>& overlay
     ) const;
     void AppendSelectionBoxInstances(
-        std::vector<Rendering::Vulkan::OverlayPrimitive>& overlay
+        std::vector<Rendering::Common::OverlayPrimitive>& overlay
     ) const;
     void BeginGizmoHistory(const std::shared_ptr<Objects::BasePart>& targetOverride = nullptr);
     void CommitGizmoHistory();
