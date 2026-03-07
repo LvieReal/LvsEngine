@@ -1,6 +1,12 @@
 #pragma once
 
+#include "Lvs/Engine/Rendering/Common/CommandBuffer.hpp"
+#include "Lvs/Engine/Rendering/Common/GraphicsContext.hpp"
 #include "Lvs/Engine/Rendering/Common/PipelineVariant.hpp"
+#include "Lvs/Engine/Rendering/Common/RenderProxy.hpp"
+#include "Lvs/Engine/Rendering/Common/ResourceBinding.hpp"
+#include "Lvs/Engine/Rendering/Common/ShadowRenderer.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/VulkanPipeline.hpp"
 #include "Lvs/Engine/Math/Matrix4.hpp"
 #include "Lvs/Engine/Math/Vector3.hpp"
 
@@ -20,54 +26,40 @@ namespace Lvs::Engine::Rendering::Vulkan {
 
 class RenderPartProxy;
 class VulkanContext;
-
-class ShadowRenderer final {
+class ShadowRenderer final : public Common::ShadowRenderer {
 public:
-    struct ShadowSettings {
-        bool Enabled{false};
-        float BlurAmount{0.0F};
-        int TapCount{16};
-        int CascadeCount{1};
-        float MaxDistance{220.0F};
-        std::uint32_t MapResolution{4096};
-        float CascadeResolutionScale{0.7F};
-        float CascadeSplitLambda{0.75F};
-    };
-
-    struct ShadowData {
-        bool HasShadowData{false};
-        int CascadeCount{1};
-        float Split0{220.0F};
-        float Split1{220.0F};
-        float MaxDistance{220.0F};
-        float Bias{0.25F};
-        float BlurAmount{0.0F};
-        float FadeWidth{0.25F};
-        int TapCount{16};
-        float JitterScaleX{1.0F / 16.0F};
-        float JitterScaleY{1.0F / 16.0F};
-        std::array<Math::Matrix4, 3> LightViewProjectionMatrices{
-            Math::Matrix4::Identity(),
-            Math::Matrix4::Identity(),
-            Math::Matrix4::Identity()
-        };
-    };
+    using ShadowSettings = Common::ShadowRenderer::ShadowSettings;
+    using ShadowData = Common::ShadowRenderer::ShadowData;
 
     ShadowRenderer() = default;
-    ~ShadowRenderer() = default;
+    ~ShadowRenderer() override;
 
     ShadowRenderer(const ShadowRenderer&) = delete;
     ShadowRenderer& operator=(const ShadowRenderer&) = delete;
     ShadowRenderer(ShadowRenderer&&) = delete;
     ShadowRenderer& operator=(ShadowRenderer&&) = delete;
 
+    void Initialize(Common::GraphicsContext& context) override;
+    void RecreateSwapchain(Common::GraphicsContext& context) override;
+    void Shutdown(Common::GraphicsContext& context) override;
+
     void Initialize(VulkanContext& context);
     void RecreateSwapchain(VulkanContext& context);
     void Shutdown(VulkanContext& context);
 
     void Render(
+        Common::GraphicsContext& context,
+        Common::CommandBuffer& commandBuffer,
+        const std::vector<std::shared_ptr<Common::RenderProxy>>& shadowCasters,
+        const Objects::Camera& camera,
+        const Math::Vector3& directionalLightDirection,
+        float cameraAspect,
+        const ShadowSettings& settings
+    ) override;
+
+    void Render(
         VulkanContext& context,
-        VkCommandBuffer commandBuffer,
+        Common::CommandBuffer& commandBuffer,
         const std::vector<std::shared_ptr<RenderPartProxy>>& shadowCasters,
         const Objects::Camera& camera,
         const Math::Vector3& directionalLightDirection,
@@ -75,7 +67,8 @@ public:
         const ShadowSettings& settings
     );
 
-    [[nodiscard]] const ShadowData& GetShadowData() const;
+    void WriteSceneBinding(Common::GraphicsContext& context, Common::ResourceBinding& binding) const override;
+    [[nodiscard]] const ShadowData& GetShadowData() const override;
     [[nodiscard]] VkSampler GetShadowSampler() const;
     [[nodiscard]] const std::array<VkImageView, 3>& GetShadowImageViews() const;
     [[nodiscard]] VkSampler GetJitterSampler() const;
@@ -110,14 +103,15 @@ private:
 
     void CreateRenderPass(VulkanContext& context);
     void CreatePipelineLayout(VulkanContext& context);
-    void CreatePipeline(VulkanContext& context);
-    VkPipeline CreatePipelineVariant(VulkanContext& context, const Common::PipelineVariantKey& key);
+    void CreatePipelines(VulkanContext& context);
+    std::unique_ptr<VulkanPipelineVariant> CreatePipelineVariant(VulkanContext& context, const Common::PipelineVariantKey& key);
+    [[nodiscard]] std::vector<Common::PipelineVariantKey> GetPipelineVariants() const;
     void EnsureDepthResources(VulkanContext& context, std::uint32_t resolution, float cascadeResolutionScale);
     void EnsureJitterTexture(VulkanContext& context);
     void DestroyDepthResources(VulkanContext& context);
     void DestroyJitterTexture(VulkanContext& context);
     void DestroySwapchainResources(VulkanContext& context);
-    [[nodiscard]] VkPipeline GetPipeline(const Common::PipelineVariantKey& key) const;
+    [[nodiscard]] const VulkanPipelineVariant& GetPipeline(const Common::PipelineVariantKey& key) const;
 
     bool ComputeCascades(
         const Objects::Camera& camera,
@@ -145,8 +139,9 @@ private:
 
     VkFormat depthFormat_{VK_FORMAT_UNDEFINED};
     VkRenderPass renderPass_{VK_NULL_HANDLE};
-    VkPipelineLayout pipelineLayout_{VK_NULL_HANDLE};
-    std::unordered_map<Common::PipelineVariantKey, VkPipeline, Common::PipelineVariantKeyHash> pipelineVariants_;
+    std::unique_ptr<VulkanPipelineLayout> pipelineLayout_;
+    std::unordered_map<Common::PipelineVariantKey, std::unique_ptr<VulkanPipelineVariant>, Common::PipelineVariantKeyHash>
+        pipelines_;
     VkSampler shadowSampler_{VK_NULL_HANDLE};
     std::array<ImageResource, MAX_CASCADES> cascadeImages_{};
     std::array<VkImageView, MAX_CASCADES> cascadeImageViews_{VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE};

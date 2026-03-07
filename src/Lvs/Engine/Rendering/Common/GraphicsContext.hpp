@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Lvs/Engine/Rendering/Common/GpuResource.hpp"
+#include "Lvs/Engine/Rendering/Common/RenderSurface.hpp"
 
 #include <memory>
 
@@ -36,6 +37,12 @@ public:
     [[nodiscard]] virtual std::unique_ptr<BufferResource> CreateBuffer(const BufferDesc& desc) = 0;
     [[nodiscard]] virtual std::unique_ptr<ImageResource> CreateImage(const ImageDesc& desc) = 0;
     [[nodiscard]] virtual std::unique_ptr<SamplerResource> CreateSampler(const SamplerDesc& desc) = 0;
+    [[nodiscard]] virtual void* GetNativeDevice() const = 0;
+    [[nodiscard]] virtual void* GetNativePhysicalDevice() const = 0;
+    [[nodiscard]] virtual void* GetNativeGraphicsQueue() const = 0;
+    [[nodiscard]] virtual std::uint32_t GetGraphicsQueueFamily() const = 0;
+    [[nodiscard]] virtual Extent2D GetSwapchainExtent() const = 0;
+    [[nodiscard]] virtual std::uint32_t GetFramesInFlight() const = 0;
 };
 
 } // namespace Lvs::Engine::Rendering::Common

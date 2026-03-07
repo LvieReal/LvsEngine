@@ -3,7 +3,11 @@
 #include "Lvs/Engine/DataModel/Lighting.hpp"
 #include "Lvs/Engine/DataModel/Place.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanBufferUtils.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/VulkanBinding.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanContext.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/VulkanFrameManager.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/VulkanGpuResources.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/VulkanPipeline.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanShaderUtils.hpp"
 #include "Lvs/Engine/Utils/PathUtils.hpp"
 
@@ -16,6 +20,74 @@
 
 namespace Lvs::Engine::Rendering::Vulkan {
 
+namespace {
+
+VulkanBindingLayout& GetBindingLayout(Common::BindingLayout& layout) {
+    return dynamic_cast<VulkanBindingLayout&>(layout);
+}
+
+VulkanResourceBinding& GetBinding(Common::ResourceBinding& binding) {
+    return dynamic_cast<VulkanResourceBinding&>(binding);
+}
+
+} // namespace
+
+PostProcessRenderer::PostProcessRenderer() = default;
+
+PostProcessRenderer::~PostProcessRenderer() = default;
+
+void PostProcessRenderer::Initialize(Common::GraphicsContext& context, const Common::RenderSurface& surface) {
+    auto& vkContext = static_cast<VulkanContext&>(context);
+    const auto& frameManager = static_cast<const VulkanFrameManager&>(surface);
+    std::vector<VkImageView> sceneViews;
+    std::vector<VkImageView> glowViews;
+    sceneViews.reserve(frameManager.GetImageCount());
+    glowViews.reserve(frameManager.GetImageCount());
+    for (std::uint32_t i = 0; i < frameManager.GetImageCount(); ++i) {
+        const auto sceneImage = frameManager.GetOffscreenColorImage(i);
+        const auto glowImage = frameManager.GetOffscreenGlowImage(i);
+        sceneViews.push_back(reinterpret_cast<VkImageView>(sceneImage.View));
+        glowViews.push_back(reinterpret_cast<VkImageView>(glowImage.View));
+    }
+    compositeRenderPass_ = &surface.GetPostProcessRenderPass();
+    Initialize(
+        vkContext,
+        sceneViews,
+        glowViews,
+        reinterpret_cast<VkSampler>(frameManager.GetOffscreenColorImage(0).Sampler)
+    );
+}
+
+void PostProcessRenderer::RecreateSwapchain(Common::GraphicsContext& context, const Common::RenderSurface& surface) {
+    auto& vkContext = static_cast<VulkanContext&>(context);
+    const auto& frameManager = static_cast<const VulkanFrameManager&>(surface);
+    std::vector<VkImageView> sceneViews;
+    std::vector<VkImageView> glowViews;
+    sceneViews.reserve(frameManager.GetImageCount());
+    glowViews.reserve(frameManager.GetImageCount());
+    for (std::uint32_t i = 0; i < frameManager.GetImageCount(); ++i) {
+        const auto sceneImage = frameManager.GetOffscreenColorImage(i);
+        const auto glowImage = frameManager.GetOffscreenGlowImage(i);
+        sceneViews.push_back(reinterpret_cast<VkImageView>(sceneImage.View));
+        glowViews.push_back(reinterpret_cast<VkImageView>(glowImage.View));
+    }
+    compositeRenderPass_ = &surface.GetPostProcessRenderPass();
+    RecreateSwapchain(
+        vkContext,
+        sceneViews,
+        glowViews,
+        reinterpret_cast<VkSampler>(frameManager.GetOffscreenColorImage(0).Sampler)
+    );
+}
+
+void PostProcessRenderer::DestroySwapchainResources(Common::GraphicsContext& context) {
+    DestroySwapchainResources(static_cast<VulkanContext&>(context));
+}
+
+void PostProcessRenderer::Shutdown(Common::GraphicsContext& context) {
+    Shutdown(static_cast<VulkanContext&>(context));
+}
+
 void PostProcessRenderer::Initialize(
     VulkanContext& context,
     const std::vector<VkImageView>& sceneViews,
@@ -27,13 +99,12 @@ void PostProcessRenderer::Initialize(
     }
 
     blurSampler_ = sourceSampler;
-    CreateCompositeDescriptorSetLayout(context);
-    CreateBlurDescriptorSetLayout(context);
-    CreatePipelineLayouts(context);
     CreateRenderPasses(context);
     CreateBlurResources(context, static_cast<std::uint32_t>(sceneViews.size()));
-    CreateDescriptorPool(context, static_cast<std::uint32_t>(sceneViews.size()), static_cast<std::uint32_t>(blurExtents_.size()));
-    CreateDescriptorSets(context, sceneViews, glowViews);
+    CreateCompositeBindingLayout(context, static_cast<std::uint32_t>(sceneViews.size()), static_cast<std::uint32_t>(blurExtents_.size()));
+    CreateBlurBindingLayout(context, static_cast<std::uint32_t>(sceneViews.size()), static_cast<std::uint32_t>(blurExtents_.size()));
+    CreatePipelineLayouts(context);
+    CreateBindings(context, sceneViews, glowViews);
     CreatePipelines(context);
     initialized_ = true;
 }
@@ -53,30 +124,19 @@ void PostProcessRenderer::RecreateSwapchain(
     DestroySwapchainResources(context);
     CreateRenderPasses(context);
     CreateBlurResources(context, static_cast<std::uint32_t>(sceneViews.size()));
-    CreateDescriptorPool(context, static_cast<std::uint32_t>(sceneViews.size()), static_cast<std::uint32_t>(blurExtents_.size()));
-    CreateDescriptorSets(context, sceneViews, glowViews);
+    CreateCompositeBindingLayout(context, static_cast<std::uint32_t>(sceneViews.size()), static_cast<std::uint32_t>(blurExtents_.size()));
+    CreateBlurBindingLayout(context, static_cast<std::uint32_t>(sceneViews.size()), static_cast<std::uint32_t>(blurExtents_.size()));
+    CreateBindings(context, sceneViews, glowViews);
     CreatePipelines(context);
 }
 
 void PostProcessRenderer::Shutdown(VulkanContext& context) {
     DestroySwapchainResources(context);
 
-    if (compositePipelineLayout_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(context.GetDevice(), compositePipelineLayout_, nullptr);
-        compositePipelineLayout_ = VK_NULL_HANDLE;
-    }
-    if (blurPipelineLayout_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(context.GetDevice(), blurPipelineLayout_, nullptr);
-        blurPipelineLayout_ = VK_NULL_HANDLE;
-    }
-    if (compositeDescriptorSetLayout_ != VK_NULL_HANDLE) {
-        vkDestroyDescriptorSetLayout(context.GetDevice(), compositeDescriptorSetLayout_, nullptr);
-        compositeDescriptorSetLayout_ = VK_NULL_HANDLE;
-    }
-    if (blurDescriptorSetLayout_ != VK_NULL_HANDLE) {
-        vkDestroyDescriptorSetLayout(context.GetDevice(), blurDescriptorSetLayout_, nullptr);
-        blurDescriptorSetLayout_ = VK_NULL_HANDLE;
-    }
+    compositePipelineLayout_.reset();
+    blurPipelineLayout_.reset();
+    compositeBindingLayout_.reset();
+    blurBindingLayout_.reset();
 
     initialized_ = false;
 }
@@ -90,12 +150,15 @@ void PostProcessRenderer::Unbind() {
 }
 
 void PostProcessRenderer::RecordBlurCommands(
-    VulkanContext& context,
-    const VkCommandBuffer commandBuffer,
+    Common::GraphicsContext& context,
+    Common::CommandBuffer& commandBuffer,
     const std::uint32_t imageIndex
 ) {
-    if (!initialized_ || blurDownPipeline_ == VK_NULL_HANDLE || blurUpPipeline_ == VK_NULL_HANDLE ||
-        imageIndex >= downLevels_.size() || imageIndex >= downDescriptorSets_.size() || blurExtents_.empty()) {
+    auto& vkContext = static_cast<VulkanContext&>(context);
+    const auto& vkCommandBuffer = dynamic_cast<VulkanRenderCommandBuffer&>(commandBuffer);
+    const VkCommandBuffer handle = vkCommandBuffer.GetHandle();
+    if (!initialized_ || blurDownPipeline_ == nullptr || blurUpPipeline_ == nullptr ||
+        imageIndex >= downLevels_.size() || imageIndex >= downBindings_.size() || blurExtents_.empty()) {
         return;
     }
 
@@ -105,27 +168,19 @@ void PostProcessRenderer::RecordBlurCommands(
     }
 
     const float blurAmount = std::max(GetBlurAmount(), 1.0F);
-    const VkDevice device = context.GetDevice();
 
-    const auto updateSourceDescriptor = [&](const VkDescriptorSet descriptorSet, const VkImageView sourceView) {
+    const auto updateSourceDescriptor = [&](Common::ResourceBinding& binding, const VkImageView sourceView) {
         const VkDescriptorImageInfo sourceInfo{
             .sampler = blurSampler_,
             .imageView = sourceView,
             .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
         };
-        const VkWriteDescriptorSet write{
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .pNext = nullptr,
-            .dstSet = descriptorSet,
-            .dstBinding = 0,
-            .dstArrayElement = 0,
-            .descriptorCount = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .pImageInfo = &sourceInfo,
-            .pBufferInfo = nullptr,
-            .pTexelBufferView = nullptr
-        };
-        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+        GetBinding(binding).UpdateImage(
+            0,
+            reinterpret_cast<void*>(sourceInfo.sampler),
+            reinterpret_cast<void*>(sourceInfo.imageView),
+            static_cast<std::uint32_t>(sourceInfo.imageLayout)
+        );
     };
 
     const auto issueSampleBarrier = [&](const VkImage image) {
@@ -148,7 +203,7 @@ void PostProcessRenderer::RecordBlurCommands(
             }
         };
         vkCmdPipelineBarrier(
-            commandBuffer,
+            handle,
             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
             0,
@@ -161,15 +216,15 @@ void PostProcessRenderer::RecordBlurCommands(
         );
     };
 
-    VkExtent2D currentSourceExtent = context.GetSwapchainExtent();
+    VkExtent2D currentSourceExtent = vkContext.GetSwapchainExtentVk();
 
     // Rebind upsample sources for the active blur chain. This prevents sampling stale levels.
-    if (levelsUsed > 1 && imageIndex < upDescriptorSets_.size()) {
+    if (levelsUsed > 1 && imageIndex < upBindings_.size()) {
         for (std::uint32_t level = 0; level < (levelsUsed - 1); ++level) {
             const VkImageView sourceView = (level == levelsUsed - 2)
                 ? downLevels_[imageIndex][levelsUsed - 1].View
                 : upLevels_[imageIndex][level + 1].View;
-            updateSourceDescriptor(upDescriptorSets_[imageIndex][level], sourceView);
+            updateSourceDescriptor(*upBindings_[imageIndex][level], sourceView);
         }
     }
 
@@ -179,19 +234,12 @@ void PostProcessRenderer::RecordBlurCommands(
         .imageView = finalBlurView,
         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
     };
-    const VkWriteDescriptorSet compositeGlowWrite{
-        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .pNext = nullptr,
-        .dstSet = compositeDescriptorSets_[imageIndex],
-        .dstBinding = 1,
-        .dstArrayElement = 0,
-        .descriptorCount = 1,
-        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        .pImageInfo = &compositeGlowInfo,
-        .pBufferInfo = nullptr,
-        .pTexelBufferView = nullptr
-    };
-    vkUpdateDescriptorSets(device, 1, &compositeGlowWrite, 0, nullptr);
+    GetBinding(*compositeBindings_[imageIndex]).UpdateImage(
+        1,
+        reinterpret_cast<void*>(compositeGlowInfo.sampler),
+        reinterpret_cast<void*>(compositeGlowInfo.imageView),
+        static_cast<std::uint32_t>(compositeGlowInfo.imageLayout)
+    );
 
     for (std::uint32_t level = 0; level < levelsUsed; ++level) {
         const VkExtent2D extent = blurExtents_[level];
@@ -206,7 +254,7 @@ void PostProcessRenderer::RecordBlurCommands(
             .pClearValues = &clearValue
         };
 
-        vkCmdBeginRenderPass(commandBuffer, &passInfo, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBeginRenderPass(handle, &passInfo, VK_SUBPASS_CONTENTS_INLINE);
         const VkViewport viewport{
             .x = 0.0F,
             .y = 0.0F,
@@ -216,17 +264,18 @@ void PostProcessRenderer::RecordBlurCommands(
             .maxDepth = 1.0F
         };
         const VkRect2D scissor{.offset = {0, 0}, .extent = extent};
-        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
-        vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+        vkCmdSetViewport(handle, 0, 1, &viewport);
+        vkCmdSetScissor(handle, 0, 1, &scissor);
 
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, blurDownPipeline_);
+        vkCmdBindPipeline(handle, VK_PIPELINE_BIND_POINT_GRAPHICS, blurDownPipeline_->GetHandle());
+        const VkDescriptorSet downBinding = GetBinding(*downBindings_[imageIndex][level]).GetHandle();
         vkCmdBindDescriptorSets(
-            commandBuffer,
+            handle,
             VK_PIPELINE_BIND_POINT_GRAPHICS,
-            blurPipelineLayout_,
+            blurPipelineLayout_->GetHandle(),
             0,
             1,
-            &downDescriptorSets_[imageIndex][level],
+            &downBinding,
             0,
             nullptr
         );
@@ -237,15 +286,22 @@ void PostProcessRenderer::RecordBlurCommands(
             blurAmount,
             0.0F
         };
-        vkCmdPushConstants(commandBuffer, blurPipelineLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(settings), settings.data());
-        vkCmdDraw(commandBuffer, 3, 1, 0, 0);
-        vkCmdEndRenderPass(commandBuffer);
+        vkCmdPushConstants(
+            handle,
+            blurPipelineLayout_->GetHandle(),
+            VK_SHADER_STAGE_FRAGMENT_BIT,
+            0,
+            sizeof(settings),
+            settings.data()
+        );
+        vkCmdDraw(handle, 3, 1, 0, 0);
+        vkCmdEndRenderPass(handle);
 
         issueSampleBarrier(downLevels_[imageIndex][level].Image);
         currentSourceExtent = extent;
     }
 
-    if (levelsUsed <= 1 || imageIndex >= upDescriptorSets_.size()) {
+    if (levelsUsed <= 1 || imageIndex >= upBindings_.size()) {
         return;
     }
 
@@ -262,7 +318,7 @@ void PostProcessRenderer::RecordBlurCommands(
             .pClearValues = &clearValue
         };
 
-        vkCmdBeginRenderPass(commandBuffer, &passInfo, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBeginRenderPass(handle, &passInfo, VK_SUBPASS_CONTENTS_INLINE);
         const VkViewport viewport{
             .x = 0.0F,
             .y = 0.0F,
@@ -272,17 +328,18 @@ void PostProcessRenderer::RecordBlurCommands(
             .maxDepth = 1.0F
         };
         const VkRect2D scissor{.offset = {0, 0}, .extent = extent};
-        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
-        vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+        vkCmdSetViewport(handle, 0, 1, &viewport);
+        vkCmdSetScissor(handle, 0, 1, &scissor);
 
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, blurUpPipeline_);
+        vkCmdBindPipeline(handle, VK_PIPELINE_BIND_POINT_GRAPHICS, blurUpPipeline_->GetHandle());
+        const VkDescriptorSet upBinding = GetBinding(*upBindings_[imageIndex][static_cast<std::uint32_t>(level)]).GetHandle();
         vkCmdBindDescriptorSets(
-            commandBuffer,
+            handle,
             VK_PIPELINE_BIND_POINT_GRAPHICS,
-            blurPipelineLayout_,
+            blurPipelineLayout_->GetHandle(),
             0,
             1,
-            &upDescriptorSets_[imageIndex][static_cast<std::uint32_t>(level)],
+            &upBinding,
             0,
             nullptr
         );
@@ -293,9 +350,16 @@ void PostProcessRenderer::RecordBlurCommands(
             blurAmount,
             0.0F
         };
-        vkCmdPushConstants(commandBuffer, blurPipelineLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(settings), settings.data());
-        vkCmdDraw(commandBuffer, 3, 1, 0, 0);
-        vkCmdEndRenderPass(commandBuffer);
+        vkCmdPushConstants(
+            handle,
+            blurPipelineLayout_->GetHandle(),
+            VK_SHADER_STAGE_FRAGMENT_BIT,
+            0,
+            sizeof(settings),
+            settings.data()
+        );
+        vkCmdDraw(handle, 3, 1, 0, 0);
+        vkCmdEndRenderPass(handle);
 
         issueSampleBarrier(upLevels_[imageIndex][static_cast<std::uint32_t>(level)].Image);
         currentSourceExtent = extent;
@@ -303,24 +367,27 @@ void PostProcessRenderer::RecordBlurCommands(
 }
 
 void PostProcessRenderer::DrawComposite(
-    VulkanContext& context,
-    const VkCommandBuffer commandBuffer,
+    Common::GraphicsContext& context,
+    Common::CommandBuffer& commandBuffer,
     const std::uint32_t imageIndex,
     const std::uint32_t frameIndex
 ) {
     static_cast<void>(context);
-    if (!initialized_ || compositePipeline_ == VK_NULL_HANDLE || imageIndex >= compositeDescriptorSets_.size()) {
+    const auto& vkCommandBuffer = dynamic_cast<VulkanRenderCommandBuffer&>(commandBuffer);
+    const VkCommandBuffer handle = vkCommandBuffer.GetHandle();
+    if (!initialized_ || compositePipeline_ == nullptr || imageIndex >= compositeBindings_.size()) {
         return;
     }
 
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, compositePipeline_);
+    vkCmdBindPipeline(handle, VK_PIPELINE_BIND_POINT_GRAPHICS, compositePipeline_->GetHandle());
+    const VkDescriptorSet compositeBinding = GetBinding(*compositeBindings_[imageIndex]).GetHandle();
     vkCmdBindDescriptorSets(
-        commandBuffer,
+        handle,
         VK_PIPELINE_BIND_POINT_GRAPHICS,
-        compositePipelineLayout_,
+        compositePipelineLayout_->GetHandle(),
         0,
         1,
-        &compositeDescriptorSets_[imageIndex],
+        &compositeBinding,
         0,
         nullptr
     );
@@ -338,17 +405,26 @@ void PostProcessRenderer::DrawComposite(
         0.0F
     };
     vkCmdPushConstants(
-        commandBuffer,
-        compositePipelineLayout_,
+        handle,
+        compositePipelineLayout_->GetHandle(),
         VK_SHADER_STAGE_FRAGMENT_BIT,
         0,
         sizeof(settings),
         settings.data()
     );
-    vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+    vkCmdDraw(handle, 3, 1, 0, 0);
 }
 
-void PostProcessRenderer::CreateCompositeDescriptorSetLayout(VulkanContext& context) {
+void PostProcessRenderer::CreateCompositeBindingLayout(
+    VulkanContext& context,
+    const std::uint32_t imageCount,
+    const std::uint32_t levelCount
+) {
+    if (imageCount == 0 || levelCount == 0) {
+        compositeBindingLayout_.reset();
+        return;
+    }
+
     const std::array bindings{
         VkDescriptorSetLayoutBinding{
             .binding = 0,
@@ -372,12 +448,25 @@ void PostProcessRenderer::CreateCompositeDescriptorSetLayout(VulkanContext& cont
         .bindingCount = static_cast<std::uint32_t>(bindings.size()),
         .pBindings = bindings.data()
     };
-    if (vkCreateDescriptorSetLayout(context.GetDevice(), &createInfo, nullptr, &compositeDescriptorSetLayout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create post-process composite descriptor set layout.");
-    }
+    const std::vector<VkDescriptorPoolSize> poolSizes{
+        VkDescriptorPoolSize{
+            .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = imageCount * 2
+        }
+    };
+    compositeBindingLayout_ = VulkanBindingLayout::Create(context.GetDevice(), createInfo, poolSizes, imageCount);
 }
 
-void PostProcessRenderer::CreateBlurDescriptorSetLayout(VulkanContext& context) {
+void PostProcessRenderer::CreateBlurBindingLayout(
+    VulkanContext& context,
+    const std::uint32_t imageCount,
+    const std::uint32_t levelCount
+) {
+    if (imageCount == 0 || levelCount == 0) {
+        blurBindingLayout_.reset();
+        return;
+    }
+
     const VkDescriptorSetLayoutBinding sourceBinding{
         .binding = 0,
         .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -392,12 +481,20 @@ void PostProcessRenderer::CreateBlurDescriptorSetLayout(VulkanContext& context) 
         .bindingCount = 1,
         .pBindings = &sourceBinding
     };
-    if (vkCreateDescriptorSetLayout(context.GetDevice(), &createInfo, nullptr, &blurDescriptorSetLayout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create blur descriptor set layout.");
-    }
+    const std::uint32_t downSets = imageCount * levelCount;
+    const std::uint32_t upSets = imageCount * (levelCount > 1 ? levelCount - 1 : 0);
+    const std::vector<VkDescriptorPoolSize> poolSizes{
+        VkDescriptorPoolSize{
+            .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = downSets + upSets
+        }
+    };
+    blurBindingLayout_ = VulkanBindingLayout::Create(context.GetDevice(), createInfo, poolSizes, downSets + upSets);
 }
 
 void PostProcessRenderer::CreatePipelineLayouts(VulkanContext& context) {
+    const VkDescriptorSetLayout compositeBindingLayout = GetBindingLayout(*compositeBindingLayout_).GetLayoutHandle();
+    const VkDescriptorSetLayout blurBindingLayout = GetBindingLayout(*blurBindingLayout_).GetLayoutHandle();
     const VkPushConstantRange pushRange{
         .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
         .offset = 0,
@@ -409,62 +506,26 @@ void PostProcessRenderer::CreatePipelineLayouts(VulkanContext& context) {
         .pNext = nullptr,
         .flags = 0,
         .setLayoutCount = 1,
-        .pSetLayouts = &compositeDescriptorSetLayout_,
+        .pSetLayouts = &compositeBindingLayout,
         .pushConstantRangeCount = 1,
         .pPushConstantRanges = &pushRange
     };
-    if (vkCreatePipelineLayout(context.GetDevice(), &compositeInfo, nullptr, &compositePipelineLayout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create post-process composite pipeline layout.");
-    }
+    compositePipelineLayout_ = VulkanPipelineLayout::Create(context.GetDevice(), compositeInfo);
 
     const VkPipelineLayoutCreateInfo blurInfo{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .pNext = nullptr,
         .flags = 0,
         .setLayoutCount = 1,
-        .pSetLayouts = &blurDescriptorSetLayout_,
+        .pSetLayouts = &blurBindingLayout,
         .pushConstantRangeCount = 1,
         .pPushConstantRanges = &pushRange
     };
-    if (vkCreatePipelineLayout(context.GetDevice(), &blurInfo, nullptr, &blurPipelineLayout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create blur pipeline layout.");
-    }
-}
-
-void PostProcessRenderer::CreateDescriptorPool(
-    VulkanContext& context,
-    const std::uint32_t imageCount,
-    const std::uint32_t levelCount
-) {
-    if (imageCount == 0 || levelCount == 0) {
-        return;
-    }
-
-    const std::uint32_t downSets = imageCount * levelCount;
-    const std::uint32_t upSets = imageCount * (levelCount > 1 ? levelCount - 1 : 0);
-    const std::uint32_t compositeSets = imageCount;
-    const std::uint32_t totalSets = downSets + upSets + compositeSets;
-    const std::uint32_t totalDescriptors = downSets + upSets + (compositeSets * 2);
-
-    const VkDescriptorPoolSize poolSize{
-        .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        .descriptorCount = totalDescriptors
-    };
-    const VkDescriptorPoolCreateInfo createInfo{
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-        .pNext = nullptr,
-        .flags = 0,
-        .maxSets = totalSets,
-        .poolSizeCount = 1,
-        .pPoolSizes = &poolSize
-    };
-    if (vkCreateDescriptorPool(context.GetDevice(), &createInfo, nullptr, &descriptorPool_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create post-process descriptor pool.");
-    }
+    blurPipelineLayout_ = VulkanPipelineLayout::Create(context.GetDevice(), blurInfo);
 }
 
 void PostProcessRenderer::CreateBlurResources(VulkanContext& context, const std::uint32_t imageCount) {
-    const VkExtent2D swapchainExtent = context.GetSwapchainExtent();
+    const VkExtent2D swapchainExtent = context.GetSwapchainExtentVk();
     std::uint32_t width = swapchainExtent.width;
     std::uint32_t height = swapchainExtent.height;
 
@@ -569,66 +630,50 @@ void PostProcessRenderer::CreateBlurResources(VulkanContext& context, const std:
     }
 }
 
-void PostProcessRenderer::CreateDescriptorSets(
+void PostProcessRenderer::CreateBindings(
     VulkanContext& context,
     const std::vector<VkImageView>& sceneViews,
     const std::vector<VkImageView>& glowViews
 ) {
+    static_cast<void>(context);
     const std::uint32_t imageCount = static_cast<std::uint32_t>(sceneViews.size());
     const std::uint32_t levelCount = static_cast<std::uint32_t>(blurExtents_.size());
     if (imageCount == 0 || levelCount == 0 || glowViews.size() != sceneViews.size() || blurSampler_ == VK_NULL_HANDLE) {
         return;
     }
 
-    const auto allocateSets = [&](const VkDescriptorSetLayout layout, const std::uint32_t count) {
-        std::vector<VkDescriptorSetLayout> layouts(count, layout);
-        std::vector<VkDescriptorSet> sets(count);
-        const VkDescriptorSetAllocateInfo allocInfo{
-            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-            .pNext = nullptr,
-            .descriptorPool = descriptorPool_,
-            .descriptorSetCount = count,
-            .pSetLayouts = layouts.data()
-        };
-        if (vkAllocateDescriptorSets(context.GetDevice(), &allocInfo, sets.data()) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to allocate post-process descriptor sets.");
-        }
-        return sets;
-    };
-
-    compositeDescriptorSets_ = allocateSets(compositeDescriptorSetLayout_, imageCount);
-    downDescriptorSets_.assign(imageCount, std::vector<VkDescriptorSet>(levelCount));
-    upDescriptorSets_.assign(imageCount, std::vector<VkDescriptorSet>(levelCount > 1 ? levelCount - 1 : 0));
+    auto& compositeLayout = GetBindingLayout(*compositeBindingLayout_);
+    auto& blurLayout = GetBindingLayout(*blurBindingLayout_);
+    compositeBindings_.clear();
+    compositeBindings_.reserve(imageCount);
+    downBindings_.clear();
+    downBindings_.resize(imageCount);
+    upBindings_.clear();
+    upBindings_.resize(imageCount);
 
     for (std::uint32_t image = 0; image < imageCount; ++image) {
-        const auto downSets = allocateSets(blurDescriptorSetLayout_, levelCount);
+        compositeBindings_.push_back(compositeLayout.AllocateBinding());
+        downBindings_[image].reserve(levelCount);
         for (std::uint32_t level = 0; level < levelCount; ++level) {
-            downDescriptorSets_[image][level] = downSets[level];
+            downBindings_[image].push_back(blurLayout.AllocateBinding());
             const VkImageView sourceView = (level == 0) ? glowViews[image] : downLevels_[image][level - 1].View;
             const VkDescriptorImageInfo sourceInfo{
                 .sampler = blurSampler_,
                 .imageView = sourceView,
                 .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
             };
-            const VkWriteDescriptorSet write{
-                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                .pNext = nullptr,
-                .dstSet = downDescriptorSets_[image][level],
-                .dstBinding = 0,
-                .dstArrayElement = 0,
-                .descriptorCount = 1,
-                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                .pImageInfo = &sourceInfo,
-                .pBufferInfo = nullptr,
-                .pTexelBufferView = nullptr
-            };
-            vkUpdateDescriptorSets(context.GetDevice(), 1, &write, 0, nullptr);
+            GetBinding(*downBindings_[image][level]).UpdateImage(
+                0,
+                reinterpret_cast<void*>(sourceInfo.sampler),
+                reinterpret_cast<void*>(sourceInfo.imageView),
+                static_cast<std::uint32_t>(sourceInfo.imageLayout)
+            );
         }
 
         if (levelCount > 1) {
-            const auto upSets = allocateSets(blurDescriptorSetLayout_, levelCount - 1);
+            upBindings_[image].reserve(levelCount - 1);
             for (std::uint32_t level = 0; level < (levelCount - 1); ++level) {
-                upDescriptorSets_[image][level] = upSets[level];
+                upBindings_[image].push_back(blurLayout.AllocateBinding());
                 const VkImageView sourceView = (level == levelCount - 2)
                     ? downLevels_[image][levelCount - 1].View
                     : upLevels_[image][level + 1].View;
@@ -637,19 +682,12 @@ void PostProcessRenderer::CreateDescriptorSets(
                     .imageView = sourceView,
                     .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
                 };
-                const VkWriteDescriptorSet write{
-                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                    .pNext = nullptr,
-                    .dstSet = upDescriptorSets_[image][level],
-                    .dstBinding = 0,
-                    .dstArrayElement = 0,
-                    .descriptorCount = 1,
-                    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                    .pImageInfo = &sourceInfo,
-                    .pBufferInfo = nullptr,
-                    .pTexelBufferView = nullptr
-                };
-                vkUpdateDescriptorSets(context.GetDevice(), 1, &write, 0, nullptr);
+                GetBinding(*upBindings_[image][level]).UpdateImage(
+                    0,
+                    reinterpret_cast<void*>(sourceInfo.sampler),
+                    reinterpret_cast<void*>(sourceInfo.imageView),
+                    static_cast<std::uint32_t>(sourceInfo.imageLayout)
+                );
             }
         }
 
@@ -666,33 +704,18 @@ void PostProcessRenderer::CreateDescriptorSets(
                 .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
             }
         };
-        const std::array writes{
-            VkWriteDescriptorSet{
-                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                .pNext = nullptr,
-                .dstSet = compositeDescriptorSets_[image],
-                .dstBinding = 0,
-                .dstArrayElement = 0,
-                .descriptorCount = 1,
-                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                .pImageInfo = &imageInfos[0],
-                .pBufferInfo = nullptr,
-                .pTexelBufferView = nullptr
-            },
-            VkWriteDescriptorSet{
-                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                .pNext = nullptr,
-                .dstSet = compositeDescriptorSets_[image],
-                .dstBinding = 1,
-                .dstArrayElement = 0,
-                .descriptorCount = 1,
-                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                .pImageInfo = &imageInfos[1],
-                .pBufferInfo = nullptr,
-                .pTexelBufferView = nullptr
-            }
-        };
-        vkUpdateDescriptorSets(context.GetDevice(), static_cast<std::uint32_t>(writes.size()), writes.data(), 0, nullptr);
+        GetBinding(*compositeBindings_[image]).UpdateImage(
+            0,
+            reinterpret_cast<void*>(imageInfos[0].sampler),
+            reinterpret_cast<void*>(imageInfos[0].imageView),
+            static_cast<std::uint32_t>(imageInfos[0].imageLayout)
+        );
+        GetBinding(*compositeBindings_[image]).UpdateImage(
+            1,
+            reinterpret_cast<void*>(imageInfos[1].sampler),
+            reinterpret_cast<void*>(imageInfos[1].imageView),
+            static_cast<std::uint32_t>(imageInfos[1].imageLayout)
+        );
     }
 }
 
@@ -755,18 +778,23 @@ void PostProcessRenderer::CreatePipelines(VulkanContext& context) {
 
     const auto vertPath = Utils::PathUtils::GetResourcePath("Shaders/Vulkan/PostProcess.vert.spv");
     const auto vertCode = ShaderUtils::ReadBinaryFile(vertPath);
-    const VkShaderModule vertModule = ShaderUtils::CreateShaderModule(device, vertCode);
+    const auto vertModule = VulkanShaderModule::Create(device, vertCode);
 
-    const auto createPipeline = [&](const std::filesystem::path& fragPath, const VkRenderPass renderPass, const VkPipelineLayout pipelineLayout) {
+    const auto createPipeline = [&](
+        const std::filesystem::path& fragPath,
+        const VkRenderPass renderPass,
+        const VkPipelineLayout pipelineLayout,
+        const Common::PipelineLayout& layout
+    ) {
         const auto fragCode = ShaderUtils::ReadBinaryFile(fragPath);
-        const VkShaderModule fragModule = ShaderUtils::CreateShaderModule(device, fragCode);
+        const auto fragModule = VulkanShaderModule::Create(device, fragCode);
 
         const VkPipelineShaderStageCreateInfo vertStage{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
             .pNext = nullptr,
             .flags = 0,
             .stage = VK_SHADER_STAGE_VERTEX_BIT,
-            .module = vertModule,
+            .module = vertModule->GetHandle(),
             .pName = "main",
             .pSpecializationInfo = nullptr
         };
@@ -775,7 +803,7 @@ void PostProcessRenderer::CreatePipelines(VulkanContext& context) {
             .pNext = nullptr,
             .flags = 0,
             .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-            .module = fragModule,
+            .module = fragModule->GetHandle(),
             .pName = "main",
             .pSpecializationInfo = nullptr
         };
@@ -898,32 +926,27 @@ void PostProcessRenderer::CreatePipelines(VulkanContext& context) {
             .basePipelineIndex = -1
         };
 
-        VkPipeline pipeline = VK_NULL_HANDLE;
-        if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline) != VK_SUCCESS) {
-            vkDestroyShaderModule(device, fragModule, nullptr);
-            throw std::runtime_error("Failed to create post-process graphics pipeline.");
-        }
-        vkDestroyShaderModule(device, fragModule, nullptr);
-        return pipeline;
+        return VulkanPipelineVariant::CreateGraphicsPipeline(device, pipelineInfo, layout);
     };
 
     compositePipeline_ = createPipeline(
         Utils::PathUtils::GetResourcePath("Shaders/Vulkan/PostProcess.frag.spv"),
-        context.GetPostProcessRenderPass(),
-        compositePipelineLayout_
+        reinterpret_cast<VkRenderPass>(compositeRenderPass_->GetNativeHandle()),
+        compositePipelineLayout_->GetHandle(),
+        *compositePipelineLayout_
     );
     blurDownPipeline_ = createPipeline(
         Utils::PathUtils::GetResourcePath("Shaders/Vulkan/DualKawaseDown.frag.spv"),
         blurRenderPass_,
-        blurPipelineLayout_
+        blurPipelineLayout_->GetHandle(),
+        *blurPipelineLayout_
     );
     blurUpPipeline_ = createPipeline(
         Utils::PathUtils::GetResourcePath("Shaders/Vulkan/DualKawaseUp.frag.spv"),
         blurRenderPass_,
-        blurPipelineLayout_
+        blurPipelineLayout_->GetHandle(),
+        *blurPipelineLayout_
     );
-
-    vkDestroyShaderModule(device, vertModule, nullptr);
 }
 
 void PostProcessRenderer::DestroyBlurResources(VulkanContext& context) {
@@ -974,18 +997,10 @@ void PostProcessRenderer::DestroyBlurResources(VulkanContext& context) {
 }
 
 void PostProcessRenderer::DestroyPipelines(VulkanContext& context) {
-    if (compositePipeline_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(context.GetDevice(), compositePipeline_, nullptr);
-        compositePipeline_ = VK_NULL_HANDLE;
-    }
-    if (blurDownPipeline_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(context.GetDevice(), blurDownPipeline_, nullptr);
-        blurDownPipeline_ = VK_NULL_HANDLE;
-    }
-    if (blurUpPipeline_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(context.GetDevice(), blurUpPipeline_, nullptr);
-        blurUpPipeline_ = VK_NULL_HANDLE;
-    }
+    static_cast<void>(context);
+    compositePipeline_.reset();
+    blurDownPipeline_.reset();
+    blurUpPipeline_.reset();
     if (blurRenderPass_ != VK_NULL_HANDLE) {
         vkDestroyRenderPass(context.GetDevice(), blurRenderPass_, nullptr);
         blurRenderPass_ = VK_NULL_HANDLE;
@@ -1013,14 +1028,11 @@ void PostProcessRenderer::DestroySwapchainResources(VulkanContext& context) {
     DestroyPipelines(context);
     DestroyBlurResources(context);
 
-    if (descriptorPool_ != VK_NULL_HANDLE) {
-        vkDestroyDescriptorPool(context.GetDevice(), descriptorPool_, nullptr);
-        descriptorPool_ = VK_NULL_HANDLE;
-    }
-
-    compositeDescriptorSets_.clear();
-    downDescriptorSets_.clear();
-    upDescriptorSets_.clear();
+    compositeBindings_.clear();
+    downBindings_.clear();
+    upBindings_.clear();
+    compositeBindingLayout_.reset();
+    blurBindingLayout_.reset();
 }
 
 std::shared_ptr<DataModel::Lighting> PostProcessRenderer::GetLighting() const {
@@ -1031,3 +1043,4 @@ std::shared_ptr<DataModel::Lighting> PostProcessRenderer::GetLighting() const {
 }
 
 } // namespace Lvs::Engine::Rendering::Vulkan
+

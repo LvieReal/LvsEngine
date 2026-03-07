@@ -5,7 +5,10 @@
 #include "Lvs/Engine/DataModel/Place.hpp"
 #include "Lvs/Engine/Rendering/Common/GraphicsContext.hpp"
 #include "Lvs/Engine/Rendering/Common/OverlayPrimitive.hpp"
+#include "Lvs/Engine/Rendering/Common/PostProcessRenderer.hpp"
 #include "Lvs/Engine/Rendering/Common/SceneRenderer.hpp"
+#include "Lvs/Engine/Rendering/RenderingApi.hpp"
+#include "Lvs/Engine/Rendering/RenderingFactory.hpp"
 
 #include <array>
 #include <cstdint>
@@ -20,6 +23,8 @@ class Window;
 
 namespace Lvs::Engine::Rendering::Vulkan {
 
+class PostProcessRenderer;
+class SkyboxRenderer;
 class VulkanInitializationError final : public std::runtime_error {
 public:
     enum class Reason {
@@ -37,7 +42,6 @@ private:
 };
 
 class Renderer;
-class PostProcessRenderer;
 class VulkanFrameManager;
 
 class VulkanContext final : public Rendering::Common::GraphicsContext {
@@ -64,13 +68,15 @@ public:
     [[nodiscard]] VkPhysicalDevice GetPhysicalDevice() const;
     [[nodiscard]] VkDevice GetDevice() const;
     [[nodiscard]] VkQueue GetGraphicsQueue() const;
-    [[nodiscard]] std::uint32_t GetGraphicsQueueFamily() const;
-    [[nodiscard]] VkRenderPass GetRenderPass() const;
-    [[nodiscard]] VkRenderPass GetPostProcessRenderPass() const;
+    [[nodiscard]] void* GetNativeDevice() const override;
+    [[nodiscard]] void* GetNativePhysicalDevice() const override;
+    [[nodiscard]] void* GetNativeGraphicsQueue() const override;
+    [[nodiscard]] std::uint32_t GetGraphicsQueueFamily() const override;
     [[nodiscard]] VkFormat GetSwapchainImageFormat() const;
     [[nodiscard]] VkFormat GetOffscreenImageFormat() const;
-    [[nodiscard]] VkExtent2D GetSwapchainExtent() const;
-    [[nodiscard]] std::uint32_t GetFramesInFlight() const;
+    [[nodiscard]] VkExtent2D GetSwapchainExtentVk() const;
+    [[nodiscard]] Rendering::Common::Extent2D GetSwapchainExtent() const override;
+    [[nodiscard]] std::uint32_t GetFramesInFlight() const override;
 
     [[nodiscard]] std::unique_ptr<Rendering::Common::BufferResource> CreateBuffer(
         const Rendering::Common::BufferDesc& desc
@@ -83,6 +89,13 @@ public:
     ) override;
 
 private:
+    friend class Renderer;
+    friend class SkyboxRenderer;
+    friend class PostProcessRenderer;
+
+    [[nodiscard]] VkRenderPass GetSceneRenderPassHandle() const;
+    [[nodiscard]] VkRenderPass GetPostProcessRenderPassHandle() const;
+    void EnsureRenderingFactory();
     void CreateInstance();
     void CreateSurface(void* nativeWindowHandle);
     void PickPhysicalDevice();
@@ -107,9 +120,12 @@ private:
     std::uint32_t instanceApiVersion_{VK_API_VERSION_1_0};
     VkClearColorValue clearColor_{{1.0F, 1.0F, 1.0F, 1.0F}};
     std::vector<Rendering::Common::OverlayPrimitive> overlayPrimitives_;
+    Rendering::RenderingApi requestedApi_{Rendering::RenderingApi::Auto};
+    Rendering::RenderingApi activeApi_{Rendering::RenderingApi::Auto};
+    std::shared_ptr<Rendering::RenderingFactory> renderingFactory_;
     std::unique_ptr<VulkanFrameManager> frameManager_;
     std::unique_ptr<Rendering::Common::SceneRenderer> renderer_;
-    std::unique_ptr<PostProcessRenderer> postProcessRenderer_;
+    std::unique_ptr<Rendering::Common::PostProcessRenderer> postProcessRenderer_;
     std::shared_ptr<DataModel::Place> currentPlace_;
 };
 

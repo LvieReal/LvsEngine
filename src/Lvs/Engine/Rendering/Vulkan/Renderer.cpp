@@ -11,7 +11,9 @@
 #include "Lvs/Engine/Objects/DirectionalLight.hpp"
 #include "Lvs/Engine/Rendering/Common/Mesh.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/RenderPartProxy.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/VulkanBinding.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanGpuResources.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/VulkanPipeline.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanVertexLayout.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanContext.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanShaderUtils.hpp"
@@ -70,17 +72,20 @@ VkCullModeFlags ToVkCullMode(const Common::PipelineCullMode cullMode) {
 
 } // namespace
 
-Renderer::Renderer()
-    : meshCache_(meshUploader_) {
+Renderer::Renderer(std::shared_ptr<::Lvs::Engine::Rendering::RenderingFactory> factory)
+    : factory_(std::move(factory)),
+      meshCache_(meshUploader_) {
 }
 
+Renderer::~Renderer() = default;
+
 void Renderer::Initialize(Common::GraphicsContext& context, const Common::RenderSurface& surface) {
-    static_cast<void>(surface);
+    surface_ = &surface;
     Initialize(static_cast<VulkanContext&>(context));
 }
 
 void Renderer::RecreateSwapchain(Common::GraphicsContext& context, const Common::RenderSurface& surface) {
-    static_cast<void>(surface);
+    surface_ = &surface;
     RecreateSwapchain(static_cast<VulkanContext&>(context));
 }
 
@@ -100,15 +105,12 @@ void Renderer::Initialize(VulkanContext& context) {
     }
 
     meshCache_.Initialize();
-    CreateDescriptorSetLayout(context);
+    bindingLayout_ = CreateBindingLayout(context);
     CreatePipelineLayout(context);
-    CreateUniformBuffers(context);
-    CreateDescriptorPool(context);
-    CreateDescriptorSets(context);
-    CreateGraphicsPipeline(context);
-
-    skyboxRenderer_.Initialize(context);
-    shadowRenderer_.Initialize(context);
+    uniformBuffers_ = AllocateUniformBuffers(context);
+    bindings_ = CreateResourceBindings(context);
+    CreateGraphicsPipelines(context);
+    InitializeSubRenderers(context);
     CreateSurfaceTextures(context);
 
     initialized_ = true;
@@ -122,55 +124,43 @@ void Renderer::RecreateSwapchain(VulkanContext& context) {
     }
 
     DestroySwapchainResources(context);
-    CreateGraphicsPipeline(context);
-    skyboxRenderer_.RecreateSwapchain(context);
-    shadowRenderer_.RecreateSwapchain(context);
+    CreateGraphicsPipelines(context);
+    if (skyboxRenderer_ != nullptr) {
+        skyboxRenderer_->RecreateSwapchain(context);
+    }
+    if (shadowRenderer_ != nullptr) {
+        shadowRenderer_->RecreateSwapchain(context);
+    }
 }
 
 void Renderer::DestroySwapchainResources(VulkanContext& context) {
-    const VkDevice device = context.GetDevice();
-    for (auto& [key, pipeline] : pipelineVariants_) {
-        static_cast<void>(key);
-        if (pipeline != VK_NULL_HANDLE) {
-            vkDestroyPipeline(device, pipeline, nullptr);
-        }
-    }
-    pipelineVariants_.clear();
+    static_cast<void>(context);
+    pipelines_.clear();
 }
 
 void Renderer::Shutdown(VulkanContext& context) {
     context_ = &context;
-    const VkDevice device = context.GetDevice();
-
     DestroySwapchainResources(context);
 
-    skyboxRenderer_.Shutdown(context);
-    shadowRenderer_.Shutdown(context);
+    if (skyboxRenderer_ != nullptr) {
+        skyboxRenderer_->Shutdown(context);
+    }
+    if (shadowRenderer_ != nullptr) {
+        shadowRenderer_->Shutdown(context);
+    }
     DestroySurfaceTextures(context);
 
-    if (descriptorPool_ != VK_NULL_HANDLE) {
-        vkDestroyDescriptorPool(device, descriptorPool_, nullptr);
-        descriptorPool_ = VK_NULL_HANDLE;
-    }
-
     for (auto& uniform : uniformBuffers_) {
-        BufferUtils::DestroyBuffer(device, uniform);
+        BufferUtils::DestroyBuffer(context.GetDevice(), uniform);
     }
     uniformBuffers_.clear();
-    descriptorSets_.clear();
+    bindings_.clear();
     boundSkyImageView_ = VK_NULL_HANDLE;
     boundSurfaceAtlasView_ = VK_NULL_HANDLE;
     boundSurfaceNormalAtlasView_ = VK_NULL_HANDLE;
 
-    if (pipelineLayout_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(device, pipelineLayout_, nullptr);
-        pipelineLayout_ = VK_NULL_HANDLE;
-    }
-
-    if (descriptorSetLayout_ != VK_NULL_HANDLE) {
-        vkDestroyDescriptorSetLayout(device, descriptorSetLayout_, nullptr);
-        descriptorSetLayout_ = VK_NULL_HANDLE;
-    }
+    pipelineLayout_.reset();
+    bindingLayout_.reset();
 
     meshCache_.Clear();
     initialized_ = false;
@@ -180,14 +170,18 @@ void Renderer::BindToPlace(const std::shared_ptr<DataModel::Place>& place) {
     place_ = place;
     workspace_ = place_ != nullptr ? std::dynamic_pointer_cast<DataModel::Workspace>(place_->FindService("Workspace")) : nullptr;
     scene_.Build(place_);
-    skyboxRenderer_.BindToPlace(place_);
+    if (skyboxRenderer_ != nullptr) {
+        skyboxRenderer_->BindToPlace(place_);
+    }
 }
 
 void Renderer::Unbind() {
     place_.reset();
     workspace_.reset();
     scene_.Build(nullptr);
-    skyboxRenderer_.Unbind();
+    if (skyboxRenderer_ != nullptr) {
+        skyboxRenderer_->Unbind();
+    }
     overlayPrimitives_.clear();
 }
 
@@ -204,8 +198,6 @@ void Renderer::RecordShadowCommands(
     static_cast<void>(surface);
     static_cast<void>(frameIndex);
     auto& vkContext = static_cast<VulkanContext&>(context);
-    auto& vkCommandBuffer = dynamic_cast<VulkanRenderCommandBuffer&>(commandBuffer);
-    const VkCommandBuffer nativeCommandBuffer = vkCommandBuffer.GetHandle();
     context_ = &vkContext;
     if (!initialized_ || place_ == nullptr || workspace_ == nullptr) {
         return;
@@ -220,7 +212,7 @@ void Renderer::RecordShadowCommands(
     const auto cameraPosition = camera->GetProperty("CFrame").value<Math::CFrame>().Position;
     scene_.BuildDrawLists(*this, cameraPosition);
 
-    ShadowRenderer::ShadowSettings shadowSettings{};
+    Common::ShadowRenderer::ShadowSettings shadowSettings{};
     const auto lighting = GetLighting();
     auto directionalLight = lighting != nullptr ? GetDirectionalLight(lighting) : nullptr;
     Math::Vector3 lightDirection{};
@@ -243,15 +235,23 @@ void Renderer::RecordShadowCommands(
         shadowSettings.Enabled = false;
     }
 
-    shadowRenderer_.Render(
-        vkContext,
-        nativeCommandBuffer,
-        scene_.GetOpaqueProxies(),
-        *camera,
-        lightDirection,
-        GetAspect(vkContext),
-        shadowSettings
-    );
+    if (shadowRenderer_ != nullptr) {
+        std::vector<std::shared_ptr<Common::RenderProxy>> shadowCasters;
+        const auto& opaqueProxies = scene_.GetOpaqueProxies();
+        shadowCasters.reserve(opaqueProxies.size());
+        for (const auto& proxy : opaqueProxies) {
+            shadowCasters.push_back(proxy);
+        }
+        shadowRenderer_->Render(
+            vkContext,
+            commandBuffer,
+            shadowCasters,
+            *camera,
+            lightDirection,
+            GetAspect(vkContext),
+            shadowSettings
+        );
+    }
 }
 
 void Renderer::RecordDrawCommands(
@@ -261,10 +261,14 @@ void Renderer::RecordDrawCommands(
     const std::uint32_t frameIndex
 ) {
     auto& vkContext = static_cast<VulkanContext&>(context);
-    auto& vkCommandBuffer = dynamic_cast<VulkanRenderCommandBuffer&>(commandBuffer);
-    const VkCommandBuffer nativeCommandBuffer = vkCommandBuffer.GetHandle();
+    const Common::FrameContext frameContext{
+        .Graphics = context,
+        .Surface = surface,
+        .Commands = commandBuffer,
+        .FrameIndex = frameIndex
+    };
     context_ = &vkContext;
-    if (!initialized_ || place_ == nullptr || workspace_ == nullptr || pipelineVariants_.empty()) {
+    if (!initialized_ || place_ == nullptr || workspace_ == nullptr || pipelines_.empty()) {
         return;
     }
 
@@ -274,47 +278,42 @@ void Renderer::RecordDrawCommands(
     }
     camera->Resize(GetAspect(vkContext));
 
-    const auto extentInfo = surface.GetExtent();
+    const auto extentInfo = frameContext.Surface.GetExtent();
     const VkExtent2D extent{extentInfo.Width, extentInfo.Height};
-    const VkViewport viewport{
-        .x = 0.0F,
-        .y = 0.0F,
-        .width = static_cast<float>(extent.width),
-        .height = static_cast<float>(extent.height),
-        .minDepth = 0.0F,
-        .maxDepth = 1.0F
-    };
-    const VkRect2D scissor{
-        .offset = {0, 0},
-        .extent = extent
-    };
-    vkCmdSetViewport(nativeCommandBuffer, 0, 1, &viewport);
-    vkCmdSetScissor(nativeCommandBuffer, 0, 1, &scissor);
+    frameContext.Commands.SetViewport({
+        .X = 0.0F,
+        .Y = 0.0F,
+        .Width = static_cast<float>(extent.width),
+        .Height = static_cast<float>(extent.height),
+        .MinDepth = 0.0F,
+        .MaxDepth = 1.0F
+    });
+    frameContext.Commands.SetScissor({
+        .X = 0,
+        .Y = 0,
+        .Width = extent.width,
+        .Height = extent.height
+    });
 
-    skyboxRenderer_.UpdateResources(vkContext);
+    if (skyboxRenderer_ != nullptr) {
+        skyboxRenderer_->UpdateResources(vkContext);
+    }
     UpdateMainSkyDescriptorSets(vkContext);
     UpdateShadowDescriptorSets(vkContext);
     UpdateSurfaceDescriptorSets(vkContext);
-    UpdateCameraUniformAndLighting(vkContext, frameIndex);
+    UpdateCameraUniformAndLighting(vkContext, frameContext);
 
-    vkCmdBindDescriptorSets(
-        nativeCommandBuffer,
-        VK_PIPELINE_BIND_POINT_GRAPHICS,
-        pipelineLayout_,
-        0,
-        1,
-        &descriptorSets_[frameIndex],
-        0,
-        nullptr
-    );
+    GetResourceBinding(frameContext.FrameIndex).Bind(frameContext.Commands, *pipelineLayout_, 0);
 
     const auto cameraPosition = camera->GetProperty("CFrame").value<Math::CFrame>().Position;
     scene_.BuildDrawLists(*this, cameraPosition);
-    scene_.DrawOpaque(commandBuffer, *this);
-    skyboxRenderer_.Draw(vkContext, nativeCommandBuffer, frameIndex, *camera);
-    scene_.DrawTransparent(commandBuffer, *this);
+    scene_.DrawOpaque(frameContext.Commands, *this);
+    if (skyboxRenderer_ != nullptr) {
+        skyboxRenderer_->Draw(vkContext, frameContext.Commands, frameContext.FrameIndex, *camera);
+    }
+    scene_.DrawTransparent(frameContext.Commands, *this);
     for (const auto& primitive : overlayPrimitives_) {
-        DrawOverlayPrimitive(commandBuffer, primitive);
+        DrawOverlayPrimitive(frameContext.Commands, primitive);
     }
 }
 
@@ -322,9 +321,7 @@ Common::MeshCache& Renderer::GetMeshCache() {
     return meshCache_;
 }
 
-void Renderer::CreateDescriptorSetLayout(VulkanContext& context) {
-    const VkDevice device = context.GetDevice();
-
+std::unique_ptr<Common::BindingLayout> Renderer::CreateBindingLayout(VulkanContext& context) const {
     const VkDescriptorSetLayoutBinding cameraBinding{
         .binding = 0,
         .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -383,12 +380,24 @@ void Renderer::CreateDescriptorSetLayout(VulkanContext& context) {
         .bindingCount = static_cast<std::uint32_t>(bindings.size()),
         .pBindings = bindings.data()
     };
-    if (vkCreateDescriptorSetLayout(device, &createInfo, nullptr, &descriptorSetLayout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create descriptor set layout.");
-    }
+    const std::array<VkDescriptorPoolSize, 2> poolSizes{{
+        VkDescriptorPoolSize{.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = context.GetFramesInFlight()},
+        VkDescriptorPoolSize{
+            .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = context.GetFramesInFlight() * 7
+        }
+    }};
+    return VulkanBindingLayout::Create(
+        context.GetDevice(),
+        createInfo,
+        std::vector<VkDescriptorPoolSize>(poolSizes.begin(), poolSizes.end()),
+        context.GetFramesInFlight()
+    );
 }
 
 void Renderer::CreatePipelineLayout(VulkanContext& context) {
+    const auto& bindingLayout = dynamic_cast<const VulkanBindingLayout&>(*bindingLayout_);
+    const VkDescriptorSetLayout descriptorSetLayout = bindingLayout.GetLayoutHandle();
     const VkPushConstantRange pushRange{
         .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
         .offset = 0,
@@ -399,69 +408,39 @@ void Renderer::CreatePipelineLayout(VulkanContext& context) {
         .pNext = nullptr,
         .flags = 0,
         .setLayoutCount = 1,
-        .pSetLayouts = &descriptorSetLayout_,
+        .pSetLayouts = &descriptorSetLayout,
         .pushConstantRangeCount = 1,
         .pPushConstantRanges = &pushRange
     };
-    if (vkCreatePipelineLayout(context.GetDevice(), &createInfo, nullptr, &pipelineLayout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create pipeline layout.");
+    pipelineLayout_ = VulkanPipelineLayout::Create(context.GetDevice(), createInfo);
+}
+
+void Renderer::CreateGraphicsPipelines(VulkanContext& context) {
+    pipelines_.clear();
+    for (const auto& key : GetPipelineVariants()) {
+        pipelines_.emplace(key, CreateGraphicsPipelineVariant(context, key));
     }
 }
 
-void Renderer::CreateGraphicsPipeline(VulkanContext& context) {
-    pipelineVariants_.clear();
-
-    const std::array variantKeys{
-        Common::PipelineVariantKey{.CullMode = Common::PipelineCullMode::Back,
-                                   .DepthMode = Common::PipelineDepthMode::ReadWrite,
-                                   .BlendMode = Common::PipelineBlendMode::Opaque},
-        Common::PipelineVariantKey{.CullMode = Common::PipelineCullMode::Front,
-                                   .DepthMode = Common::PipelineDepthMode::ReadWrite,
-                                   .BlendMode = Common::PipelineBlendMode::Opaque},
-        Common::PipelineVariantKey{.CullMode = Common::PipelineCullMode::None,
-                                   .DepthMode = Common::PipelineDepthMode::ReadWrite,
-                                   .BlendMode = Common::PipelineBlendMode::Opaque},
-        Common::PipelineVariantKey{.CullMode = Common::PipelineCullMode::Back,
-                                   .DepthMode = Common::PipelineDepthMode::ReadOnly,
-                                   .BlendMode = Common::PipelineBlendMode::AlphaBlend},
-        Common::PipelineVariantKey{.CullMode = Common::PipelineCullMode::Front,
-                                   .DepthMode = Common::PipelineDepthMode::ReadOnly,
-                                   .BlendMode = Common::PipelineBlendMode::AlphaBlend},
-        Common::PipelineVariantKey{.CullMode = Common::PipelineCullMode::None,
-                                   .DepthMode = Common::PipelineDepthMode::ReadOnly,
-                                   .BlendMode = Common::PipelineBlendMode::AlphaBlend},
-        Common::PipelineVariantKey{.CullMode = Common::PipelineCullMode::Back,
-                                   .DepthMode = Common::PipelineDepthMode::Disabled,
-                                   .BlendMode = Common::PipelineBlendMode::AlphaBlend},
-        Common::PipelineVariantKey{.CullMode = Common::PipelineCullMode::Front,
-                                   .DepthMode = Common::PipelineDepthMode::Disabled,
-                                   .BlendMode = Common::PipelineBlendMode::AlphaBlend},
-        Common::PipelineVariantKey{.CullMode = Common::PipelineCullMode::None,
-                                   .DepthMode = Common::PipelineDepthMode::Disabled,
-                                   .BlendMode = Common::PipelineBlendMode::AlphaBlend}
-    };
-
-    for (const auto& key : variantKeys) {
-        pipelineVariants_.emplace(key, CreateGraphicsPipelineVariant(context, key));
-    }
-}
-
-VkPipeline Renderer::CreateGraphicsPipelineVariant(VulkanContext& context, const Common::PipelineVariantKey& key) {
+std::unique_ptr<VulkanPipelineVariant> Renderer::CreateGraphicsPipelineVariant(
+    VulkanContext& context,
+    const Common::PipelineVariantKey& key
+) {
     const VkDevice device = context.GetDevice();
     const auto vertPath = Utils::PathUtils::GetResourcePath("Shaders/Vulkan/Main.vert.spv");
     const auto fragPath = Utils::PathUtils::GetResourcePath("Shaders/Vulkan/Main.frag.spv");
 
     const auto vertCode = ShaderUtils::ReadBinaryFile(vertPath);
     const auto fragCode = ShaderUtils::ReadBinaryFile(fragPath);
-    const VkShaderModule vertModule = ShaderUtils::CreateShaderModule(device, vertCode);
-    const VkShaderModule fragModule = ShaderUtils::CreateShaderModule(device, fragCode);
+    const auto vertModule = VulkanShaderModule::Create(device, vertCode);
+    const auto fragModule = VulkanShaderModule::Create(device, fragCode);
 
     const VkPipelineShaderStageCreateInfo vertStage{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
         .pNext = nullptr,
         .flags = 0,
         .stage = VK_SHADER_STAGE_VERTEX_BIT,
-        .module = vertModule,
+        .module = vertModule->GetHandle(),
         .pName = "main",
         .pSpecializationInfo = nullptr
     };
@@ -470,7 +449,7 @@ VkPipeline Renderer::CreateGraphicsPipelineVariant(VulkanContext& context, const
         .pNext = nullptr,
         .flags = 0,
         .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-        .module = fragModule,
+        .module = fragModule->GetHandle(),
         .pName = "main",
         .pSpecializationInfo = nullptr
     };
@@ -601,29 +580,20 @@ VkPipeline Renderer::CreateGraphicsPipelineVariant(VulkanContext& context, const
         .pDepthStencilState = &depthStencil,
         .pColorBlendState = &colorBlend,
         .pDynamicState = &dynamicState,
-        .layout = pipelineLayout_,
-        .renderPass = context.GetRenderPass(),
+        .layout = pipelineLayout_->GetHandle(),
+        .renderPass = surface_ != nullptr ? reinterpret_cast<VkRenderPass>(surface_->GetSceneRenderPass().GetNativeHandle())
+                                          : VK_NULL_HANDLE,
         .subpass = 0,
         .basePipelineHandle = VK_NULL_HANDLE,
         .basePipelineIndex = -1
     };
-
-    VkPipeline pipeline = VK_NULL_HANDLE;
-    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline) != VK_SUCCESS) {
-        vkDestroyShaderModule(device, fragModule, nullptr);
-        vkDestroyShaderModule(device, vertModule, nullptr);
-        throw std::runtime_error("Failed to create graphics pipeline variant.");
-    }
-
-    vkDestroyShaderModule(device, fragModule, nullptr);
-    vkDestroyShaderModule(device, vertModule, nullptr);
-    return pipeline;
+    return VulkanPipelineVariant::CreateGraphicsPipeline(device, pipelineInfo, *pipelineLayout_);
 }
 
-void Renderer::CreateUniformBuffers(VulkanContext& context) {
+std::vector<BufferUtils::BufferHandle> Renderer::AllocateUniformBuffers(VulkanContext& context) const {
     const VkDeviceSize size = sizeof(CameraUniform);
-    uniformBuffers_.resize(context.GetFramesInFlight());
-    for (auto& buffer : uniformBuffers_) {
+    std::vector<BufferUtils::BufferHandle> uniformBuffers(context.GetFramesInFlight());
+    for (auto& buffer : uniformBuffers) {
         buffer = BufferUtils::CreateBuffer(
             context.GetPhysicalDevice(),
             context.GetDevice(),
@@ -632,153 +602,87 @@ void Renderer::CreateUniformBuffers(VulkanContext& context) {
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
         );
     }
+    return uniformBuffers;
 }
 
-void Renderer::CreateDescriptorPool(VulkanContext& context) {
-    const std::array<VkDescriptorPoolSize, 2> poolSizes{{
-        VkDescriptorPoolSize{.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = context.GetFramesInFlight()},
-        VkDescriptorPoolSize{
-            .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = context.GetFramesInFlight() * 7
-        }
-    }};
-    const VkDescriptorPoolCreateInfo createInfo{
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-        .pNext = nullptr,
-        .flags = 0,
-        .maxSets = context.GetFramesInFlight(),
-        .poolSizeCount = static_cast<std::uint32_t>(poolSizes.size()),
-        .pPoolSizes = poolSizes.data()
-    };
-    if (vkCreateDescriptorPool(context.GetDevice(), &createInfo, nullptr, &descriptorPool_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create descriptor pool.");
-    }
-}
-
-void Renderer::CreateDescriptorSets(VulkanContext& context) {
-    const std::vector<VkDescriptorSetLayout> layouts(context.GetFramesInFlight(), descriptorSetLayout_);
-    const VkDescriptorSetAllocateInfo allocInfo{
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .pNext = nullptr,
-        .descriptorPool = descriptorPool_,
-        .descriptorSetCount = context.GetFramesInFlight(),
-        .pSetLayouts = layouts.data()
-    };
-    descriptorSets_.resize(context.GetFramesInFlight());
-    if (vkAllocateDescriptorSets(context.GetDevice(), &allocInfo, descriptorSets_.data()) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate descriptor sets.");
-    }
+std::vector<std::unique_ptr<Common::ResourceBinding>> Renderer::CreateResourceBindings(VulkanContext& context) const {
+    const auto& bindingLayout = dynamic_cast<const VulkanBindingLayout&>(*bindingLayout_);
+    std::vector<std::unique_ptr<Common::ResourceBinding>> bindings;
+    bindings.reserve(context.GetFramesInFlight());
 
     for (std::uint32_t i = 0; i < context.GetFramesInFlight(); ++i) {
+        bindings.push_back(bindingLayout.AllocateBinding());
         const VkDescriptorBufferInfo bufferInfo{
             .buffer = uniformBuffers_[i].Buffer,
             .offset = 0,
             .range = sizeof(CameraUniform)
         };
-        const VkWriteDescriptorSet write{
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .pNext = nullptr,
-            .dstSet = descriptorSets_[i],
-            .dstBinding = 0,
-            .dstArrayElement = 0,
-            .descriptorCount = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-            .pImageInfo = nullptr,
-            .pBufferInfo = &bufferInfo,
-            .pTexelBufferView = nullptr
-        };
-        vkUpdateDescriptorSets(context.GetDevice(), 1, &write, 0, nullptr);
+        dynamic_cast<VulkanResourceBinding&>(*bindings.back()).UpdateBuffer(0, bufferInfo);
     }
+    return bindings;
+}
+
+std::vector<Common::PipelineVariantKey> Renderer::GetPipelineVariants() const {
+    return {
+        Common::PipelineVariantKey{.CullMode = Common::PipelineCullMode::Back,
+                                   .DepthMode = Common::PipelineDepthMode::ReadWrite,
+                                   .BlendMode = Common::PipelineBlendMode::Opaque},
+        Common::PipelineVariantKey{.CullMode = Common::PipelineCullMode::Front,
+                                   .DepthMode = Common::PipelineDepthMode::ReadWrite,
+                                   .BlendMode = Common::PipelineBlendMode::Opaque},
+        Common::PipelineVariantKey{.CullMode = Common::PipelineCullMode::None,
+                                   .DepthMode = Common::PipelineDepthMode::ReadWrite,
+                                   .BlendMode = Common::PipelineBlendMode::Opaque},
+        Common::PipelineVariantKey{.CullMode = Common::PipelineCullMode::Back,
+                                   .DepthMode = Common::PipelineDepthMode::ReadOnly,
+                                   .BlendMode = Common::PipelineBlendMode::AlphaBlend},
+        Common::PipelineVariantKey{.CullMode = Common::PipelineCullMode::Front,
+                                   .DepthMode = Common::PipelineDepthMode::ReadOnly,
+                                   .BlendMode = Common::PipelineBlendMode::AlphaBlend},
+        Common::PipelineVariantKey{.CullMode = Common::PipelineCullMode::None,
+                                   .DepthMode = Common::PipelineDepthMode::ReadOnly,
+                                   .BlendMode = Common::PipelineBlendMode::AlphaBlend},
+        Common::PipelineVariantKey{.CullMode = Common::PipelineCullMode::Back,
+                                   .DepthMode = Common::PipelineDepthMode::Disabled,
+                                   .BlendMode = Common::PipelineBlendMode::AlphaBlend},
+        Common::PipelineVariantKey{.CullMode = Common::PipelineCullMode::Front,
+                                   .DepthMode = Common::PipelineDepthMode::Disabled,
+                                   .BlendMode = Common::PipelineBlendMode::AlphaBlend},
+        Common::PipelineVariantKey{.CullMode = Common::PipelineCullMode::None,
+                                   .DepthMode = Common::PipelineDepthMode::Disabled,
+                                   .BlendMode = Common::PipelineBlendMode::AlphaBlend}
+    };
+}
+
+void Renderer::InitializeSubRenderers(VulkanContext& context) {
+    if (skyboxRenderer_ == nullptr) {
+        skyboxRenderer_ = factory_ != nullptr ? factory_->CreateSkyboxRenderer() : std::make_unique<VulkanSkyboxRenderer>();
+    }
+    if (shadowRenderer_ == nullptr) {
+        shadowRenderer_ = factory_ != nullptr ? factory_->CreateShadowRenderer() : std::make_unique<VulkanShadowRenderer>();
+    }
+    skyboxRenderer_->Initialize(context);
+    shadowRenderer_->Initialize(context);
 }
 
 void Renderer::UpdateMainSkyDescriptorSets(VulkanContext& context) {
-    const auto& cubemap = skyboxRenderer_.GetCubemap();
-    if (cubemap.View == VK_NULL_HANDLE || cubemap.Sampler == VK_NULL_HANDLE || cubemap.View == boundSkyImageView_) {
+    if (skyboxRenderer_ == nullptr) {
         return;
     }
 
     for (std::uint32_t i = 0; i < context.GetFramesInFlight(); ++i) {
-        const VkDescriptorImageInfo skyInfo{
-            .sampler = cubemap.Sampler,
-            .imageView = cubemap.View,
-            .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-        };
-        const VkWriteDescriptorSet write{
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .pNext = nullptr,
-            .dstSet = descriptorSets_[i],
-            .dstBinding = 1,
-            .dstArrayElement = 0,
-            .descriptorCount = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .pImageInfo = &skyInfo,
-            .pBufferInfo = nullptr,
-            .pTexelBufferView = nullptr
-        };
-        vkUpdateDescriptorSets(context.GetDevice(), 1, &write, 0, nullptr);
+        skyboxRenderer_->WriteSceneBinding(context, *bindings_[i]);
     }
-    boundSkyImageView_ = cubemap.View;
+    boundSkyImageView_ = VK_NULL_HANDLE;
 }
 
 void Renderer::UpdateShadowDescriptorSets(VulkanContext& context) {
-    const auto sampler = shadowRenderer_.GetShadowSampler();
-    const auto& views = shadowRenderer_.GetShadowImageViews();
-    const auto jitterSampler = shadowRenderer_.GetJitterSampler();
-    const auto jitterView = shadowRenderer_.GetJitterImageView();
-    if (sampler == VK_NULL_HANDLE || views[0] == VK_NULL_HANDLE || views[1] == VK_NULL_HANDLE || views[2] == VK_NULL_HANDLE ||
-        jitterSampler == VK_NULL_HANDLE || jitterView == VK_NULL_HANDLE) {
+    if (shadowRenderer_ == nullptr) {
         return;
     }
 
     for (std::uint32_t i = 0; i < context.GetFramesInFlight(); ++i) {
-        const std::array<VkDescriptorImageInfo, 3> shadowInfos{{
-            VkDescriptorImageInfo{
-                .sampler = sampler,
-                .imageView = views[0],
-                .imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
-            },
-            VkDescriptorImageInfo{
-                .sampler = sampler,
-                .imageView = views[1],
-                .imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
-            },
-            VkDescriptorImageInfo{
-                .sampler = sampler,
-                .imageView = views[2],
-                .imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
-            }
-        }};
-        const VkWriteDescriptorSet shadowWrite{
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .pNext = nullptr,
-            .dstSet = descriptorSets_[i],
-            .dstBinding = 2,
-            .dstArrayElement = 0,
-            .descriptorCount = static_cast<std::uint32_t>(shadowInfos.size()),
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .pImageInfo = shadowInfos.data(),
-            .pBufferInfo = nullptr,
-            .pTexelBufferView = nullptr
-        };
-        const VkDescriptorImageInfo jitterInfo{
-            .sampler = jitterSampler,
-            .imageView = jitterView,
-            .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-        };
-        const VkWriteDescriptorSet jitterWrite{
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .pNext = nullptr,
-            .dstSet = descriptorSets_[i],
-            .dstBinding = 3,
-            .dstArrayElement = 0,
-            .descriptorCount = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .pImageInfo = &jitterInfo,
-            .pBufferInfo = nullptr,
-            .pTexelBufferView = nullptr
-        };
-        const std::array writes{shadowWrite, jitterWrite};
-        vkUpdateDescriptorSets(context.GetDevice(), static_cast<std::uint32_t>(writes.size()), writes.data(), 0, nullptr);
+        shadowRenderer_->WriteSceneBinding(context, *bindings_[i]);
     }
 }
 
@@ -850,44 +754,21 @@ void Renderer::UpdateSurfaceDescriptorSets(VulkanContext& context) {
             .imageView = surfaceAtlas_.View,
             .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
         };
-        const VkWriteDescriptorSet atlasWrite{
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .pNext = nullptr,
-            .dstSet = descriptorSets_[i],
-            .dstBinding = 4,
-            .dstArrayElement = 0,
-            .descriptorCount = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .pImageInfo = &atlasInfo,
-            .pBufferInfo = nullptr,
-            .pTexelBufferView = nullptr
-        };
         const VkDescriptorImageInfo normalInfo{
             .sampler = normalSampler,
             .imageView = normalView,
             .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
         };
-        const VkWriteDescriptorSet normalWrite{
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .pNext = nullptr,
-            .dstSet = descriptorSets_[i],
-            .dstBinding = 5,
-            .dstArrayElement = 0,
-            .descriptorCount = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .pImageInfo = &normalInfo,
-            .pBufferInfo = nullptr,
-            .pTexelBufferView = nullptr
-        };
-        const std::array writes{atlasWrite, normalWrite};
-        vkUpdateDescriptorSets(context.GetDevice(), static_cast<std::uint32_t>(writes.size()), writes.data(), 0, nullptr);
+        auto& binding = dynamic_cast<VulkanResourceBinding&>(*bindings_[i]);
+        binding.UpdateImage(4, atlasInfo);
+        binding.UpdateImage(5, normalInfo);
     }
 
     boundSurfaceAtlasView_ = surfaceAtlas_.View;
     boundSurfaceNormalAtlasView_ = normalView;
 }
 
-void Renderer::UpdateCameraUniformAndLighting(VulkanContext& context, const std::uint32_t frameIndex) {
+void Renderer::UpdateCameraUniformAndLighting(VulkanContext& context, const Common::FrameContext& frameContext) {
     const auto camera = GetCamera();
     if (camera == nullptr) {
         return;
@@ -929,7 +810,7 @@ void Renderer::UpdateCameraUniformAndLighting(VulkanContext& context, const std:
     uniform.Ambient[2] = 0.1F;
     uniform.Ambient[3] = 1.0F;
 
-    const auto skyTint = skyboxRenderer_.GetSkyTint();
+    const auto skyTint = skyboxRenderer_ != nullptr ? skyboxRenderer_->GetSkyTint() : Math::Color3{1.0, 1.0, 1.0};
     uniform.SkyTint[0] = static_cast<float>(skyTint.r);
     uniform.SkyTint[1] = static_cast<float>(skyTint.g);
     uniform.SkyTint[2] = static_cast<float>(skyTint.b);
@@ -987,26 +868,26 @@ void Renderer::UpdateCameraUniformAndLighting(VulkanContext& context, const std:
             uniform.RenderSettings[0] = 1.0F;
         }
 
-        const auto& shadowData = shadowRenderer_.GetShadowData();
-        if (shadowData.HasShadowData) {
+        const auto* shadowData = shadowRenderer_ != nullptr ? &shadowRenderer_->GetShadowData() : nullptr;
+        if (shadowData != nullptr && shadowData->HasShadowData) {
             for (int cascade = 0; cascade < 3; ++cascade) {
                 const auto flattened =
-                    shadowData.LightViewProjectionMatrices[static_cast<std::size_t>(cascade)].FlattenColumnMajor();
+                    shadowData->LightViewProjectionMatrices[static_cast<std::size_t>(cascade)].FlattenColumnMajor();
                 for (int i = 0; i < 16; ++i) {
                     uniform.ShadowMatrices[cascade][i] = static_cast<float>(flattened[static_cast<std::size_t>(i)]);
                 }
             }
-            uniform.ShadowCascadeSplits[0] = shadowData.Split0;
-            uniform.ShadowCascadeSplits[1] = shadowData.Split1;
-            uniform.ShadowCascadeSplits[2] = shadowData.MaxDistance;
-            uniform.ShadowCascadeSplits[3] = static_cast<float>(shadowData.CascadeCount);
-            uniform.ShadowParams[0] = shadowData.Bias;
-            uniform.ShadowParams[1] = shadowData.BlurAmount;
-            uniform.ShadowParams[2] = static_cast<float>(shadowData.TapCount);
-            uniform.ShadowParams[3] = shadowData.FadeWidth;
+            uniform.ShadowCascadeSplits[0] = shadowData->Split0;
+            uniform.ShadowCascadeSplits[1] = shadowData->Split1;
+            uniform.ShadowCascadeSplits[2] = shadowData->MaxDistance;
+            uniform.ShadowCascadeSplits[3] = static_cast<float>(shadowData->CascadeCount);
+            uniform.ShadowParams[0] = shadowData->Bias;
+            uniform.ShadowParams[1] = shadowData->BlurAmount;
+            uniform.ShadowParams[2] = static_cast<float>(shadowData->TapCount);
+            uniform.ShadowParams[3] = shadowData->FadeWidth;
             uniform.ShadowState[0] = 1.0F;
-            uniform.ShadowState[1] = shadowData.JitterScaleX;
-            uniform.ShadowState[2] = shadowData.JitterScaleY;
+            uniform.ShadowState[1] = shadowData->JitterScaleX;
+            uniform.ShadowState[2] = shadowData->JitterScaleY;
         }
 
         if (!lighting->GetProperty("ShadowsEnabled").toBool()) {
@@ -1017,9 +898,9 @@ void Renderer::UpdateCameraUniformAndLighting(VulkanContext& context, const std:
     }
 
     void* mapped = nullptr;
-    vkMapMemory(context.GetDevice(), uniformBuffers_[frameIndex].Memory, 0, sizeof(CameraUniform), 0, &mapped);
+    vkMapMemory(context.GetDevice(), uniformBuffers_[frameContext.FrameIndex].Memory, 0, sizeof(CameraUniform), 0, &mapped);
     std::memcpy(mapped, &uniform, sizeof(CameraUniform));
-    vkUnmapMemory(context.GetDevice(), uniformBuffers_[frameIndex].Memory);
+    vkUnmapMemory(context.GetDevice(), uniformBuffers_[frameContext.FrameIndex].Memory);
 }
 
 std::shared_ptr<Objects::Camera> Renderer::GetCamera() const {
@@ -1052,14 +933,13 @@ std::shared_ptr<Objects::DirectionalLight> Renderer::GetDirectionalLight(
 
 float Renderer::GetAspect(const VulkanContext& context) const {
     const auto extent = context.GetSwapchainExtent();
-    if (extent.height == 0) {
+    if (extent.Height == 0) {
         return 1.0F;
     }
-    return static_cast<float>(extent.width) / static_cast<float>(extent.height);
+    return static_cast<float>(extent.Width) / static_cast<float>(extent.Height);
 }
 
 void Renderer::DrawPart(Common::CommandBuffer& commandBuffer, const RenderPartProxy& proxy, const bool transparent) {
-    auto& vkCommandBuffer = dynamic_cast<VulkanRenderCommandBuffer&>(commandBuffer);
     const auto mesh = std::dynamic_pointer_cast<Common::Mesh>(proxy.GetMesh());
     if (mesh == nullptr) {
         return;
@@ -1070,7 +950,7 @@ void Renderer::DrawPart(Common::CommandBuffer& commandBuffer, const RenderPartPr
         .DepthMode = transparent ? Common::PipelineDepthMode::ReadOnly : Common::PipelineDepthMode::ReadWrite,
         .BlendMode = transparent ? Common::PipelineBlendMode::AlphaBlend : Common::PipelineBlendMode::Opaque
     };
-    vkCmdBindPipeline(vkCommandBuffer.GetHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, GetPipeline(pipelineKey));
+    GetPipeline(pipelineKey).Bind(commandBuffer);
 
     PushConstants push{};
     const auto model = proxy.GetModelMatrix().FlattenColumnMajor();
@@ -1095,13 +975,11 @@ void Renderer::DrawPart(Common::CommandBuffer& commandBuffer, const RenderPartPr
     push.SurfaceData1[2] = proxy.GetSurfaceEnabled() ? 1.0F : 0.0F;
     push.SurfaceData1[3] = hasSurfaceNormalAtlas_ ? 1.0F : 0.0F;
 
-    vkCmdPushConstants(
-        vkCommandBuffer.GetHandle(),
-        pipelineLayout_,
-        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-        0,
-        sizeof(PushConstants),
-        &push
+    commandBuffer.PushConstants(
+        *pipelineLayout_,
+        Common::ShaderStageFlags::Vertex | Common::ShaderStageFlags::Fragment,
+        &push,
+        sizeof(PushConstants)
     );
 
     if (context_ == nullptr) {
@@ -1115,7 +993,6 @@ void Renderer::DrawOverlayPrimitive(
     Common::CommandBuffer& commandBuffer,
     const Rendering::Common::OverlayPrimitive& primitive
 ) {
-    auto& vkCommandBuffer = dynamic_cast<VulkanRenderCommandBuffer&>(commandBuffer);
     const auto mesh = std::dynamic_pointer_cast<Common::Mesh>(meshCache_.GetPrimitive(primitive.Shape));
     if (mesh == nullptr || context_ == nullptr) {
         return;
@@ -1126,7 +1003,7 @@ void Renderer::DrawOverlayPrimitive(
         .DepthMode = primitive.AlwaysOnTop ? Common::PipelineDepthMode::Disabled : Common::PipelineDepthMode::ReadOnly,
         .BlendMode = Common::PipelineBlendMode::AlphaBlend
     };
-    vkCmdBindPipeline(vkCommandBuffer.GetHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, GetPipeline(pipelineKey));
+    GetPipeline(pipelineKey).Bind(commandBuffer);
 
     PushConstants push{};
     const auto model = primitive.Model.FlattenColumnMajor();
@@ -1150,25 +1027,30 @@ void Renderer::DrawOverlayPrimitive(
     push.SurfaceData1[2] = 0.0F;
     push.SurfaceData1[3] = 0.0F;
 
-    vkCmdPushConstants(
-        vkCommandBuffer.GetHandle(),
-        pipelineLayout_,
-        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-        0,
-        sizeof(PushConstants),
-        &push
+    commandBuffer.PushConstants(
+        *pipelineLayout_,
+        Common::ShaderStageFlags::Vertex | Common::ShaderStageFlags::Fragment,
+        &push,
+        sizeof(PushConstants)
     );
 
     mesh->EnsureUploaded(*context_);
     mesh->Draw(commandBuffer);
 }
 
-VkPipeline Renderer::GetPipeline(const Common::PipelineVariantKey& key) const {
-    const auto it = pipelineVariants_.find(key);
-    if (it == pipelineVariants_.end() || it->second == VK_NULL_HANDLE) {
+const VulkanPipelineVariant& Renderer::GetPipeline(const Common::PipelineVariantKey& key) const {
+    const auto it = pipelines_.find(key);
+    if (it == pipelines_.end() || it->second == nullptr) {
         throw std::runtime_error("Requested graphics pipeline variant is not available.");
     }
-    return it->second;
+    return *it->second;
+}
+
+const Common::ResourceBinding& Renderer::GetResourceBinding(const std::uint32_t frameIndex) const {
+    if (frameIndex >= bindings_.size() || bindings_[frameIndex] == nullptr) {
+        throw std::runtime_error("Requested frame resource binding is not available.");
+    }
+    return *bindings_[frameIndex];
 }
 
 } // namespace Lvs::Engine::Rendering::Vulkan

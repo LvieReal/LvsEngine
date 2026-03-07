@@ -1,5 +1,12 @@
 #pragma once
 
+#include "Lvs/Engine/Rendering/Common/BindingLayout.hpp"
+#include "Lvs/Engine/Rendering/Common/CommandBuffer.hpp"
+#include "Lvs/Engine/Rendering/Common/GraphicsContext.hpp"
+#include "Lvs/Engine/Rendering/Common/PostProcessRenderer.hpp"
+#include "Lvs/Engine/Rendering/Common/RenderSurface.hpp"
+#include "Lvs/Engine/Rendering/Common/ResourceBinding.hpp"
+
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
@@ -14,16 +21,23 @@ class Lighting;
 namespace Lvs::Engine::Rendering::Vulkan {
 
 class VulkanContext;
+class VulkanPipelineLayout;
+class VulkanPipelineVariant;
 
-class PostProcessRenderer final {
+class PostProcessRenderer final : public Common::PostProcessRenderer {
 public:
-    PostProcessRenderer() = default;
-    ~PostProcessRenderer() = default;
+    PostProcessRenderer();
+    ~PostProcessRenderer() override;
 
     PostProcessRenderer(const PostProcessRenderer&) = delete;
     PostProcessRenderer& operator=(const PostProcessRenderer&) = delete;
     PostProcessRenderer(PostProcessRenderer&&) = delete;
     PostProcessRenderer& operator=(PostProcessRenderer&&) = delete;
+
+    void Initialize(Common::GraphicsContext& context, const Common::RenderSurface& surface) override;
+    void RecreateSwapchain(Common::GraphicsContext& context, const Common::RenderSurface& surface) override;
+    void DestroySwapchainResources(Common::GraphicsContext& context) override;
+    void Shutdown(Common::GraphicsContext& context) override;
 
     void Initialize(
         VulkanContext& context,
@@ -40,11 +54,16 @@ public:
     void DestroySwapchainResources(VulkanContext& context);
     void Shutdown(VulkanContext& context);
 
-    void BindToPlace(const std::shared_ptr<DataModel::Place>& place);
-    void Unbind();
+    void BindToPlace(const std::shared_ptr<DataModel::Place>& place) override;
+    void Unbind() override;
 
-    void RecordBlurCommands(VulkanContext& context, VkCommandBuffer commandBuffer, std::uint32_t imageIndex);
-    void DrawComposite(VulkanContext& context, VkCommandBuffer commandBuffer, std::uint32_t imageIndex, std::uint32_t frameIndex);
+    void RecordBlurCommands(Common::GraphicsContext& context, Common::CommandBuffer& commandBuffer, std::uint32_t imageIndex) override;
+    void DrawComposite(
+        Common::GraphicsContext& context,
+        Common::CommandBuffer& commandBuffer,
+        std::uint32_t imageIndex,
+        std::uint32_t frameIndex
+    ) override;
 
 private:
     struct BlurImageLevel {
@@ -54,12 +73,11 @@ private:
         VkFramebuffer Framebuffer{VK_NULL_HANDLE};
     };
 
-    void CreateCompositeDescriptorSetLayout(VulkanContext& context);
-    void CreateBlurDescriptorSetLayout(VulkanContext& context);
+    void CreateCompositeBindingLayout(VulkanContext& context, std::uint32_t imageCount, std::uint32_t levelCount);
+    void CreateBlurBindingLayout(VulkanContext& context, std::uint32_t imageCount, std::uint32_t levelCount);
     void CreatePipelineLayouts(VulkanContext& context);
-    void CreateDescriptorPool(VulkanContext& context, std::uint32_t imageCount, std::uint32_t levelCount);
     void CreateBlurResources(VulkanContext& context, std::uint32_t imageCount);
-    void CreateDescriptorSets(
+    void CreateBindings(
         VulkanContext& context,
         const std::vector<VkImageView>& sceneViews,
         const std::vector<VkImageView>& glowViews
@@ -76,18 +94,18 @@ private:
     static constexpr std::uint32_t MAX_BLUR_LEVELS = 4;
 
     std::shared_ptr<DataModel::Place> place_;
-    VkDescriptorSetLayout compositeDescriptorSetLayout_{VK_NULL_HANDLE};
-    VkDescriptorSetLayout blurDescriptorSetLayout_{VK_NULL_HANDLE};
-    VkPipelineLayout compositePipelineLayout_{VK_NULL_HANDLE};
-    VkPipelineLayout blurPipelineLayout_{VK_NULL_HANDLE};
-    VkPipeline compositePipeline_{VK_NULL_HANDLE};
-    VkPipeline blurDownPipeline_{VK_NULL_HANDLE};
-    VkPipeline blurUpPipeline_{VK_NULL_HANDLE};
+    std::unique_ptr<Common::BindingLayout> compositeBindingLayout_;
+    std::unique_ptr<Common::BindingLayout> blurBindingLayout_;
+    std::unique_ptr<VulkanPipelineLayout> compositePipelineLayout_;
+    std::unique_ptr<VulkanPipelineLayout> blurPipelineLayout_;
+    std::unique_ptr<VulkanPipelineVariant> compositePipeline_;
+    std::unique_ptr<VulkanPipelineVariant> blurDownPipeline_;
+    std::unique_ptr<VulkanPipelineVariant> blurUpPipeline_;
+    const Common::RenderPass* compositeRenderPass_{nullptr};
     VkRenderPass blurRenderPass_{VK_NULL_HANDLE};
-    VkDescriptorPool descriptorPool_{VK_NULL_HANDLE};
-    std::vector<VkDescriptorSet> compositeDescriptorSets_;
-    std::vector<std::vector<VkDescriptorSet>> downDescriptorSets_;
-    std::vector<std::vector<VkDescriptorSet>> upDescriptorSets_;
+    std::vector<std::unique_ptr<Common::ResourceBinding>> compositeBindings_;
+    std::vector<std::vector<std::unique_ptr<Common::ResourceBinding>>> downBindings_;
+    std::vector<std::vector<std::unique_ptr<Common::ResourceBinding>>> upBindings_;
     std::vector<std::vector<BlurImageLevel>> downLevels_;
     std::vector<std::vector<BlurImageLevel>> upLevels_;
     std::vector<VkExtent2D> blurExtents_;

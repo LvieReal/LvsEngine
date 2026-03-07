@@ -2,10 +2,12 @@
 
 #include "Lvs/Engine/Rendering/Vulkan/VulkanGpuResources.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanFrameManager.hpp"
-#include "Lvs/Engine/Rendering/Vulkan/PostProcessRenderer.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/Renderer.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/VulkanPostProcessRenderer.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanBufferUtils.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanSwapchainUtils.hpp"
+#include "Lvs/Engine/Rendering/RenderingFactory.hpp"
+#include "Lvs/Studio/Core/Settings.hpp"
 
 #include <array>
 #include <algorithm>
@@ -190,6 +192,18 @@ void VulkanContext::Initialize() {
     CreateInstance();
 }
 
+void VulkanContext::EnsureRenderingFactory() {
+    if (renderingFactory_ != nullptr) {
+        return;
+    }
+
+    requestedApi_ = Rendering::ParseRenderingApi(
+        Studio::Core::Settings::Get("RenderingApi").toString().toStdString()
+    );
+    renderingFactory_ = Rendering::CreateRenderingFactory(requestedApi_);
+    activeApi_ = renderingFactory_ != nullptr ? renderingFactory_->GetApi() : Rendering::RenderingApi::Auto;
+}
+
 void VulkanContext::AttachToNativeWindow(
     void* nativeWindowHandle,
     const std::uint32_t width,
@@ -310,12 +324,27 @@ std::uint32_t VulkanContext::GetGraphicsQueueFamily() const {
     return graphicsQueueFamily_;
 }
 
-VkRenderPass VulkanContext::GetRenderPass() const {
-    return frameManager_ != nullptr ? frameManager_->GetSceneRenderPass() : VK_NULL_HANDLE;
+VkRenderPass VulkanContext::GetSceneRenderPassHandle() const {
+    return frameManager_ != nullptr ? reinterpret_cast<VkRenderPass>(frameManager_->GetSceneRenderPass().GetNativeHandle())
+                                    : VK_NULL_HANDLE;
 }
 
-VkRenderPass VulkanContext::GetPostProcessRenderPass() const {
-    return frameManager_ != nullptr ? frameManager_->GetPostProcessRenderPass() : VK_NULL_HANDLE;
+VkRenderPass VulkanContext::GetPostProcessRenderPassHandle() const {
+    return frameManager_ != nullptr
+        ? reinterpret_cast<VkRenderPass>(frameManager_->GetPostProcessRenderPass().GetNativeHandle())
+        : VK_NULL_HANDLE;
+}
+
+void* VulkanContext::GetNativeDevice() const {
+    return device_;
+}
+
+void* VulkanContext::GetNativePhysicalDevice() const {
+    return physicalDevice_;
+}
+
+void* VulkanContext::GetNativeGraphicsQueue() const {
+    return graphicsQueue_;
 }
 
 VkFormat VulkanContext::GetSwapchainImageFormat() const {
@@ -326,8 +355,12 @@ VkFormat VulkanContext::GetOffscreenImageFormat() const {
     return frameManager_ != nullptr ? frameManager_->GetOffscreenImageFormat() : VK_FORMAT_UNDEFINED;
 }
 
-VkExtent2D VulkanContext::GetSwapchainExtent() const {
+VkExtent2D VulkanContext::GetSwapchainExtentVk() const {
     return frameManager_ != nullptr ? frameManager_->GetSwapchainExtentVk() : VkExtent2D{};
+}
+
+Rendering::Common::Extent2D VulkanContext::GetSwapchainExtent() const {
+    return frameManager_ != nullptr ? frameManager_->GetExtent() : Rendering::Common::Extent2D{};
 }
 
 std::uint32_t VulkanContext::GetFramesInFlight() const {
@@ -608,8 +641,8 @@ void VulkanContext::RecordCommandBuffer(
     const VkRenderPassBeginInfo sceneRenderPassInfo{
         .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
         .pNext = nullptr,
-        .renderPass = frameManager_->GetSceneRenderPass(),
-        .framebuffer = frameManager_->GetSceneFramebuffer(imageIndex),
+        .renderPass = reinterpret_cast<VkRenderPass>(frameManager_->GetSceneRenderPass().GetNativeHandle()),
+        .framebuffer = reinterpret_cast<VkFramebuffer>(frameManager_->GetSceneFramebuffer(imageIndex).GetNativeHandle()),
         .renderArea = {.offset = {0, 0}, .extent = frameManager_->GetSwapchainExtentVk()},
         .clearValueCount = static_cast<std::uint32_t>(clearValues.size()),
         .pClearValues = clearValues.data()
@@ -630,7 +663,7 @@ void VulkanContext::RecordCommandBuffer(
         .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .image = frameManager_->GetOffscreenColorImage(imageIndex),
+        .image = reinterpret_cast<VkImage>(frameManager_->GetOffscreenColorImage(imageIndex).Image),
         .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1}
     };
     const VkImageMemoryBarrier glowToSampleBarrier{
@@ -642,7 +675,7 @@ void VulkanContext::RecordCommandBuffer(
         .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .image = frameManager_->GetOffscreenGlowImage(imageIndex),
+        .image = reinterpret_cast<VkImage>(frameManager_->GetOffscreenGlowImage(imageIndex).Image),
         .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1}
     };
     const std::array barriers{sceneToSampleBarrier, glowToSampleBarrier};
@@ -660,15 +693,15 @@ void VulkanContext::RecordCommandBuffer(
     );
 
     if (postProcessRenderer_ != nullptr) {
-        postProcessRenderer_->RecordBlurCommands(*this, commandBuffer, imageIndex);
+        postProcessRenderer_->RecordBlurCommands(*this, renderCommandBuffer, imageIndex);
     }
 
     const VkClearValue postClearValue{.color = clearColor_};
     const VkRenderPassBeginInfo postRenderPassInfo{
         .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
         .pNext = nullptr,
-        .renderPass = frameManager_->GetPostProcessRenderPass(),
-        .framebuffer = frameManager_->GetSwapchainFramebuffer(imageIndex),
+        .renderPass = reinterpret_cast<VkRenderPass>(frameManager_->GetPostProcessRenderPass().GetNativeHandle()),
+        .framebuffer = reinterpret_cast<VkFramebuffer>(frameManager_->GetSwapchainFramebuffer(imageIndex).GetNativeHandle()),
         .renderArea = {.offset = {0, 0}, .extent = frameManager_->GetSwapchainExtentVk()},
         .clearValueCount = 1,
         .pClearValues = &postClearValue
@@ -687,7 +720,7 @@ void VulkanContext::RecordCommandBuffer(
         const VkRect2D scissor{.offset = {0, 0}, .extent = extent};
         vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-        postProcessRenderer_->DrawComposite(*this, commandBuffer, imageIndex, frameIndex);
+        postProcessRenderer_->DrawComposite(*this, renderCommandBuffer, imageIndex, frameIndex);
     }
     vkCmdEndRenderPass(commandBuffer);
 
@@ -701,6 +734,8 @@ void VulkanContext::RecreateSwapchain(const std::uint32_t width, const std::uint
         return;
     }
 
+    EnsureRenderingFactory();
+
     if (renderer_ != nullptr) {
         renderer_->DestroySwapchainResources(*this, *frameManager_);
     }
@@ -711,16 +746,18 @@ void VulkanContext::RecreateSwapchain(const std::uint32_t width, const std::uint
     frameManager_->Recreate(*this, surface_, width, height);
 
     if (renderer_ == nullptr) {
-        renderer_ = std::make_unique<Renderer>();
+        renderer_ = renderingFactory_ != nullptr ? renderingFactory_->CreateSceneRenderer() : std::make_unique<Renderer>();
         renderer_->Initialize(*this, *frameManager_);
     } else {
         renderer_->RecreateSwapchain(*this, *frameManager_);
     }
     if (postProcessRenderer_ == nullptr) {
-        postProcessRenderer_ = std::make_unique<PostProcessRenderer>();
-        postProcessRenderer_->Initialize(*this, frameManager_->GetOffscreenColorImageViews(), frameManager_->GetOffscreenGlowImageViews(), frameManager_->GetOffscreenColorSampler());
+        postProcessRenderer_ = renderingFactory_ != nullptr
+            ? renderingFactory_->CreatePostProcessRenderer()
+            : std::make_unique<VulkanPostProcessRenderer>();
+        postProcessRenderer_->Initialize(*this, *frameManager_);
     } else {
-        postProcessRenderer_->RecreateSwapchain(*this, frameManager_->GetOffscreenColorImageViews(), frameManager_->GetOffscreenGlowImageViews(), frameManager_->GetOffscreenColorSampler());
+        postProcessRenderer_->RecreateSwapchain(*this, *frameManager_);
     }
     if (currentPlace_ != nullptr) {
         renderer_->BindToPlace(currentPlace_);

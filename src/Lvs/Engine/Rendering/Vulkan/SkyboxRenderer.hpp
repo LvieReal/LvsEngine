@@ -2,8 +2,13 @@
 
 #include "Lvs/Engine/Math/Color3.hpp"
 #include "Lvs/Engine/Core/Instance.hpp"
+#include "Lvs/Engine/Rendering/Common/BindingLayout.hpp"
+#include "Lvs/Engine/Rendering/Common/CommandBuffer.hpp"
+#include "Lvs/Engine/Rendering/Common/GraphicsContext.hpp"
 #include "Lvs/Engine/Rendering/Common/Mesh.hpp"
 #include "Lvs/Engine/Rendering/Common/PipelineVariant.hpp"
+#include "Lvs/Engine/Rendering/Common/ResourceBinding.hpp"
+#include "Lvs/Engine/Rendering/Common/SkyboxRenderer.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanCubemapUtils.hpp"
 
 #include <vulkan/vulkan.h>
@@ -27,41 +32,59 @@ class Skybox;
 namespace Lvs::Engine::Rendering::Vulkan {
 
 class VulkanContext;
+class VulkanPipelineLayout;
+class VulkanPipelineVariant;
 
-class SkyboxRenderer final {
+class SkyboxRenderer final : public Common::SkyboxRenderer {
 public:
     SkyboxRenderer() = default;
-    ~SkyboxRenderer() = default;
+    ~SkyboxRenderer() override;
 
     SkyboxRenderer(const SkyboxRenderer&) = delete;
     SkyboxRenderer& operator=(const SkyboxRenderer&) = delete;
     SkyboxRenderer(SkyboxRenderer&&) = delete;
     SkyboxRenderer& operator=(SkyboxRenderer&&) = delete;
 
+    void Initialize(Common::GraphicsContext& context) override;
+    void RecreateSwapchain(Common::GraphicsContext& context) override;
+    void Shutdown(Common::GraphicsContext& context) override;
+
     void Initialize(VulkanContext& context);
     void RecreateSwapchain(VulkanContext& context);
     void Shutdown(VulkanContext& context);
 
-    void BindToPlace(const std::shared_ptr<DataModel::Place>& place);
-    void Unbind();
+    void BindToPlace(const std::shared_ptr<DataModel::Place>& place) override;
+    void Unbind() override;
+
+    void UpdateResources(Common::GraphicsContext& context) override;
+    void WriteSceneBinding(Common::GraphicsContext& context, Common::ResourceBinding& binding) const override;
+    void Draw(
+        Common::GraphicsContext& context,
+        Common::CommandBuffer& commandBuffer,
+        std::uint32_t frameIndex,
+        const Objects::Camera& camera
+    ) override;
 
     void UpdateResources(VulkanContext& context);
-    void Draw(VulkanContext& context, VkCommandBuffer commandBuffer, std::uint32_t frameIndex, const Objects::Camera& camera);
+    void Draw(VulkanContext& context, Common::CommandBuffer& commandBuffer, std::uint32_t frameIndex, const Objects::Camera& camera);
 
     [[nodiscard]] const CubemapUtils::CubemapHandle& GetCubemap() const;
-    [[nodiscard]] Math::Color3 GetSkyTint() const;
+    [[nodiscard]] Math::Color3 GetSkyTint() const override;
 
 private:
-    void CreateDescriptorSetLayout(VulkanContext& context);
+    [[nodiscard]] std::unique_ptr<Common::BindingLayout> CreateBindingLayout(VulkanContext& context) const;
     void CreatePipelineLayout(VulkanContext& context);
-    void CreateGraphicsPipeline(VulkanContext& context);
-    VkPipeline CreateGraphicsPipelineVariant(VulkanContext& context, const Common::PipelineVariantKey& key);
-    void CreateDescriptorPool(VulkanContext& context);
-    void CreateDescriptorSets(VulkanContext& context);
+    void CreateGraphicsPipelines(VulkanContext& context);
+    std::unique_ptr<VulkanPipelineVariant> CreateGraphicsPipelineVariant(
+        VulkanContext& context,
+        const Common::PipelineVariantKey& key
+    );
+    [[nodiscard]] std::vector<std::unique_ptr<Common::ResourceBinding>> CreateBindings(VulkanContext& context) const;
+    [[nodiscard]] std::vector<Common::PipelineVariantKey> GetPipelineVariants() const;
     void UpdateDescriptorSets(VulkanContext& context);
     void DestroySwapchainResources(VulkanContext& context);
     void UpdateSkyFromPlace();
-    [[nodiscard]] VkPipeline GetPipeline(const Common::PipelineVariantKey& key) const;
+    [[nodiscard]] const VulkanPipelineVariant& GetPipeline(const Common::PipelineVariantKey& key) const;
 
     std::shared_ptr<DataModel::Lighting> GetLighting() const;
     std::shared_ptr<Objects::Skybox> GetSkybox(const std::shared_ptr<DataModel::Lighting>& lighting) const;
@@ -69,11 +92,11 @@ private:
     std::shared_ptr<DataModel::Place> place_;
     std::shared_ptr<Common::Mesh> skyboxMesh_;
 
-    VkDescriptorSetLayout descriptorSetLayout_{VK_NULL_HANDLE};
-    VkPipelineLayout pipelineLayout_{VK_NULL_HANDLE};
-    std::unordered_map<Common::PipelineVariantKey, VkPipeline, Common::PipelineVariantKeyHash> pipelineVariants_;
-    VkDescriptorPool descriptorPool_{VK_NULL_HANDLE};
-    std::vector<VkDescriptorSet> descriptorSets_;
+    std::unique_ptr<Common::BindingLayout> bindingLayout_;
+    std::unique_ptr<VulkanPipelineLayout> pipelineLayout_;
+    std::unordered_map<Common::PipelineVariantKey, std::unique_ptr<VulkanPipelineVariant>, Common::PipelineVariantKeyHash>
+        pipelines_;
+    std::vector<std::unique_ptr<Common::ResourceBinding>> bindings_;
 
     CubemapUtils::CubemapHandle cubemap_;
     std::shared_ptr<Objects::Skybox> activeSkybox_;

@@ -80,6 +80,7 @@ class GpuResource {
 public:
     virtual ~GpuResource() = default;
     [[nodiscard]] virtual GpuResourceType GetType() const = 0;
+    [[nodiscard]] virtual void* GetNativeHandle() const = 0;
 };
 
 class BufferResource : public GpuResource {

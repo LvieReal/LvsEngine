@@ -78,28 +78,12 @@ void VulkanFrameManager::CleanupSwapchain(VulkanContext& context) {
         commandBuffers_.clear();
     }
 
-    for (const auto framebuffer : sceneFramebuffers_) {
-        if (framebuffer != VK_NULL_HANDLE) {
-            vkDestroyFramebuffer(device, framebuffer, nullptr);
-        }
-    }
     sceneFramebuffers_.clear();
 
-    for (const auto framebuffer : swapchainFramebuffers_) {
-        if (framebuffer != VK_NULL_HANDLE) {
-            vkDestroyFramebuffer(device, framebuffer, nullptr);
-        }
-    }
     swapchainFramebuffers_.clear();
 
-    if (sceneRenderPass_ != VK_NULL_HANDLE) {
-        vkDestroyRenderPass(device, sceneRenderPass_, nullptr);
-        sceneRenderPass_ = VK_NULL_HANDLE;
-    }
-    if (postProcessRenderPass_ != VK_NULL_HANDLE) {
-        vkDestroyRenderPass(device, postProcessRenderPass_, nullptr);
-        postProcessRenderPass_ = VK_NULL_HANDLE;
-    }
+    sceneRenderPass_.reset();
+    postProcessRenderPass_.reset();
 
     for (const auto imageView : depthImageViews_) {
         if (imageView != VK_NULL_HANDLE) {
@@ -285,14 +269,6 @@ bool VulkanFrameManager::EndFrame(VulkanContext& context, const FrameState& fram
     return valid;
 }
 
-VkRenderPass VulkanFrameManager::GetSceneRenderPass() const {
-    return sceneRenderPass_;
-}
-
-VkRenderPass VulkanFrameManager::GetPostProcessRenderPass() const {
-    return postProcessRenderPass_;
-}
-
 VkFormat VulkanFrameManager::GetSwapchainImageFormat() const {
     return swapchainImageFormat_;
 }
@@ -309,36 +285,50 @@ Common::Extent2D VulkanFrameManager::GetExtent() const {
     return Common::Extent2D{.Width = swapchainExtent_.width, .Height = swapchainExtent_.height};
 }
 
+std::uint32_t VulkanFrameManager::GetImageCount() const {
+    return static_cast<std::uint32_t>(swapchainImages_.size());
+}
+
 std::uint32_t VulkanFrameManager::GetFramesInFlight() const {
     return MAX_FRAMES_IN_FLIGHT;
 }
 
-VkFramebuffer VulkanFrameManager::GetSceneFramebuffer(const std::uint32_t imageIndex) const {
-    return imageIndex < sceneFramebuffers_.size() ? sceneFramebuffers_[imageIndex] : VK_NULL_HANDLE;
+const Common::RenderPass& VulkanFrameManager::GetSceneRenderPass() const {
+    return *sceneRenderPass_;
 }
 
-VkFramebuffer VulkanFrameManager::GetSwapchainFramebuffer(const std::uint32_t imageIndex) const {
-    return imageIndex < swapchainFramebuffers_.size() ? swapchainFramebuffers_[imageIndex] : VK_NULL_HANDLE;
+const Common::RenderPass& VulkanFrameManager::GetPostProcessRenderPass() const {
+    return *postProcessRenderPass_;
 }
 
-VkImage VulkanFrameManager::GetOffscreenColorImage(const std::uint32_t imageIndex) const {
-    return imageIndex < offscreenColorImages_.size() ? offscreenColorImages_[imageIndex] : VK_NULL_HANDLE;
+const Common::Framebuffer& VulkanFrameManager::GetSceneFramebuffer(const std::uint32_t imageIndex) const {
+    return *sceneFramebuffers_.at(imageIndex);
 }
 
-VkImage VulkanFrameManager::GetOffscreenGlowImage(const std::uint32_t imageIndex) const {
-    return imageIndex < offscreenGlowImages_.size() ? offscreenGlowImages_[imageIndex] : VK_NULL_HANDLE;
+const Common::Framebuffer& VulkanFrameManager::GetSwapchainFramebuffer(const std::uint32_t imageIndex) const {
+    return *swapchainFramebuffers_.at(imageIndex);
 }
 
-const std::vector<VkImageView>& VulkanFrameManager::GetOffscreenColorImageViews() const {
-    return offscreenColorImageViews_;
+Common::NativeSampledImage VulkanFrameManager::GetOffscreenColorImage(const std::uint32_t imageIndex) const {
+    if (imageIndex >= offscreenColorImages_.size()) {
+        return {};
+    }
+    return Common::NativeSampledImage{
+        .Image = reinterpret_cast<void*>(offscreenColorImages_[imageIndex]),
+        .View = reinterpret_cast<void*>(offscreenColorImageViews_[imageIndex]),
+        .Sampler = reinterpret_cast<void*>(offscreenColorSampler_)
+    };
 }
 
-const std::vector<VkImageView>& VulkanFrameManager::GetOffscreenGlowImageViews() const {
-    return offscreenGlowImageViews_;
-}
-
-VkSampler VulkanFrameManager::GetOffscreenColorSampler() const {
-    return offscreenColorSampler_;
+Common::NativeSampledImage VulkanFrameManager::GetOffscreenGlowImage(const std::uint32_t imageIndex) const {
+    if (imageIndex >= offscreenGlowImages_.size()) {
+        return {};
+    }
+    return Common::NativeSampledImage{
+        .Image = reinterpret_cast<void*>(offscreenGlowImages_[imageIndex]),
+        .View = reinterpret_cast<void*>(offscreenGlowImageViews_[imageIndex]),
+        .Sampler = reinterpret_cast<void*>(offscreenColorSampler_)
+    };
 }
 
 void VulkanFrameManager::CreateSwapchain(
@@ -487,9 +477,11 @@ void VulkanFrameManager::CreateSceneRenderPass(VulkanContext& context) {
         .dependencyCount = 0,
         .pDependencies = nullptr
     };
-    if (!IsSuccess(vkCreateRenderPass(context.GetDevice(), &renderPassInfo, nullptr, &sceneRenderPass_))) {
+    VkRenderPass renderPass = VK_NULL_HANDLE;
+    if (!IsSuccess(vkCreateRenderPass(context.GetDevice(), &renderPassInfo, nullptr, &renderPass))) {
         throw std::runtime_error("Failed to create scene render pass.");
     }
+    sceneRenderPass_ = std::make_unique<VulkanRenderPass>(context.GetDevice(), renderPass);
 }
 
 void VulkanFrameManager::CreatePostProcessRenderPass(VulkanContext& context) {
@@ -528,46 +520,62 @@ void VulkanFrameManager::CreatePostProcessRenderPass(VulkanContext& context) {
         .dependencyCount = 0,
         .pDependencies = nullptr
     };
-    if (!IsSuccess(vkCreateRenderPass(context.GetDevice(), &renderPassInfo, nullptr, &postProcessRenderPass_))) {
+    VkRenderPass renderPass = VK_NULL_HANDLE;
+    if (!IsSuccess(vkCreateRenderPass(context.GetDevice(), &renderPassInfo, nullptr, &renderPass))) {
         throw std::runtime_error("Failed to create post-process render pass.");
     }
+    postProcessRenderPass_ = std::make_unique<VulkanRenderPass>(context.GetDevice(), renderPass);
 }
 
 void VulkanFrameManager::CreateFramebuffers(VulkanContext& context) {
-    sceneFramebuffers_.resize(swapchainImages_.size(), VK_NULL_HANDLE);
-    swapchainFramebuffers_.resize(swapchainImages_.size(), VK_NULL_HANDLE);
+    sceneFramebuffers_.resize(swapchainImages_.size());
+    swapchainFramebuffers_.resize(swapchainImages_.size());
 
     for (std::size_t i = 0; i < swapchainImages_.size(); ++i) {
         const std::array sceneAttachments{offscreenColorImageViews_[i], offscreenGlowImageViews_[i], depthImageViews_[i]};
+        const auto sceneRenderPass = reinterpret_cast<VkRenderPass>(sceneRenderPass_->GetNativeHandle());
         const VkFramebufferCreateInfo sceneInfo{
             .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
             .pNext = nullptr,
             .flags = 0,
-            .renderPass = sceneRenderPass_,
+            .renderPass = sceneRenderPass,
             .attachmentCount = static_cast<std::uint32_t>(sceneAttachments.size()),
             .pAttachments = sceneAttachments.data(),
             .width = swapchainExtent_.width,
             .height = swapchainExtent_.height,
             .layers = 1
         };
-        if (!IsSuccess(vkCreateFramebuffer(context.GetDevice(), &sceneInfo, nullptr, &sceneFramebuffers_[i]))) {
+        VkFramebuffer sceneFramebuffer = VK_NULL_HANDLE;
+        if (!IsSuccess(vkCreateFramebuffer(context.GetDevice(), &sceneInfo, nullptr, &sceneFramebuffer))) {
             throw std::runtime_error("Failed to create scene framebuffer.");
         }
+        sceneFramebuffers_[i] = std::make_unique<VulkanFramebuffer>(
+            context.GetDevice(),
+            sceneFramebuffer,
+            Common::Rect{.X = 0, .Y = 0, .Width = swapchainExtent_.width, .Height = swapchainExtent_.height}
+        );
 
+        const auto postProcessRenderPass = reinterpret_cast<VkRenderPass>(postProcessRenderPass_->GetNativeHandle());
         const VkFramebufferCreateInfo postInfo{
             .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
             .pNext = nullptr,
             .flags = 0,
-            .renderPass = postProcessRenderPass_,
+            .renderPass = postProcessRenderPass,
             .attachmentCount = 1,
             .pAttachments = &swapchainImageViews_[i],
             .width = swapchainExtent_.width,
             .height = swapchainExtent_.height,
             .layers = 1
         };
-        if (!IsSuccess(vkCreateFramebuffer(context.GetDevice(), &postInfo, nullptr, &swapchainFramebuffers_[i]))) {
+        VkFramebuffer swapchainFramebuffer = VK_NULL_HANDLE;
+        if (!IsSuccess(vkCreateFramebuffer(context.GetDevice(), &postInfo, nullptr, &swapchainFramebuffer))) {
             throw std::runtime_error("Failed to create swapchain framebuffer.");
         }
+        swapchainFramebuffers_[i] = std::make_unique<VulkanFramebuffer>(
+            context.GetDevice(),
+            swapchainFramebuffer,
+            Common::Rect{.X = 0, .Y = 0, .Width = swapchainExtent_.width, .Height = swapchainExtent_.height}
+        );
     }
 }
 

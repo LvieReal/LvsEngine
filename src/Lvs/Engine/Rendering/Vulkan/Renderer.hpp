@@ -3,13 +3,20 @@
 #include "Lvs/Engine/Math/Matrix4.hpp"
 #include "Lvs/Engine/Enums/MeshCullMode.hpp"
 #include "Lvs/Engine/Rendering/Common/CommandBuffer.hpp"
+#include "Lvs/Engine/Rendering/Common/BindingLayout.hpp"
+#include "Lvs/Engine/Rendering/Common/FrameContext.hpp"
 #include "Lvs/Engine/Rendering/Common/MeshCache.hpp"
 #include "Lvs/Engine/Rendering/Common/OverlayPrimitive.hpp"
 #include "Lvs/Engine/Rendering/Common/PipelineVariant.hpp"
+#include "Lvs/Engine/Rendering/Common/ResourceBinding.hpp"
+#include "Lvs/Engine/Rendering/Common/SceneUniformData.hpp"
 #include "Lvs/Engine/Rendering/Common/SceneRenderer.hpp"
+#include "Lvs/Engine/Rendering/Common/ShadowRenderer.hpp"
+#include "Lvs/Engine/Rendering/Common/SkyboxRenderer.hpp"
+#include "Lvs/Engine/Rendering/RenderingFactory.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/RenderScene.hpp"
-#include "Lvs/Engine/Rendering/Vulkan/SkyboxRenderer.hpp"
-#include "Lvs/Engine/Rendering/Vulkan/ShadowRenderer.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/VulkanShadowRenderer.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/VulkanSkyboxRenderer.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanBufferUtils.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanMeshUploader.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanTextureUtils.hpp"
@@ -37,11 +44,13 @@ namespace Lvs::Engine::Rendering::Vulkan {
 
 class RenderPartProxy;
 class VulkanContext;
+class VulkanPipelineLayout;
+class VulkanPipelineVariant;
 class VulkanRenderCommandBuffer;
 class Renderer final : public Common::SceneRenderer {
 public:
-    Renderer();
-    ~Renderer() = default;
+    explicit Renderer(std::shared_ptr<::Lvs::Engine::Rendering::RenderingFactory> factory = nullptr);
+    ~Renderer();
 
     Renderer(const Renderer&) = delete;
     Renderer& operator=(const Renderer&) = delete;
@@ -79,22 +88,7 @@ public:
     void DrawOverlayPrimitive(Common::CommandBuffer& commandBuffer, const Rendering::Common::OverlayPrimitive& primitive);
 
 private:
-    struct CameraUniform {
-        float View[16];
-        float Projection[16];
-        float CameraPosition[4];
-        float LightDirection[4];
-        float LightColorIntensity[4];
-        float LightSpecular[4];
-        float Ambient[4];
-        float SkyTint[4];
-        float RenderSettings[4];
-        float ShadowMatrices[3][16];
-        float ShadowCascadeSplits[4];
-        float ShadowParams[4];
-        float ShadowState[4];
-        float CameraForward[4];
-    };
+    using CameraUniform = Common::SceneUniformData;
 
     struct PushConstants {
         float Model[16];
@@ -104,14 +98,18 @@ private:
         float SurfaceData1[4];
     };
 
-    void CreateDescriptorSetLayout(VulkanContext& context);
+    [[nodiscard]] std::unique_ptr<Common::BindingLayout> CreateBindingLayout(VulkanContext& context) const;
     void CreatePipelineLayout(VulkanContext& context);
-    void CreateGraphicsPipeline(VulkanContext& context);
-    VkPipeline CreateGraphicsPipelineVariant(VulkanContext& context, const Common::PipelineVariantKey& key);
-    void CreateUniformBuffers(VulkanContext& context);
-    void CreateDescriptorPool(VulkanContext& context);
-    void CreateDescriptorSets(VulkanContext& context);
-    void UpdateCameraUniformAndLighting(VulkanContext& context, std::uint32_t frameIndex);
+    void CreateGraphicsPipelines(VulkanContext& context);
+    std::unique_ptr<VulkanPipelineVariant> CreateGraphicsPipelineVariant(
+        VulkanContext& context,
+        const Common::PipelineVariantKey& key
+    );
+    [[nodiscard]] std::vector<BufferUtils::BufferHandle> AllocateUniformBuffers(VulkanContext& context) const;
+    [[nodiscard]] std::vector<std::unique_ptr<Common::ResourceBinding>> CreateResourceBindings(VulkanContext& context) const;
+    [[nodiscard]] std::vector<Common::PipelineVariantKey> GetPipelineVariants() const;
+    void InitializeSubRenderers(VulkanContext& context);
+    void UpdateCameraUniformAndLighting(VulkanContext& context, const Common::FrameContext& frameContext);
     void UpdateMainSkyDescriptorSets(VulkanContext& context);
     void UpdateShadowDescriptorSets(VulkanContext& context);
     void CreateSurfaceTextures(VulkanContext& context);
@@ -123,22 +121,25 @@ private:
         const std::shared_ptr<DataModel::Lighting>& lighting
     ) const;
     float GetAspect(const VulkanContext& context) const;
-    [[nodiscard]] VkPipeline GetPipeline(const Common::PipelineVariantKey& key) const;
+    [[nodiscard]] const VulkanPipelineVariant& GetPipeline(const Common::PipelineVariantKey& key) const;
+    [[nodiscard]] const Common::ResourceBinding& GetResourceBinding(std::uint32_t frameIndex) const;
 
     std::shared_ptr<DataModel::Place> place_;
     std::shared_ptr<DataModel::Workspace> workspace_;
+    std::shared_ptr<::Lvs::Engine::Rendering::RenderingFactory> factory_;
+    const Common::RenderSurface* surface_{nullptr};
     RenderScene scene_;
     VulkanMeshUploader meshUploader_;
     Common::MeshCache meshCache_;
-    SkyboxRenderer skyboxRenderer_;
-    ShadowRenderer shadowRenderer_;
+    std::unique_ptr<Common::SkyboxRenderer> skyboxRenderer_;
+    std::unique_ptr<Common::ShadowRenderer> shadowRenderer_;
 
-    VkDescriptorSetLayout descriptorSetLayout_{VK_NULL_HANDLE};
-    VkPipelineLayout pipelineLayout_{VK_NULL_HANDLE};
-    std::unordered_map<Common::PipelineVariantKey, VkPipeline, Common::PipelineVariantKeyHash> pipelineVariants_;
-    VkDescriptorPool descriptorPool_{VK_NULL_HANDLE};
+    std::unique_ptr<Common::BindingLayout> bindingLayout_;
+    std::unique_ptr<VulkanPipelineLayout> pipelineLayout_;
+    std::unordered_map<Common::PipelineVariantKey, std::unique_ptr<VulkanPipelineVariant>, Common::PipelineVariantKeyHash>
+        pipelines_;
     std::vector<BufferUtils::BufferHandle> uniformBuffers_;
-    std::vector<VkDescriptorSet> descriptorSets_;
+    std::vector<std::unique_ptr<Common::ResourceBinding>> bindings_;
     VkImageView boundSkyImageView_{VK_NULL_HANDLE};
     VkImageView boundSurfaceAtlasView_{VK_NULL_HANDLE};
     VkImageView boundSurfaceNormalAtlasView_{VK_NULL_HANDLE};

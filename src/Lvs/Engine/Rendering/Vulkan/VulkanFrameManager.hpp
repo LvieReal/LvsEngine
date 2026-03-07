@@ -1,11 +1,14 @@
 #pragma once
 
 #include "Lvs/Engine/Rendering/Common/RenderSurface.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/VulkanFramebuffer.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/VulkanRenderPass.hpp"
 
 #include <vulkan/vulkan.h>
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace Lvs::Engine::Rendering::Vulkan {
@@ -35,20 +38,18 @@ public:
     [[nodiscard]] FrameState BeginFrame(VulkanContext& context, bool& needsRecreate);
     [[nodiscard]] bool EndFrame(VulkanContext& context, const FrameState& frameState);
 
-    [[nodiscard]] VkRenderPass GetSceneRenderPass() const;
-    [[nodiscard]] VkRenderPass GetPostProcessRenderPass() const;
     [[nodiscard]] VkFormat GetSwapchainImageFormat() const;
     [[nodiscard]] VkFormat GetOffscreenImageFormat() const;
     [[nodiscard]] VkExtent2D GetSwapchainExtentVk() const;
     [[nodiscard]] Common::Extent2D GetExtent() const override;
+    [[nodiscard]] std::uint32_t GetImageCount() const override;
     [[nodiscard]] std::uint32_t GetFramesInFlight() const override;
-    [[nodiscard]] VkFramebuffer GetSceneFramebuffer(std::uint32_t imageIndex) const;
-    [[nodiscard]] VkFramebuffer GetSwapchainFramebuffer(std::uint32_t imageIndex) const;
-    [[nodiscard]] VkImage GetOffscreenColorImage(std::uint32_t imageIndex) const;
-    [[nodiscard]] VkImage GetOffscreenGlowImage(std::uint32_t imageIndex) const;
-    [[nodiscard]] const std::vector<VkImageView>& GetOffscreenColorImageViews() const;
-    [[nodiscard]] const std::vector<VkImageView>& GetOffscreenGlowImageViews() const;
-    [[nodiscard]] VkSampler GetOffscreenColorSampler() const;
+    [[nodiscard]] const Common::RenderPass& GetSceneRenderPass() const override;
+    [[nodiscard]] const Common::RenderPass& GetPostProcessRenderPass() const override;
+    [[nodiscard]] const Common::Framebuffer& GetSceneFramebuffer(std::uint32_t imageIndex) const override;
+    [[nodiscard]] const Common::Framebuffer& GetSwapchainFramebuffer(std::uint32_t imageIndex) const override;
+    [[nodiscard]] Common::NativeSampledImage GetOffscreenColorImage(std::uint32_t imageIndex) const override;
+    [[nodiscard]] Common::NativeSampledImage GetOffscreenGlowImage(std::uint32_t imageIndex) const override;
 
 private:
     void CreateSwapchain(VulkanContext& context, VkSurfaceKHR surface, std::uint32_t width, std::uint32_t height);
@@ -69,10 +70,10 @@ private:
     VkExtent2D swapchainExtent_{};
     std::vector<VkImage> swapchainImages_;
     std::vector<VkImageView> swapchainImageViews_;
-    VkRenderPass sceneRenderPass_{VK_NULL_HANDLE};
-    VkRenderPass postProcessRenderPass_{VK_NULL_HANDLE};
-    std::vector<VkFramebuffer> sceneFramebuffers_;
-    std::vector<VkFramebuffer> swapchainFramebuffers_;
+    std::unique_ptr<VulkanRenderPass> sceneRenderPass_;
+    std::unique_ptr<VulkanRenderPass> postProcessRenderPass_;
+    std::vector<std::unique_ptr<VulkanFramebuffer>> sceneFramebuffers_;
+    std::vector<std::unique_ptr<VulkanFramebuffer>> swapchainFramebuffers_;
     std::vector<VkImage> offscreenColorImages_;
     std::vector<VkImage> offscreenGlowImages_;
     std::vector<VkImageView> offscreenColorImageViews_;

@@ -15,6 +15,7 @@ public:
     VulkanBufferResource(const VulkanBufferResource&) = delete;
     VulkanBufferResource& operator=(const VulkanBufferResource&) = delete;
 
+    [[nodiscard]] void* GetNativeHandle() const override;
     [[nodiscard]] std::size_t GetSize() const override;
     void Upload(const void* data, std::size_t size, std::size_t offset = 0) override;
 
@@ -35,6 +36,7 @@ public:
     VulkanImageResource(const VulkanImageResource&) = delete;
     VulkanImageResource& operator=(const VulkanImageResource&) = delete;
 
+    [[nodiscard]] void* GetNativeHandle() const override;
     [[nodiscard]] std::uint32_t GetWidth() const override;
     [[nodiscard]] std::uint32_t GetHeight() const override;
 
@@ -57,6 +59,7 @@ public:
     VulkanSamplerResource(const VulkanSamplerResource&) = delete;
     VulkanSamplerResource& operator=(const VulkanSamplerResource&) = delete;
 
+    [[nodiscard]] void* GetNativeHandle() const override;
     [[nodiscard]] VkSampler GetSampler() const;
 
 private:
@@ -64,12 +67,41 @@ private:
     VkSampler sampler_{VK_NULL_HANDLE};
 };
 
+class VulkanDrawPassState final : public Common::DrawPassState {
+public:
+    VulkanDrawPassState(
+        VkRenderPass renderPass,
+        VkFramebuffer framebuffer,
+        Common::Rect renderArea,
+        const VkClearValue* clearValues,
+        std::uint32_t clearValueCount
+    );
+
+    [[nodiscard]] const VkRenderPassBeginInfo& GetBeginInfo() const;
+
+private:
+    VkRenderPassBeginInfo beginInfo_{};
+};
+
 class VulkanRenderCommandBuffer final : public Common::CommandBuffer {
 public:
     explicit VulkanRenderCommandBuffer(VkCommandBuffer commandBuffer);
 
+    [[nodiscard]] void* GetNativeHandle() const override;
+    void BeginDrawPass(const Common::DrawPassState& state) override;
+    void EndDrawPass() override;
     void BindVertexBuffer(const Common::BufferResource& buffer, std::uint32_t binding = 0, std::size_t offset = 0) override;
     void BindIndexBuffer(const Common::BufferResource& buffer, Common::IndexFormat format, std::size_t offset = 0) override;
+    void SetViewport(const Common::Viewport& viewport) override;
+    void SetScissor(const Common::Rect& scissor) override;
+    void PushConstants(
+        const Common::PipelineLayout& layout,
+        Common::ShaderStageFlags stages,
+        const void* data,
+        std::size_t size,
+        std::uint32_t offset = 0
+    ) override;
+    void Draw(std::uint32_t vertexCount, std::uint32_t instanceCount = 1, std::uint32_t firstVertex = 0) override;
     void DrawIndexed(std::uint32_t indexCount, std::uint32_t instanceCount, std::uint32_t firstIndex = 0) override;
     [[nodiscard]] VkCommandBuffer GetHandle() const;
 
