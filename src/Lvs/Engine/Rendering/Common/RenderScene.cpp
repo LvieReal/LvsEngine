@@ -1,14 +1,13 @@
-#include "Lvs/Engine/Rendering/Vulkan/RenderScene.hpp"
+#include "Lvs/Engine/Rendering/Common/RenderScene.hpp"
 
 #include "Lvs/Engine/Core/Instance.hpp"
 #include "Lvs/Engine/DataModel/Place.hpp"
 #include "Lvs/Engine/DataModel/Workspace.hpp"
 #include "Lvs/Engine/Objects/BasePart.hpp"
-#include "Lvs/Engine/Rendering/Vulkan/RenderPartProxy.hpp"
-#include "Lvs/Engine/Rendering/Vulkan/Renderer.hpp"
+
 #include <algorithm>
 
-namespace Lvs::Engine::Rendering::Vulkan {
+namespace Lvs::Engine::Rendering::Common {
 
 void RenderScene::Build(const std::shared_ptr<DataModel::Place>& place) {
     Clear();
@@ -24,42 +23,19 @@ void RenderScene::Build(const std::shared_ptr<DataModel::Place>& place) {
     AddRecursive(workspace);
 }
 
-void RenderScene::BuildDrawLists(Renderer& renderer, const Math::Vector3& cameraPosition) {
-    opaqueProxies_.clear();
-    transparentProxies_.clear();
-    opaqueProxies_.reserve(partProxies_.size());
-    transparentProxies_.reserve(partProxies_.size());
-
+void RenderScene::SyncProxies(SceneRenderer& renderer) {
     for (auto& proxy : partProxies_) {
         proxy->SyncFromRenderer(renderer);
-        if (proxy->GetAlpha() < 0.999F) {
-            transparentProxies_.push_back(proxy);
-        } else {
-            opaqueProxies_.push_back(proxy);
-        }
-    }
-
-    std::sort(transparentProxies_.begin(), transparentProxies_.end(), [&cameraPosition](const auto& a, const auto& b) {
-        const double da = (a->GetWorldPosition() - cameraPosition).MagnitudeSquared();
-        const double db = (b->GetWorldPosition() - cameraPosition).MagnitudeSquared();
-        return da > db;
-    });
-}
-
-void RenderScene::DrawOpaque(Common::CommandBuffer& commandBuffer, Renderer& renderer) {
-    for (auto& proxy : opaqueProxies_) {
-        proxy->Draw(commandBuffer, renderer);
     }
 }
 
-void RenderScene::DrawTransparent(Common::CommandBuffer& commandBuffer, Renderer& renderer) {
-    for (auto& proxy : transparentProxies_) {
-        proxy->Draw(commandBuffer, renderer, true);
+std::vector<std::shared_ptr<RenderProxy>> RenderScene::GetRenderProxies() const {
+    std::vector<std::shared_ptr<RenderProxy>> proxies;
+    proxies.reserve(partProxies_.size());
+    for (const auto& proxy : partProxies_) {
+        proxies.push_back(proxy);
     }
-}
-
-const std::vector<std::shared_ptr<RenderPartProxy>>& RenderScene::GetOpaqueProxies() const {
-    return opaqueProxies_;
+    return proxies;
 }
 
 void RenderScene::Clear() {
@@ -70,8 +46,6 @@ void RenderScene::Clear() {
     instanceConnections_.clear();
     proxyById_.clear();
     partProxies_.clear();
-    opaqueProxies_.clear();
-    transparentProxies_.clear();
 }
 
 void RenderScene::AddRecursive(const std::shared_ptr<Core::Instance>& instance) {
@@ -131,4 +105,4 @@ void RenderScene::RemoveRecursive(const std::shared_ptr<Core::Instance>& instanc
     }
 }
 
-} // namespace Lvs::Engine::Rendering::Vulkan
+} // namespace Lvs::Engine::Rendering::Common

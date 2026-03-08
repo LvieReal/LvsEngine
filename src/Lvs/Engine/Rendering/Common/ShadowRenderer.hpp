@@ -5,6 +5,9 @@
 #include "Lvs/Engine/Rendering/Common/CommandBuffer.hpp"
 #include "Lvs/Engine/Rendering/Common/GraphicsContext.hpp"
 #include "Lvs/Engine/Rendering/Common/RenderProxy.hpp"
+#include "Lvs/Engine/Rendering/Common/ShadowCascadeUtils.hpp"
+#include "Lvs/Engine/Rendering/Common/ShadowJitterUtils.hpp"
+#include "Lvs/Engine/Rendering/Common/RenderSettingsSnapshot.hpp"
 #include "Lvs/Engine/Rendering/Common/ResourceBinding.hpp"
 
 #include <array>
@@ -20,34 +23,35 @@ namespace Lvs::Engine::Rendering::Common {
 
 class ShadowRenderer {
 public:
-    struct ShadowSettings {
-        bool Enabled{false};
-        float BlurAmount{0.0F};
-        int TapCount{16};
-        int CascadeCount{1};
-        float MaxDistance{220.0F};
-        std::uint32_t MapResolution{4096};
-        float CascadeResolutionScale{0.7F};
-        float CascadeSplitLambda{0.75F};
-    };
-
     struct ShadowData {
         bool HasShadowData{false};
         int CascadeCount{1};
-        float Split0{220.0F};
-        float Split1{220.0F};
-        float MaxDistance{220.0F};
-        float Bias{0.25F};
-        float BlurAmount{0.0F};
-        float FadeWidth{0.25F};
-        int TapCount{16};
-        float JitterScaleX{1.0F / 16.0F};
-        float JitterScaleY{1.0F / 16.0F};
+        float Split0{kShadowDefaultMaxDistance};
+        float Split1{kShadowDefaultMaxDistance};
+        float MaxDistance{kShadowDefaultMaxDistance};
+        float Bias{kShadowDefaultBias};
+        float BlurAmount{kShadowMinBlurAmount};
+        float FadeWidth{kShadowDefaultFadeWidth};
+        int TapCount{kShadowDefaultTapCount};
+        float JitterScaleX{1.0F / static_cast<float>(kShadowDefaultJitterSizeXY)};
+        float JitterScaleY{1.0F / static_cast<float>(kShadowDefaultJitterSizeXY)};
         std::array<Math::Matrix4, 3> LightViewProjectionMatrices{
             Math::Matrix4::Identity(),
             Math::Matrix4::Identity(),
             Math::Matrix4::Identity()
         };
+    };
+
+    struct ShadowPassInput {
+        const std::vector<std::shared_ptr<RenderProxy>>* Casters{nullptr};
+        const Objects::Camera* Camera{nullptr};
+        Math::Vector3 DirectionalLightDirection{};
+        float CameraAspect{1.0F};
+        ShadowQualityProfile Quality{};
+    };
+
+    struct ShadowPassOutput {
+        ShadowData Data{};
     };
 
     virtual ~ShadowRenderer() = default;
@@ -56,14 +60,10 @@ public:
     virtual void RecreateSwapchain(GraphicsContext& context) = 0;
     virtual void Shutdown(GraphicsContext& context) = 0;
 
-    virtual void Render(
+    virtual ShadowPassOutput Render(
         GraphicsContext& context,
         CommandBuffer& commandBuffer,
-        const std::vector<std::shared_ptr<RenderProxy>>& shadowCasters,
-        const Objects::Camera& camera,
-        const Math::Vector3& directionalLightDirection,
-        float cameraAspect,
-        const ShadowSettings& settings
+        const ShadowPassInput& input
     ) = 0;
 
     virtual void WriteSceneBinding(GraphicsContext& context, ResourceBinding& binding) const = 0;

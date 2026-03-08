@@ -1,53 +1,28 @@
 #include "Lvs/Engine/Rendering/Vulkan/ShadowRenderer.hpp"
 
-#include "Lvs/Engine/Math/CFrame.hpp"
 #include "Lvs/Engine/Objects/Camera.hpp"
 #include "Lvs/Engine/Objects/BasePart.hpp"
 #include "Lvs/Engine/Rendering/Common/Mesh.hpp"
+#include "Lvs/Engine/Rendering/Common/RenderPartProxy.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanBinding.hpp"
-#include "Lvs/Engine/Rendering/Vulkan/RenderPartProxy.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanGpuResources.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanPipeline.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanVertexLayout.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanBufferUtils.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanContext.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/VulkanRenderManifest.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanShaderUtils.hpp"
-#include "Lvs/Engine/Utils/PathUtils.hpp"
 
 #include <algorithm>
 #include <array>
-#include <cmath>
 #include <cstring>
 #include <cstdint>
-#include <limits>
-#include <random>
 #include <stdexcept>
 #include <vector>
 
 namespace Lvs::Engine::Rendering::Vulkan {
 
 namespace {
-
-struct Vec4 {
-    double x{0.0};
-    double y{0.0};
-    double z{0.0};
-    double w{0.0};
-};
-
-double Clamp(const double value, const double minValue, const double maxValue) {
-    return std::max(minValue, std::min(maxValue, value));
-}
-
-Vec4 Multiply(const Math::Matrix4& matrix, const Vec4& vector) {
-    const auto& m = matrix.Rows();
-    return {
-        m[0][0] * vector.x + m[0][1] * vector.y + m[0][2] * vector.z + m[0][3] * vector.w,
-        m[1][0] * vector.x + m[1][1] * vector.y + m[1][2] * vector.z + m[1][3] * vector.w,
-        m[2][0] * vector.x + m[2][1] * vector.y + m[2][2] * vector.z + m[2][3] * vector.w,
-        m[3][0] * vector.x + m[3][1] * vector.y + m[3][2] * vector.z + m[3][3] * vector.w
-    };
-}
 
 VkFormat FindSupportedDepthFormat(const VkPhysicalDevice physicalDevice) {
     constexpr std::array candidates{
@@ -142,46 +117,44 @@ void EndOneTimeCommands(
 ShadowRenderer::~ShadowRenderer() = default;
 
 void ShadowRenderer::Initialize(Common::GraphicsContext& context) {
-    Initialize(static_cast<VulkanContext&>(context));
-}
-
-void ShadowRenderer::RecreateSwapchain(Common::GraphicsContext& context) {
-    RecreateSwapchain(static_cast<VulkanContext&>(context));
-}
-
-void ShadowRenderer::Shutdown(Common::GraphicsContext& context) {
-    Shutdown(static_cast<VulkanContext&>(context));
-}
-
-void ShadowRenderer::Initialize(VulkanContext& context) {
+    auto& vkContext = static_cast<VulkanContext&>(context);
     if (initialized_) {
         return;
     }
+    if (pipelineManifest_ == nullptr) {
+        pipelineManifest_ = std::make_shared<VulkanPipelineManifestProvider>();
+    }
 
-    depthFormat_ = FindSupportedDepthFormat(context.GetPhysicalDevice());
-    CreateRenderPass(context);
-    CreatePipelineLayout(context);
-    CreatePipelines(context);
-    EnsureDepthResources(context, 4096, 0.7F);
-    EnsureJitterTexture(context);
+    depthFormat_ = FindSupportedDepthFormat(vkContext.GetPhysicalDevice());
+    CreateRenderPass(vkContext);
+    CreatePipelineLayout(vkContext);
+    CreatePipelines(vkContext);
+    EnsureDepthResources(
+        vkContext,
+        Common::ShadowQualityProfile{}.MapResolution,
+        Common::ShadowQualityProfile{}.CascadeResolutionScale
+    );
+    EnsureJitterTexture(vkContext);
     initialized_ = true;
 }
 
-void ShadowRenderer::RecreateSwapchain(VulkanContext& context) {
+void ShadowRenderer::RecreateSwapchain(Common::GraphicsContext& context) {
+    auto& vkContext = static_cast<VulkanContext&>(context);
     if (!initialized_) {
         Initialize(context);
         return;
     }
-    DestroySwapchainResources(context);
-    CreatePipelines(context);
+    DestroySwapchainResources(vkContext);
+    CreatePipelines(vkContext);
 }
 
-void ShadowRenderer::Shutdown(VulkanContext& context) {
-    DestroySwapchainResources(context);
-    DestroyDepthResources(context);
-    DestroyJitterTexture(context);
+void ShadowRenderer::Shutdown(Common::GraphicsContext& context) {
+    auto& vkContext = static_cast<VulkanContext&>(context);
+    DestroySwapchainResources(vkContext);
+    DestroyDepthResources(vkContext);
+    DestroyJitterTexture(vkContext);
 
-    const VkDevice device = context.GetDevice();
+    const VkDevice device = vkContext.GetDevice();
     if (shadowSampler_ != VK_NULL_HANDLE) {
         vkDestroySampler(device, shadowSampler_, nullptr);
         shadowSampler_ = VK_NULL_HANDLE;
@@ -196,79 +169,76 @@ void ShadowRenderer::Shutdown(VulkanContext& context) {
     shadowData_ = {};
 }
 
-void ShadowRenderer::Render(
+ShadowRenderer::ShadowPassOutput ShadowRenderer::Render(
     Common::GraphicsContext& context,
     Common::CommandBuffer& commandBuffer,
-    const std::vector<std::shared_ptr<Common::RenderProxy>>& shadowCasters,
-    const Objects::Camera& camera,
-    const Math::Vector3& directionalLightDirection,
-    const float cameraAspect,
-    const ShadowSettings& settings
+    const ShadowPassInput& input
 ) {
-    std::vector<std::shared_ptr<RenderPartProxy>> partCasters;
-    partCasters.reserve(shadowCasters.size());
-    for (const auto& proxy : shadowCasters) {
-        if (const auto partProxy = std::dynamic_pointer_cast<RenderPartProxy>(proxy); partProxy != nullptr) {
+    if (input.Casters == nullptr || input.Camera == nullptr) {
+        shadowData_.HasShadowData = false;
+        return ShadowPassOutput{.Data = shadowData_};
+    }
+
+    std::vector<std::shared_ptr<Common::RenderPartProxy>> partCasters;
+    partCasters.reserve(input.Casters->size());
+    for (const auto& proxy : *input.Casters) {
+        if (const auto partProxy = std::dynamic_pointer_cast<Common::RenderPartProxy>(proxy); partProxy != nullptr) {
             partCasters.push_back(partProxy);
         }
     }
-    Render(
+    RenderPartCasters(
         static_cast<VulkanContext&>(context),
         commandBuffer,
         partCasters,
-        camera,
-        directionalLightDirection,
-        cameraAspect,
-        settings
+        *input.Camera,
+        input.DirectionalLightDirection,
+        input.CameraAspect,
+        input.Quality
     );
+    return ShadowPassOutput{.Data = shadowData_};
 }
 
-void ShadowRenderer::Render(
+void ShadowRenderer::RenderPartCasters(
     VulkanContext& context,
     Common::CommandBuffer& commandBuffer,
-    const std::vector<std::shared_ptr<RenderPartProxy>>& shadowCasters,
+    const std::vector<std::shared_ptr<Common::RenderPartProxy>>& shadowCasters,
     const Objects::Camera& camera,
     const Math::Vector3& directionalLightDirection,
     const float cameraAspect,
-    const ShadowSettings& settings
+    const Common::ShadowQualityProfile& settings
 ) {
     if (!initialized_) {
-        Initialize(context);
+        Initialize(static_cast<Common::GraphicsContext&>(context));
     }
     if (pipelines_.empty() || renderPass_ == VK_NULL_HANDLE) {
         shadowData_.HasShadowData = false;
         return;
     }
 
-    const std::uint32_t requestedResolution =
-        std::max(128U, std::min(8192U, settings.MapResolution == 0 ? 4096U : settings.MapResolution));
-    const float cascadeResolutionScale = std::max(0.25F, std::min(1.0F, settings.CascadeResolutionScale));
-    const float cascadeSplitLambda = std::max(0.0F, std::min(1.0F, settings.CascadeSplitLambda));
-    EnsureDepthResources(context, requestedResolution, cascadeResolutionScale);
+    const auto normalized = Common::NormalizeShadowSettings(settings);
+    EnsureDepthResources(context, normalized.MapResolution, normalized.CascadeResolutionScale);
     EnsureJitterTexture(context);
 
-    shadowData_.TapCount = std::max(1, std::min(64, settings.TapCount));
-    shadowData_.BlurAmount = std::max(0.0F, std::min(12.0F, settings.BlurAmount));
-    shadowData_.Bias = 0.25F;
-    shadowData_.FadeWidth = 0.25F;
-    shadowData_.CascadeCount = std::max(1, std::min(MAX_CASCADES, settings.CascadeCount));
-    shadowData_.MaxDistance = std::max(1.0F, std::min(1024.0F, settings.MaxDistance));
+    shadowData_.TapCount = normalized.TapCount;
+    shadowData_.BlurAmount = normalized.BlurAmount;
+    shadowData_.Bias = normalized.Bias;
+    shadowData_.FadeWidth = normalized.FadeWidth;
+    shadowData_.CascadeCount = normalized.CascadeCount;
+    shadowData_.MaxDistance = normalized.MaxDistance;
 
     if (!settings.Enabled || directionalLightDirection.MagnitudeSquared() <= 1e-8) {
         shadowData_.HasShadowData = false;
         return;
     }
 
-    CascadeComputation cascades{};
-    if (!ComputeCascades(
+    Common::ShadowCascadeComputation cascades{};
+    if (!Common::ComputeShadowCascades(
             camera,
             directionalLightDirection,
             cameraAspect,
-            shadowData_.CascadeCount,
-            shadowData_.MaxDistance,
-            cascadeSplitLambda,
-            cascades
-        )) {
+            normalized,
+            cascadeResolutions_,
+            cascades)) {
         shadowData_.HasShadowData = false;
         return;
     }
@@ -314,11 +284,7 @@ void ShadowRenderer::Render(
             if (proxy == nullptr) {
                 continue;
             }
-            const auto instance = proxy->GetInstance();
-            if (instance == nullptr || !instance->GetProperty("Renders").toBool()) {
-                continue;
-            }
-            if (instance->GetProperty("Transparency").toDouble() >= 1.0) {
+            if (!proxy->GetPolicy().Visible || !proxy->GetPolicy().CastsShadow) {
                 continue;
             }
 
@@ -505,8 +471,8 @@ std::unique_ptr<VulkanPipelineVariant> ShadowRenderer::CreatePipelineVariant(
     const Common::PipelineVariantKey& key
 ) {
     const VkDevice device = context.GetDevice();
-    const auto vertPath = Utils::PathUtils::GetResourcePath("Shaders/Vulkan/Shadow.vert.spv");
-    const auto fragPath = Utils::PathUtils::GetResourcePath("Shaders/Vulkan/Shadow.frag.spv");
+    const auto vertPath = pipelineManifest_->GetShaderPath("shadow", Common::ShaderStage::Vertex);
+    const auto fragPath = pipelineManifest_->GetShaderPath("shadow", Common::ShaderStage::Fragment);
 
     const auto vertCode = ShaderUtils::ReadBinaryFile(vertPath);
     const auto fragCode = ShaderUtils::ReadBinaryFile(fragPath);
@@ -641,13 +607,7 @@ void ShadowRenderer::EnsureDepthResources(
     const std::uint32_t resolution,
     const float cascadeResolutionScale
 ) {
-    const double clampedScale = Clamp(static_cast<double>(cascadeResolutionScale), 0.25, 1.0);
-    std::array<std::uint32_t, MAX_CASCADES> targetResolutions{};
-    for (int i = 0; i < MAX_CASCADES; ++i) {
-        const double scaledResolution = static_cast<double>(resolution) * std::pow(clampedScale, static_cast<double>(i));
-        targetResolutions[static_cast<std::size_t>(i)] =
-            std::max(128U, static_cast<std::uint32_t>(std::lround(std::max(128.0, scaledResolution))));
-    }
+    const auto targetResolutions = Common::ComputeCascadeResolutions(resolution, cascadeResolutionScale);
 
     if (resolution == mapResolution_ && targetResolutions == cascadeResolutions_ && shadowSampler_ != VK_NULL_HANDLE &&
         cascadeImages_[0].Image != VK_NULL_HANDLE) {
@@ -773,65 +733,9 @@ void ShadowRenderer::EnsureJitterTexture(VulkanContext& context) {
         return;
     }
 
-    const auto sizeXY = static_cast<int>(std::max(2U, jitterSizeXY_));
-    const auto depth = static_cast<int>(std::max(2U, jitterDepth_));
-    const int pairCount = depth * 2;
-    int samplesPerSide = static_cast<int>(std::sqrt(static_cast<double>(pairCount)));
-    if (samplesPerSide * samplesPerSide != pairCount) {
-        samplesPerSide = static_cast<int>(std::ceil(std::sqrt(static_cast<double>(pairCount))));
-    }
-
-    std::vector<std::uint8_t> data(static_cast<std::size_t>(sizeXY) * sizeXY * depth * 4U, 0);
-    constexpr double Pi = 3.14159265358979323846;
-
-    struct Offset {
-        double x{0.0};
-        double y{0.0};
-    };
-
-    for (int y = 0; y < sizeXY; ++y) {
-        for (int x = 0; x < sizeXY; ++x) {
-            const std::uint32_t seed =
-                static_cast<std::uint32_t>(((x + 1) * 73856093) ^ ((y + 1) * 19349663));
-            std::mt19937 rng(seed);
-            std::uniform_real_distribution<double> dist(0.0, 1.0);
-
-            std::vector<Offset> offsets;
-            offsets.reserve(static_cast<std::size_t>(pairCount));
-            for (int i = 0; i < pairCount; ++i) {
-                const int sx = i % samplesPerSide;
-                const int sy = i / samplesPerSide;
-                const double u = (static_cast<double>(sx) + dist(rng)) / static_cast<double>(samplesPerSide);
-                const double v = (static_cast<double>(sy) + dist(rng)) / static_cast<double>(samplesPerSide);
-                const double r = std::sqrt(std::clamp(v, 0.0, 1.0));
-                const double theta = 2.0 * Pi * u;
-                offsets.push_back({std::cos(theta) * r, std::sin(theta) * r});
-            }
-            std::sort(offsets.begin(), offsets.end(), [](const auto& a, const auto& b) {
-                const double ra = (a.x * a.x) + (a.y * a.y);
-                const double rb = (b.x * b.x) + (b.y * b.y);
-                return ra > rb;
-            });
-
-            auto encode = [](const double value) -> std::uint8_t {
-                const double normalized = std::clamp((value * 0.5) + 0.5, 0.0, 1.0);
-                return static_cast<std::uint8_t>(std::round(normalized * 255.0));
-            };
-
-            for (int z = 0; z < depth; ++z) {
-                const auto& a = offsets[static_cast<std::size_t>((z * 2) + 0)];
-                const auto& b = offsets[static_cast<std::size_t>((z * 2) + 1)];
-                const std::size_t index =
-                    ((static_cast<std::size_t>(z) * static_cast<std::size_t>(sizeXY) * static_cast<std::size_t>(sizeXY)) +
-                     (static_cast<std::size_t>(y) * static_cast<std::size_t>(sizeXY)) + static_cast<std::size_t>(x)) *
-                    4U;
-                data[index + 0] = encode(a.x);
-                data[index + 1] = encode(a.y);
-                data[index + 2] = encode(b.x);
-                data[index + 3] = encode(b.y);
-            }
-        }
-    }
+    const std::uint32_t clampedSize = std::max(Common::kShadowMinJitterSizeXY, jitterSizeXY_);
+    const std::uint32_t clampedDepth = std::max(Common::kShadowMinJitterDepth, jitterDepth_);
+    const std::vector<std::uint8_t> data = Common::GenerateShadowJitterTextureData(clampedSize, clampedDepth);
 
     const VkDevice device = context.GetDevice();
     const VkPhysicalDevice physicalDevice = context.GetPhysicalDevice();
@@ -855,7 +759,7 @@ void ShadowRenderer::EnsureJitterTexture(VulkanContext& context) {
         .flags = 0,
         .imageType = VK_IMAGE_TYPE_3D,
         .format = VK_FORMAT_R8G8B8A8_UNORM,
-        .extent = {.width = jitterSizeXY_, .height = jitterSizeXY_, .depth = jitterDepth_},
+        .extent = {.width = clampedSize, .height = clampedSize, .depth = clampedDepth},
         .mipLevels = 1,
         .arrayLayers = 1,
         .samples = VK_SAMPLE_COUNT_1_BIT,
@@ -929,7 +833,7 @@ void ShadowRenderer::EnsureJitterTexture(VulkanContext& context) {
         .bufferImageHeight = 0,
         .imageSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1},
         .imageOffset = {0, 0, 0},
-        .imageExtent = {jitterSizeXY_, jitterSizeXY_, jitterDepth_}
+        .imageExtent = {clampedSize, clampedSize, clampedDepth}
     };
     vkCmdCopyBufferToImage(commandBuffer, staging.Buffer, jitterImage_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
 
@@ -1009,8 +913,8 @@ void ShadowRenderer::EnsureJitterTexture(VulkanContext& context) {
         throw std::runtime_error("Failed to create shadow jitter sampler.");
     }
 
-    shadowData_.JitterScaleX = 1.0F / static_cast<float>(std::max(1U, jitterSizeXY_));
-    shadowData_.JitterScaleY = 1.0F / static_cast<float>(std::max(1U, jitterSizeXY_));
+    shadowData_.JitterScaleX = 1.0F / static_cast<float>(std::max(1U, clampedSize));
+    shadowData_.JitterScaleY = 1.0F / static_cast<float>(std::max(1U, clampedSize));
 }
 
 void ShadowRenderer::DestroyDepthResources(VulkanContext& context) {
@@ -1068,211 +972,6 @@ void ShadowRenderer::DestroyJitterTexture(VulkanContext& context) {
 void ShadowRenderer::DestroySwapchainResources(VulkanContext& context) {
     static_cast<void>(context);
     pipelines_.clear();
-}
-
-bool ShadowRenderer::ComputeCascades(
-    const Objects::Camera& camera,
-    const Math::Vector3& directionalLightDirection,
-    const float cameraAspect,
-    const int cascadeCount,
-    const float maxDistance,
-    const float cascadeSplitLambda,
-    CascadeComputation& out
-) const {
-    if (directionalLightDirection.MagnitudeSquared() <= 1e-8) {
-        return false;
-    }
-
-    const double nearPlane = std::max(0.01, camera.GetProperty("NearPlane").toDouble());
-    const double farPlane = std::max(nearPlane + 1.0, static_cast<double>(maxDistance));
-    const auto splits = ComputeCascadeSplits(nearPlane, farPlane, cascadeCount, static_cast<double>(cascadeSplitLambda));
-
-    double rangeNear = nearPlane;
-    for (int i = 0; i < cascadeCount; ++i) {
-        bool success = true;
-        const Math::Matrix4 matrix = ComputeCascadeLightViewProjection(
-            camera,
-            directionalLightDirection,
-            cameraAspect,
-            rangeNear,
-            splits[static_cast<std::size_t>(i)],
-            cascadeResolutions_[static_cast<std::size_t>(i)],
-            success
-        );
-        if (!success) {
-            return false;
-        }
-        out.Matrices[static_cast<std::size_t>(i)] = matrix;
-        rangeNear = splits[static_cast<std::size_t>(i)];
-    }
-
-    out.Split0 = static_cast<float>(cascadeCount >= 2 ? splits[0] : farPlane);
-    out.Split1 = static_cast<float>(cascadeCount >= 3 ? splits[1] : farPlane);
-    out.MaxDistance = static_cast<float>(farPlane);
-    return true;
-}
-
-Math::Matrix4 ShadowRenderer::ComputeCascadeLightViewProjection(
-    const Objects::Camera& camera,
-    const Math::Vector3& direction,
-    const float cameraAspect,
-    const double rangeNear,
-    const double rangeFar,
-    const std::uint32_t cascadeResolution,
-    bool& success
-) const {
-    success = false;
-    if (rangeFar <= rangeNear + 1e-6) {
-        return Math::Matrix4::Identity();
-    }
-
-    const auto cameraCFrame = camera.GetProperty("CFrame").value<Math::CFrame>();
-    const Math::Vector3 camPos = cameraCFrame.Position;
-    const Math::Vector3 camForward = cameraCFrame.LookVector().Unit();
-    const Math::Vector3 camRight = cameraCFrame.RightVector().Unit();
-    const Math::Vector3 camUp = cameraCFrame.UpVector().Unit();
-
-    const double aspect = std::max(1e-6, static_cast<double>(cameraAspect));
-    constexpr double DegToRad = 3.14159265358979323846 / 180.0;
-    const double fovRadians = camera.GetProperty("FieldOfView").toDouble() * DegToRad;
-    const double tanHalfFov = std::tan(fovRadians * 0.5);
-
-    const double nearHeight = tanHalfFov * rangeNear;
-    const double nearWidth = nearHeight * aspect;
-    const double farHeight = tanHalfFov * rangeFar;
-    const double farWidth = farHeight * aspect;
-
-    const Math::Vector3 nearCenter = camPos + (camForward * rangeNear);
-    const Math::Vector3 farCenter = camPos + (camForward * rangeFar);
-
-    const std::array corners{
-        nearCenter + (camUp * nearHeight) - (camRight * nearWidth),
-        nearCenter + (camUp * nearHeight) + (camRight * nearWidth),
-        nearCenter - (camUp * nearHeight) - (camRight * nearWidth),
-        nearCenter - (camUp * nearHeight) + (camRight * nearWidth),
-        farCenter + (camUp * farHeight) - (camRight * farWidth),
-        farCenter + (camUp * farHeight) + (camRight * farWidth),
-        farCenter - (camUp * farHeight) - (camRight * farWidth),
-        farCenter - (camUp * farHeight) + (camRight * farWidth)
-    };
-
-    Math::Vector3 frustumCenter{};
-    for (const auto& corner : corners) {
-        frustumCenter = frustumCenter + corner;
-    }
-    frustumCenter = frustumCenter * (1.0 / 8.0);
-
-    double radius = 0.0;
-    for (const auto& corner : corners) {
-        radius = std::max(radius, (corner - frustumCenter).Magnitude());
-    }
-    constexpr double radiusQuantization = 16.0;
-    radius = std::ceil(radius * radiusQuantization) / radiusQuantization;
-    radius = std::max(radius, 1.0);
-
-    const Math::Vector3 lightDir = direction.Unit();
-    const Math::Vector3 eye = frustumCenter - (lightDir * radius);
-
-    Math::Vector3 up{0.0, 1.0, 0.0};
-    if (std::abs(lightDir.Dot(up)) > 0.98) {
-        up = {0.0, 0.0, 1.0};
-    }
-
-    const auto lightFrame = Math::CFrame::LookAt(eye, frustumCenter, up);
-    const auto lightView = lightFrame.Inverse().ToMatrix4();
-
-    double minZ = std::numeric_limits<double>::infinity();
-    double maxZ = -std::numeric_limits<double>::infinity();
-    for (const auto& corner : corners) {
-        const auto transformed = Multiply(lightView, Vec4{corner.x, corner.y, corner.z, 1.0});
-        minZ = std::min(minZ, transformed.z);
-        maxZ = std::max(maxZ, transformed.z);
-    }
-
-    const double left = -radius;
-    const double right = radius;
-    const double bottom = -radius;
-    const double top = radius;
-
-    constexpr double cascadeDepthMultiplier = 10.0;
-    const double depthRadius = radius * cascadeDepthMultiplier;
-    const double nearPlane = std::max(0.1, (-maxZ) - depthRadius);
-    const double farPlane = std::max(nearPlane + 1.0, (-minZ) + depthRadius);
-
-    auto projection = BuildOrthographicZeroToOne(left, right, bottom, top, nearPlane, farPlane);
-    projection = StabilizeProjection(projection, lightView, static_cast<double>(std::max(1U, cascadeResolution)));
-    success = true;
-    return projection * lightView;
-}
-
-std::array<double, ShadowRenderer::MAX_CASCADES> ShadowRenderer::ComputeCascadeSplits(
-    const double nearPlane,
-    const double farPlane,
-    const int cascadeCount,
-    const double lambda
-) const {
-    std::array<double, MAX_CASCADES> splits{farPlane, farPlane, farPlane};
-    const double ratio = farPlane / std::max(nearPlane, 1e-4);
-    const double clampedLambda = Clamp(lambda, 0.0, 1.0);
-    for (int i = 1; i <= cascadeCount; ++i) {
-        const double t = static_cast<double>(i) / static_cast<double>(cascadeCount);
-        const double uniformSplit = nearPlane + ((farPlane - nearPlane) * t);
-        const double logarithmicSplit = nearPlane * std::pow(ratio, t);
-        const double split = (logarithmicSplit * clampedLambda) + (uniformSplit * (1.0 - clampedLambda));
-        splits[static_cast<std::size_t>(i - 1)] = Clamp(split, nearPlane, farPlane);
-    }
-    splits[static_cast<std::size_t>(cascadeCount - 1)] = farPlane;
-    return splits;
-}
-
-Math::Matrix4 ShadowRenderer::BuildOrthographicZeroToOne(
-    const double left,
-    const double right,
-    const double bottom,
-    const double top,
-    const double nearPlane,
-    const double farPlane
-) const {
-    const double width = std::max(1e-6, right - left);
-    const double height = std::max(1e-6, top - bottom);
-    const double depth = std::max(1e-6, farPlane - nearPlane);
-
-    return Math::Matrix4({{
-        {2.0 / width, 0.0, 0.0, -(right + left) / width},
-        {0.0, 2.0 / height, 0.0, -(top + bottom) / height},
-        {0.0, 0.0, -1.0 / depth, -nearPlane / depth},
-        {0.0, 0.0, 0.0, 1.0}
-    }});
-}
-
-Math::Matrix4 ShadowRenderer::StabilizeProjection(
-    const Math::Matrix4& projection,
-    const Math::Matrix4& lightView,
-    const double resolution
-) const {
-    const auto shadowMatrix = projection * lightView;
-    Vec4 shadowOrigin = Multiply(shadowMatrix, Vec4{0.0, 0.0, 0.0, 1.0});
-    shadowOrigin.x *= (resolution * 0.5);
-    shadowOrigin.y *= (resolution * 0.5);
-    shadowOrigin.z *= (resolution * 0.5);
-
-    const Vec4 rounded{
-        std::round(shadowOrigin.x),
-        std::round(shadowOrigin.y),
-        std::round(shadowOrigin.z),
-        std::round(shadowOrigin.w)
-    };
-    const Vec4 roundOffset{
-        (rounded.x - shadowOrigin.x) * (2.0 / resolution),
-        (rounded.y - shadowOrigin.y) * (2.0 / resolution),
-        0.0,
-        0.0
-    };
-
-    auto rows = projection.Rows();
-    rows[0][3] += roundOffset.x;
-    rows[1][3] += roundOffset.y;
-    return Math::Matrix4(rows);
 }
 
 const VulkanPipelineVariant& ShadowRenderer::GetPipeline(const Common::PipelineVariantKey& key) const {

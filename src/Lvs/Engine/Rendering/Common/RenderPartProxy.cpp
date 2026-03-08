@@ -1,4 +1,4 @@
-#include "Lvs/Engine/Rendering/Vulkan/RenderPartProxy.hpp"
+#include "Lvs/Engine/Rendering/Common/RenderPartProxy.hpp"
 
 #include "Lvs/Engine/Core/Instance.hpp"
 #include "Lvs/Engine/Enums/PartShape.hpp"
@@ -7,12 +7,10 @@
 #include "Lvs/Engine/Objects/BasePart.hpp"
 #include "Lvs/Engine/Objects/MeshPart.hpp"
 #include "Lvs/Engine/Objects/Part.hpp"
-#include "Lvs/Engine/Rendering/Vulkan/Renderer.hpp"
-#include "Lvs/Engine/Rendering/Vulkan/VulkanGpuResources.hpp"
 
 #include <utility>
 
-namespace Lvs::Engine::Rendering::Vulkan {
+namespace Lvs::Engine::Rendering::Common {
 
 RenderPartProxy::RenderPartProxy(std::shared_ptr<Objects::BasePart> part)
     : instance_(std::move(part)) {
@@ -35,7 +33,7 @@ RenderPartProxy::~RenderPartProxy() {
     }
 }
 
-void RenderPartProxy::SyncFromRenderer(Common::SceneRenderer& renderer) {
+void RenderPartProxy::SyncFromRenderer(SceneRenderer& renderer) {
     if (instance_ == nullptr) {
         mesh_.reset();
         return;
@@ -63,6 +61,11 @@ void RenderPartProxy::SyncFromRenderer(Common::SceneRenderer& renderer) {
     metalness_ = static_cast<float>(instance_->GetProperty("Metalness").toDouble());
     roughness_ = static_cast<float>(instance_->GetProperty("Roughness").toDouble());
     emissive_ = static_cast<float>(instance_->GetProperty("Emissive").toDouble());
+    const bool renders = instance_->GetProperty("Renders").toBool();
+    const bool transparent = alpha_ < 0.999F;
+    policy_.Visible = renders && alpha_ > 0.0F;
+    policy_.Transparent = transparent;
+    policy_.CastsShadow = renders && !transparent;
 
     surfaceEnabled_ = false;
     topSurfaceType_ = 0;
@@ -91,25 +94,22 @@ void RenderPartProxy::SyncFromRenderer(Common::SceneRenderer& renderer) {
     dirty_ = false;
 }
 
-void RenderPartProxy::Draw(Common::CommandBuffer& commandBuffer, Common::SceneRenderer& renderer) {
+void RenderPartProxy::Draw(CommandBuffer& commandBuffer, SceneRenderer& renderer) {
     Draw(commandBuffer, renderer, false);
 }
 
-void RenderPartProxy::Draw(Common::CommandBuffer& commandBuffer, Common::SceneRenderer& renderer, const bool transparent) {
-    if (instance_ == nullptr || mesh_ == nullptr) {
+void RenderPartProxy::Draw(CommandBuffer& commandBuffer, SceneRenderer& renderer, const bool transparent) {
+    if (instance_ == nullptr || mesh_ == nullptr || !policy_.Visible) {
         return;
     }
-    if (!instance_->GetProperty("Renders").toBool()) {
-        return;
-    }
-    auto* vulkanRenderer = dynamic_cast<Renderer*>(&renderer);
-    if (vulkanRenderer == nullptr) {
-        return;
-    }
-    vulkanRenderer->DrawPart(commandBuffer, *this, transparent);
+    renderer.DrawRenderProxy(commandBuffer, *this, transparent);
 }
 
-const std::shared_ptr<Common::UploadedMesh>& RenderPartProxy::GetMesh() const {
+RenderProxyPolicy RenderPartProxy::GetPolicy() const {
+    return policy_;
+}
+
+const std::shared_ptr<UploadedMesh>& RenderPartProxy::GetMesh() const {
     return mesh_;
 }
 
@@ -184,4 +184,4 @@ void RenderPartProxy::MarkDirty() {
     dirty_ = true;
 }
 
-} // namespace Lvs::Engine::Rendering::Vulkan
+} // namespace Lvs::Engine::Rendering::Common

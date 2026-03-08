@@ -1,15 +1,15 @@
 #include "Lvs/Engine/Rendering/Vulkan/PostProcessRenderer.hpp"
 
-#include "Lvs/Engine/DataModel/Lighting.hpp"
 #include "Lvs/Engine/DataModel/Place.hpp"
+#include "Lvs/Engine/Rendering/Common/PostProcessSettingsUtils.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanBufferUtils.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanBinding.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanContext.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanFrameManager.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanGpuResources.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanPipeline.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/VulkanRenderManifest.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanShaderUtils.hpp"
-#include "Lvs/Engine/Utils/PathUtils.hpp"
 
 #include <algorithm>
 #include <array>
@@ -37,6 +37,9 @@ PostProcessRenderer::PostProcessRenderer() = default;
 PostProcessRenderer::~PostProcessRenderer() = default;
 
 void PostProcessRenderer::Initialize(Common::GraphicsContext& context, const Common::RenderSurface& surface) {
+    if (pipelineManifest_ == nullptr) {
+        pipelineManifest_ = std::make_shared<VulkanPipelineManifestProvider>();
+    }
     auto& vkContext = static_cast<VulkanContext&>(context);
     const auto& frameManager = static_cast<const VulkanFrameManager&>(surface);
     std::vector<VkImageView> sceneViews;
@@ -143,10 +146,12 @@ void PostProcessRenderer::Shutdown(VulkanContext& context) {
 
 void PostProcessRenderer::BindToPlace(const std::shared_ptr<DataModel::Place>& place) {
     place_ = place;
+    settingsSnapshot_ = settingsResolver_.Resolve(place_);
 }
 
 void PostProcessRenderer::Unbind() {
     place_.reset();
+    settingsSnapshot_ = {};
 }
 
 void PostProcessRenderer::RecordBlurCommands(
@@ -154,6 +159,7 @@ void PostProcessRenderer::RecordBlurCommands(
     Common::CommandBuffer& commandBuffer,
     const std::uint32_t imageIndex
 ) {
+    settingsSnapshot_ = settingsResolver_.Resolve(place_);
     auto& vkContext = static_cast<VulkanContext&>(context);
     const auto& vkCommandBuffer = dynamic_cast<VulkanRenderCommandBuffer&>(commandBuffer);
     const VkCommandBuffer handle = vkCommandBuffer.GetHandle();
@@ -392,15 +398,9 @@ void PostProcessRenderer::DrawComposite(
         nullptr
     );
 
-    float gammaEnabled = 0.0F;
-    float ditheringEnabled = 0.0F;
-    if (const auto lighting = GetLighting(); lighting != nullptr) {
-        gammaEnabled = lighting->GetProperty("GammaCorrection").toBool() ? 1.0F : 0.0F;
-        ditheringEnabled = lighting->GetProperty("Dithering").toBool() ? 1.0F : 0.0F;
-    }
     const std::array<float, 4> settings{
-        gammaEnabled,
-        ditheringEnabled,
+        settingsSnapshot_.GammaEnabled,
+        settingsSnapshot_.DitheringEnabled,
         static_cast<float>((frameIndex + 1) * 17U),
         0.0F
     };
@@ -530,7 +530,7 @@ void PostProcessRenderer::CreateBlurResources(VulkanContext& context, const std:
     std::uint32_t height = swapchainExtent.height;
 
     blurExtents_.clear();
-    for (std::uint32_t level = 0; level < MAX_BLUR_LEVELS; ++level) {
+    for (std::uint32_t level = 0; level < Common::kPostProcessMaxBlurLevels; ++level) {
         width = std::max(width / 2, 1U);
         height = std::max(height / 2, 1U);
         blurExtents_.push_back({width, height});
@@ -776,7 +776,7 @@ void PostProcessRenderer::CreateRenderPasses(VulkanContext& context) {
 void PostProcessRenderer::CreatePipelines(VulkanContext& context) {
     const VkDevice device = context.GetDevice();
 
-    const auto vertPath = Utils::PathUtils::GetResourcePath("Shaders/Vulkan/PostProcess.vert.spv");
+    const auto vertPath = pipelineManifest_->GetShaderPath("post_composite", Common::ShaderStage::Vertex);
     const auto vertCode = ShaderUtils::ReadBinaryFile(vertPath);
     const auto vertModule = VulkanShaderModule::Create(device, vertCode);
 
@@ -930,19 +930,19 @@ void PostProcessRenderer::CreatePipelines(VulkanContext& context) {
     };
 
     compositePipeline_ = createPipeline(
-        Utils::PathUtils::GetResourcePath("Shaders/Vulkan/PostProcess.frag.spv"),
+        pipelineManifest_->GetShaderPath("post_composite", Common::ShaderStage::Fragment),
         reinterpret_cast<VkRenderPass>(compositeRenderPass_->GetNativeHandle()),
         compositePipelineLayout_->GetHandle(),
         *compositePipelineLayout_
     );
     blurDownPipeline_ = createPipeline(
-        Utils::PathUtils::GetResourcePath("Shaders/Vulkan/DualKawaseDown.frag.spv"),
+        pipelineManifest_->GetShaderPath("post_blur_down", Common::ShaderStage::Fragment),
         blurRenderPass_,
         blurPipelineLayout_->GetHandle(),
         *blurPipelineLayout_
     );
     blurUpPipeline_ = createPipeline(
-        Utils::PathUtils::GetResourcePath("Shaders/Vulkan/DualKawaseUp.frag.spv"),
+        pipelineManifest_->GetShaderPath("post_blur_up", Common::ShaderStage::Fragment),
         blurRenderPass_,
         blurPipelineLayout_->GetHandle(),
         *blurPipelineLayout_
@@ -1008,20 +1008,14 @@ void PostProcessRenderer::DestroyPipelines(VulkanContext& context) {
 }
 
 std::uint32_t PostProcessRenderer::ComputeUsedBlurLevels() const {
-    if (blurExtents_.empty()) {
-        return 0;
-    }
-    const float blurAmount = std::max(GetBlurAmount(), 0.0F);
-    const std::uint32_t availableLevels = static_cast<std::uint32_t>(blurExtents_.size());
-    const std::uint32_t requested = static_cast<std::uint32_t>(std::ceil(blurAmount)) + 1;
-    return std::max(1U, std::min(availableLevels, requested));
+    return Common::ComputePostProcessBlurLevels(
+        GetBlurAmount(),
+        static_cast<std::uint32_t>(blurExtents_.size())
+    );
 }
 
 float PostProcessRenderer::GetBlurAmount() const {
-    if (const auto lighting = GetLighting(); lighting != nullptr) {
-        return static_cast<float>(lighting->GetProperty("NeonBlur").toDouble());
-    }
-    return 2.0F;
+    return settingsSnapshot_.NeonBlur;
 }
 
 void PostProcessRenderer::DestroySwapchainResources(VulkanContext& context) {
@@ -1033,13 +1027,6 @@ void PostProcessRenderer::DestroySwapchainResources(VulkanContext& context) {
     upBindings_.clear();
     compositeBindingLayout_.reset();
     blurBindingLayout_.reset();
-}
-
-std::shared_ptr<DataModel::Lighting> PostProcessRenderer::GetLighting() const {
-    if (place_ == nullptr) {
-        return nullptr;
-    }
-    return std::dynamic_pointer_cast<DataModel::Lighting>(place_->FindService("Lighting"));
 }
 
 } // namespace Lvs::Engine::Rendering::Vulkan

@@ -1,14 +1,14 @@
 #pragma once
 
-#include "Lvs/Engine/Math/Color3.hpp"
-#include "Lvs/Engine/Enums/MeshCullMode.hpp"
 #include "Lvs/Engine/Core/Instance.hpp"
+#include "Lvs/Engine/Enums/MeshCullMode.hpp"
+#include "Lvs/Engine/Math/Color3.hpp"
 #include "Lvs/Engine/Math/Matrix4.hpp"
 #include "Lvs/Engine/Math/Vector3.hpp"
 #include "Lvs/Engine/Rendering/Common/CommandBuffer.hpp"
-#include "Lvs/Engine/Rendering/Common/SceneRenderer.hpp"
 #include "Lvs/Engine/Rendering/Common/MeshUploader.hpp"
 #include "Lvs/Engine/Rendering/Common/RenderProxy.hpp"
+#include "Lvs/Engine/Rendering/Common/SceneRenderer.hpp"
 
 #include <memory>
 #include <optional>
@@ -21,22 +21,20 @@ namespace Lvs::Engine::Core {
 class Instance;
 }
 
-namespace Lvs::Engine::Rendering::Vulkan {
+namespace Lvs::Engine::Rendering::Common {
 
-class Mesh;
-class Renderer;
-
-class RenderPartProxy final : public Common::RenderProxy {
+class RenderPartProxy final : public RenderProxy {
 public:
     explicit RenderPartProxy(std::shared_ptr<Objects::BasePart> part);
     ~RenderPartProxy() override;
 
-    void SyncFromRenderer(Common::SceneRenderer& renderer) override;
-    void Draw(Common::CommandBuffer& commandBuffer, Common::SceneRenderer& renderer) override;
-    void Draw(Common::CommandBuffer& commandBuffer, Common::SceneRenderer& renderer, bool transparent);
+    void SyncFromRenderer(SceneRenderer& renderer) override;
+    void Draw(CommandBuffer& commandBuffer, SceneRenderer& renderer) override;
+    void Draw(CommandBuffer& commandBuffer, SceneRenderer& renderer, bool transparent);
+    [[nodiscard]] RenderProxyPolicy GetPolicy() const override;
 
-    [[nodiscard]] const std::shared_ptr<Common::UploadedMesh>& GetMesh() const;
-    [[nodiscard]] Math::Vector3 GetWorldPosition() const;
+    [[nodiscard]] const std::shared_ptr<UploadedMesh>& GetMesh() const;
+    [[nodiscard]] Math::Vector3 GetWorldPosition() const override;
     [[nodiscard]] const Math::Matrix4& GetModelMatrix() const;
     [[nodiscard]] const Math::Color3& GetColor() const;
     [[nodiscard]] float GetAlpha() const;
@@ -57,7 +55,7 @@ private:
     void MarkDirty();
 
     std::shared_ptr<Objects::BasePart> instance_;
-    std::shared_ptr<Common::UploadedMesh> mesh_;
+    std::shared_ptr<UploadedMesh> mesh_;
     Math::Matrix4 modelMatrix_{Math::Matrix4::Identity()};
     Math::Color3 color_{};
     float alpha_{1.0F};
@@ -72,9 +70,10 @@ private:
     int backSurfaceType_{0};
     int leftSurfaceType_{0};
     int rightSurfaceType_{0};
+    RenderProxyPolicy policy_{};
     bool dirty_{true};
     std::optional<Engine::Core::Instance::PropertyInvalidatedConnection> propertyChangedConnection_;
     std::optional<Engine::Core::Instance::InstanceConnection> ancestryChangedConnection_;
 };
 
-} // namespace Lvs::Engine::Rendering::Vulkan
+} // namespace Lvs::Engine::Rendering::Common

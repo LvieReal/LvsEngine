@@ -6,6 +6,7 @@
 #include "Lvs/Engine/Rendering/Common/OverlayPrimitive.hpp"
 #include "Lvs/Engine/Rendering/Common/RenderSurface.hpp"
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -15,6 +16,8 @@ class Place;
 }
 
 namespace Lvs::Engine::Rendering::Common {
+
+class RenderProxy;
 
 class SceneRenderer {
 public:
@@ -30,6 +33,15 @@ public:
     virtual void SetOverlayPrimitives(std::vector<OverlayPrimitive> primitives) = 0;
 
     [[nodiscard]] virtual MeshCache& GetMeshCache() = 0;
+    virtual void DrawRenderProxy(CommandBuffer& commandBuffer, const RenderProxy& proxy, bool transparent = false) = 0;
+    virtual void RecordFrameCommands(
+        GraphicsContext& context,
+        const RenderSurface& surface,
+        CommandBuffer& commandBuffer,
+        std::uint32_t imageIndex,
+        std::uint32_t frameIndex,
+        const std::array<float, 4>& clearColor
+    ) = 0;
     virtual void RecordShadowCommands(
         GraphicsContext& context,
         const RenderSurface& surface,

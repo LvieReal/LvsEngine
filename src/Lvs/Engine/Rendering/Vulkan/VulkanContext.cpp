@@ -2,8 +2,7 @@
 
 #include "Lvs/Engine/Rendering/Vulkan/VulkanGpuResources.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanFrameManager.hpp"
-#include "Lvs/Engine/Rendering/Vulkan/Renderer.hpp"
-#include "Lvs/Engine/Rendering/Vulkan/VulkanPostProcessRenderer.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/VulkanRenderer.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanBufferUtils.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanSwapchainUtils.hpp"
 #include "Lvs/Engine/Rendering/RenderingFactory.hpp"
@@ -280,18 +279,12 @@ void VulkanContext::BindToPlace(const std::shared_ptr<DataModel::Place>& place) 
     if (renderer_ != nullptr) {
         renderer_->BindToPlace(place);
     }
-    if (postProcessRenderer_ != nullptr) {
-        postProcessRenderer_->BindToPlace(place);
-    }
 }
 
 void VulkanContext::Unbind() {
     currentPlace_.reset();
     if (renderer_ != nullptr) {
         renderer_->Unbind();
-    }
-    if (postProcessRenderer_ != nullptr) {
-        postProcessRenderer_->Unbind();
     }
 }
 
@@ -631,98 +624,15 @@ void VulkanContext::RecordCommandBuffer(
 
     VulkanRenderCommandBuffer renderCommandBuffer(commandBuffer);
     if (renderer_ != nullptr) {
-        renderer_->RecordShadowCommands(*this, *frameManager_, renderCommandBuffer, frameIndex);
+        renderer_->RecordFrameCommands(
+            *this,
+            *frameManager_,
+            renderCommandBuffer,
+            imageIndex,
+            frameIndex,
+            {clearColor_.float32[0], clearColor_.float32[1], clearColor_.float32[2], clearColor_.float32[3]}
+        );
     }
-
-    std::array<VkClearValue, 3> clearValues{};
-    clearValues[0].color = clearColor_;
-    clearValues[1].color = {{0.0F, 0.0F, 0.0F, 0.0F}};
-    clearValues[2].depthStencil = {.depth = 0.0F, .stencil = 0};
-    const VkRenderPassBeginInfo sceneRenderPassInfo{
-        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-        .pNext = nullptr,
-        .renderPass = reinterpret_cast<VkRenderPass>(frameManager_->GetSceneRenderPass().GetNativeHandle()),
-        .framebuffer = reinterpret_cast<VkFramebuffer>(frameManager_->GetSceneFramebuffer(imageIndex).GetNativeHandle()),
-        .renderArea = {.offset = {0, 0}, .extent = frameManager_->GetSwapchainExtentVk()},
-        .clearValueCount = static_cast<std::uint32_t>(clearValues.size()),
-        .pClearValues = clearValues.data()
-    };
-
-    vkCmdBeginRenderPass(commandBuffer, &sceneRenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-    if (renderer_ != nullptr) {
-        renderer_->RecordDrawCommands(*this, *frameManager_, renderCommandBuffer, frameIndex);
-    }
-    vkCmdEndRenderPass(commandBuffer);
-
-    const VkImageMemoryBarrier sceneToSampleBarrier{
-        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-        .pNext = nullptr,
-        .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-        .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-        .oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .image = reinterpret_cast<VkImage>(frameManager_->GetOffscreenColorImage(imageIndex).Image),
-        .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1}
-    };
-    const VkImageMemoryBarrier glowToSampleBarrier{
-        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-        .pNext = nullptr,
-        .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-        .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-        .oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .image = reinterpret_cast<VkImage>(frameManager_->GetOffscreenGlowImage(imageIndex).Image),
-        .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1}
-    };
-    const std::array barriers{sceneToSampleBarrier, glowToSampleBarrier};
-    vkCmdPipelineBarrier(
-        commandBuffer,
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-        0,
-        0,
-        nullptr,
-        0,
-        nullptr,
-        static_cast<std::uint32_t>(barriers.size()),
-        barriers.data()
-    );
-
-    if (postProcessRenderer_ != nullptr) {
-        postProcessRenderer_->RecordBlurCommands(*this, renderCommandBuffer, imageIndex);
-    }
-
-    const VkClearValue postClearValue{.color = clearColor_};
-    const VkRenderPassBeginInfo postRenderPassInfo{
-        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-        .pNext = nullptr,
-        .renderPass = reinterpret_cast<VkRenderPass>(frameManager_->GetPostProcessRenderPass().GetNativeHandle()),
-        .framebuffer = reinterpret_cast<VkFramebuffer>(frameManager_->GetSwapchainFramebuffer(imageIndex).GetNativeHandle()),
-        .renderArea = {.offset = {0, 0}, .extent = frameManager_->GetSwapchainExtentVk()},
-        .clearValueCount = 1,
-        .pClearValues = &postClearValue
-    };
-    vkCmdBeginRenderPass(commandBuffer, &postRenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-    if (postProcessRenderer_ != nullptr) {
-        const VkExtent2D extent = frameManager_->GetSwapchainExtentVk();
-        const VkViewport viewport{
-            .x = 0.0F,
-            .y = 0.0F,
-            .width = static_cast<float>(extent.width),
-            .height = static_cast<float>(extent.height),
-            .minDepth = 0.0F,
-            .maxDepth = 1.0F
-        };
-        const VkRect2D scissor{.offset = {0, 0}, .extent = extent};
-        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
-        vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-        postProcessRenderer_->DrawComposite(*this, renderCommandBuffer, imageIndex, frameIndex);
-    }
-    vkCmdEndRenderPass(commandBuffer);
 
     if (!IsSuccess(vkEndCommandBuffer(commandBuffer))) {
         throw std::runtime_error("Failed to record Vulkan command buffer.");
@@ -739,29 +649,17 @@ void VulkanContext::RecreateSwapchain(const std::uint32_t width, const std::uint
     if (renderer_ != nullptr) {
         renderer_->DestroySwapchainResources(*this, *frameManager_);
     }
-    if (postProcessRenderer_ != nullptr) {
-        postProcessRenderer_->DestroySwapchainResources(*this);
-    }
 
     frameManager_->Recreate(*this, surface_, width, height);
 
     if (renderer_ == nullptr) {
-        renderer_ = renderingFactory_ != nullptr ? renderingFactory_->CreateSceneRenderer() : std::make_unique<Renderer>();
+        renderer_ = renderingFactory_ != nullptr ? renderingFactory_->CreateSceneRenderer() : std::make_unique<VulkanRenderer>();
         renderer_->Initialize(*this, *frameManager_);
     } else {
         renderer_->RecreateSwapchain(*this, *frameManager_);
     }
-    if (postProcessRenderer_ == nullptr) {
-        postProcessRenderer_ = renderingFactory_ != nullptr
-            ? renderingFactory_->CreatePostProcessRenderer()
-            : std::make_unique<VulkanPostProcessRenderer>();
-        postProcessRenderer_->Initialize(*this, *frameManager_);
-    } else {
-        postProcessRenderer_->RecreateSwapchain(*this, *frameManager_);
-    }
     if (currentPlace_ != nullptr) {
         renderer_->BindToPlace(currentPlace_);
-        postProcessRenderer_->BindToPlace(currentPlace_);
     }
     renderer_->SetOverlayPrimitives(overlayPrimitives_);
 }
@@ -774,10 +672,6 @@ void VulkanContext::CleanupDeviceAndSurface() {
     if (renderer_ != nullptr && device_ != VK_NULL_HANDLE) {
         renderer_->Shutdown(*this);
         renderer_.reset();
-    }
-    if (postProcessRenderer_ != nullptr && device_ != VK_NULL_HANDLE) {
-        postProcessRenderer_->Shutdown(*this);
-        postProcessRenderer_.reset();
     }
     if (frameManager_ != nullptr && device_ != VK_NULL_HANDLE) {
         frameManager_->Cleanup(*this);

@@ -3,9 +3,13 @@
 #include "Lvs/Engine/Rendering/Common/CommandBuffer.hpp"
 #include "Lvs/Engine/Rendering/Common/GraphicsContext.hpp"
 #include "Lvs/Engine/Rendering/Common/PipelineVariant.hpp"
+#include "Lvs/Engine/Rendering/Common/RenderPartProxy.hpp"
 #include "Lvs/Engine/Rendering/Common/RenderProxy.hpp"
 #include "Lvs/Engine/Rendering/Common/ResourceBinding.hpp"
+#include "Lvs/Engine/Rendering/Common/ShadowCascadeUtils.hpp"
+#include "Lvs/Engine/Rendering/Common/ShadowJitterUtils.hpp"
 #include "Lvs/Engine/Rendering/Common/ShadowRenderer.hpp"
+#include "Lvs/Engine/Rendering/Common/PipelineManifestProvider.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanPipeline.hpp"
 #include "Lvs/Engine/Math/Matrix4.hpp"
 #include "Lvs/Engine/Math/Vector3.hpp"
@@ -24,12 +28,12 @@ class Camera;
 
 namespace Lvs::Engine::Rendering::Vulkan {
 
-class RenderPartProxy;
 class VulkanContext;
 class ShadowRenderer final : public Common::ShadowRenderer {
 public:
-    using ShadowSettings = Common::ShadowRenderer::ShadowSettings;
     using ShadowData = Common::ShadowRenderer::ShadowData;
+    using ShadowPassInput = Common::ShadowRenderer::ShadowPassInput;
+    using ShadowPassOutput = Common::ShadowRenderer::ShadowPassOutput;
 
     ShadowRenderer() = default;
     ~ShadowRenderer() override;
@@ -43,29 +47,7 @@ public:
     void RecreateSwapchain(Common::GraphicsContext& context) override;
     void Shutdown(Common::GraphicsContext& context) override;
 
-    void Initialize(VulkanContext& context);
-    void RecreateSwapchain(VulkanContext& context);
-    void Shutdown(VulkanContext& context);
-
-    void Render(
-        Common::GraphicsContext& context,
-        Common::CommandBuffer& commandBuffer,
-        const std::vector<std::shared_ptr<Common::RenderProxy>>& shadowCasters,
-        const Objects::Camera& camera,
-        const Math::Vector3& directionalLightDirection,
-        float cameraAspect,
-        const ShadowSettings& settings
-    ) override;
-
-    void Render(
-        VulkanContext& context,
-        Common::CommandBuffer& commandBuffer,
-        const std::vector<std::shared_ptr<RenderPartProxy>>& shadowCasters,
-        const Objects::Camera& camera,
-        const Math::Vector3& directionalLightDirection,
-        float cameraAspect,
-        const ShadowSettings& settings
-    );
+    ShadowPassOutput Render(Common::GraphicsContext& context, Common::CommandBuffer& commandBuffer, const ShadowPassInput& input) override;
 
     void WriteSceneBinding(Common::GraphicsContext& context, Common::ResourceBinding& binding) const override;
     [[nodiscard]] const ShadowData& GetShadowData() const override;
@@ -75,7 +57,7 @@ public:
     [[nodiscard]] VkImageView GetJitterImageView() const;
 
 private:
-    static constexpr int MAX_CASCADES = 3;
+    static constexpr int MAX_CASCADES = Common::kMaxShadowCascades;
 
     struct ImageResource {
         VkImage Image{VK_NULL_HANDLE};
@@ -83,17 +65,6 @@ private:
         VkImageView View{VK_NULL_HANDLE};
         VkFramebuffer Framebuffer{VK_NULL_HANDLE};
         std::uint32_t Resolution{0};
-    };
-
-    struct CascadeComputation {
-        std::array<Math::Matrix4, MAX_CASCADES> Matrices{
-            Math::Matrix4::Identity(),
-            Math::Matrix4::Identity(),
-            Math::Matrix4::Identity()
-        };
-        float Split0{220.0F};
-        float Split1{220.0F};
-        float MaxDistance{220.0F};
     };
 
     struct PushConstants {
@@ -112,30 +83,15 @@ private:
     void DestroyJitterTexture(VulkanContext& context);
     void DestroySwapchainResources(VulkanContext& context);
     [[nodiscard]] const VulkanPipelineVariant& GetPipeline(const Common::PipelineVariantKey& key) const;
-
-    bool ComputeCascades(
+    void RenderPartCasters(
+        VulkanContext& context,
+        Common::CommandBuffer& commandBuffer,
+        const std::vector<std::shared_ptr<Common::RenderPartProxy>>& shadowCasters,
         const Objects::Camera& camera,
         const Math::Vector3& directionalLightDirection,
         float cameraAspect,
-        int cascadeCount,
-        float maxDistance,
-        float cascadeSplitLambda,
-        CascadeComputation& out
-    ) const;
-
-    Math::Matrix4 ComputeCascadeLightViewProjection(
-        const Objects::Camera& camera,
-        const Math::Vector3& direction,
-        float cameraAspect,
-        double rangeNear,
-        double rangeFar,
-        std::uint32_t cascadeResolution,
-        bool& success
-    ) const;
-
-    std::array<double, MAX_CASCADES> ComputeCascadeSplits(double nearPlane, double farPlane, int cascadeCount, double lambda) const;
-    Math::Matrix4 BuildOrthographicZeroToOne(double left, double right, double bottom, double top, double nearPlane, double farPlane) const;
-    Math::Matrix4 StabilizeProjection(const Math::Matrix4& projection, const Math::Matrix4& lightView, double resolution) const;
+        const Common::ShadowQualityProfile& settings
+    );
 
     VkFormat depthFormat_{VK_FORMAT_UNDEFINED};
     VkRenderPass renderPass_{VK_NULL_HANDLE};
@@ -152,9 +108,10 @@ private:
 
     std::uint32_t mapResolution_{0};
     std::array<std::uint32_t, MAX_CASCADES> cascadeResolutions_{128, 128, 128};
-    std::uint32_t jitterSizeXY_{16};
-    std::uint32_t jitterDepth_{32};
+    std::uint32_t jitterSizeXY_{Common::kShadowDefaultJitterSizeXY};
+    std::uint32_t jitterDepth_{Common::kShadowDefaultJitterDepth};
     ShadowData shadowData_{};
+    std::shared_ptr<Common::PipelineManifestProvider> pipelineManifest_{};
     bool initialized_{false};
 };
 

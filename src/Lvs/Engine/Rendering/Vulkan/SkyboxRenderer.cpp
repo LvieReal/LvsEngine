@@ -13,8 +13,8 @@
 #include "Lvs/Engine/Rendering/Vulkan/VulkanPipeline.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanVertexLayout.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanContext.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/VulkanRenderManifest.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanShaderUtils.hpp"
-#include "Lvs/Engine/Utils/PathUtils.hpp"
 
 #include <array>
 #include <filesystem>
@@ -38,49 +38,43 @@ VulkanResourceBinding& GetBinding(Common::ResourceBinding& binding) {
 SkyboxRenderer::~SkyboxRenderer() = default;
 
 void SkyboxRenderer::Initialize(Common::GraphicsContext& context) {
-    Initialize(static_cast<VulkanContext&>(context));
-}
-
-void SkyboxRenderer::RecreateSwapchain(Common::GraphicsContext& context) {
-    RecreateSwapchain(static_cast<VulkanContext&>(context));
-}
-
-void SkyboxRenderer::Shutdown(Common::GraphicsContext& context) {
-    Shutdown(static_cast<VulkanContext&>(context));
-}
-
-void SkyboxRenderer::Initialize(VulkanContext& context) {
+    auto& vkContext = static_cast<VulkanContext&>(context);
     if (initialized_) {
         return;
     }
+    if (pipelineManifest_ == nullptr) {
+        pipelineManifest_ = std::make_shared<VulkanPipelineManifestProvider>();
+    }
 
     skyboxMesh_ = std::make_shared<Common::Mesh>(Common::Primitives::GenerateCube());
-    bindingLayout_ = CreateBindingLayout(context);
-    CreatePipelineLayout(context);
-    bindings_ = CreateBindings(context);
-    UpdateResources(context);
-    CreateGraphicsPipelines(context);
+    bindingLayout_ = CreateBindingLayout(vkContext);
+    CreatePipelineLayout(vkContext);
+    bindings_ = CreateBindings(vkContext);
+    UpdateResourcesInternal(vkContext);
+    CreateGraphicsPipelines(vkContext);
     initialized_ = true;
 }
 
-void SkyboxRenderer::RecreateSwapchain(VulkanContext& context) {
+void SkyboxRenderer::RecreateSwapchain(Common::GraphicsContext& context) {
+    auto& vkContext = static_cast<VulkanContext&>(context);
     if (!initialized_) {
         Initialize(context);
         return;
     }
-    DestroySwapchainResources(context);
-    CreateGraphicsPipelines(context);
+    DestroySwapchainResources(vkContext);
+    CreateGraphicsPipelines(vkContext);
 }
 
-void SkyboxRenderer::Shutdown(VulkanContext& context) {
-    DestroySwapchainResources(context);
+void SkyboxRenderer::Shutdown(Common::GraphicsContext& context) {
+    auto& vkContext = static_cast<VulkanContext&>(context);
+    DestroySwapchainResources(vkContext);
 
     bindings_.clear();
 
     pipelineLayout_.reset();
     bindingLayout_.reset();
 
-    CubemapUtils::DestroyCubemap(context.GetDevice(), cubemap_);
+    CubemapUtils::DestroyCubemap(vkContext.GetDevice(), cubemap_);
     skyboxMesh_.reset();
 
     if (skyboxPropertyConnection_.has_value()) {
@@ -101,7 +95,7 @@ void SkyboxRenderer::Unbind() {
     skyboxDirty_ = true;
 }
 
-void SkyboxRenderer::UpdateResources(VulkanContext& context) {
+void SkyboxRenderer::UpdateResourcesInternal(VulkanContext& context) {
     if (!initialized_ || context.GetDevice() == VK_NULL_HANDLE) {
         return;
     }
@@ -111,39 +105,22 @@ void SkyboxRenderer::UpdateResources(VulkanContext& context) {
         return;
     }
 
-    std::shared_ptr<Objects::Skybox> sourceSky = activeSkybox_;
-    if (sourceSky == nullptr) {
-        sourceSky = std::make_shared<Objects::Skybox>();
-    }
-
-    const std::array<std::filesystem::path, 6> faces{
-        sourceSky->GetProperty("RightTexture").toString().trimmed().toStdString(),
-        sourceSky->GetProperty("LeftTexture").toString().trimmed().toStdString(),
-        sourceSky->GetProperty("UpTexture").toString().trimmed().toStdString(),
-        sourceSky->GetProperty("DownTexture").toString().trimmed().toStdString(),
-        sourceSky->GetProperty("FrontTexture").toString().trimmed().toStdString(),
-        sourceSky->GetProperty("BackTexture").toString().trimmed().toStdString(),
-    };
-    skyTint_ = sourceSky->GetProperty("Tint").value<Math::Color3>();
-    const auto filtering = sourceSky->GetProperty("Filtering").value<Enums::TextureFiltering>();
-    const bool linearFiltering = filtering == Enums::TextureFiltering::Linear;
-    const auto textureLayout = sourceSky->GetProperty("TextureLayout").value<Enums::SkyboxTextureLayout>();
-    const std::filesystem::path crossTexture = sourceSky->GetProperty("CrossTexture").toString().trimmed().toStdString();
-    const int resolutionCap = sourceSky->GetProperty("ResolutionCap").toInt();
-    const bool compression = sourceSky->GetProperty("Compression").toBool();
+    const auto snapshot = settingsResolver_.Resolve(place_);
+    skyTint_ = snapshot.Tint;
+    const bool linearFiltering = snapshot.Filtering == Enums::TextureFiltering::Linear;
 
     try {
         CubemapUtils::CubemapHandle newCubemap;
-        if (textureLayout == Enums::SkyboxTextureLayout::Cross && !crossTexture.empty()) {
+        if (snapshot.TextureLayout == Enums::SkyboxTextureLayout::Cross && !snapshot.CrossTexture.empty()) {
             newCubemap = CubemapUtils::CreateCubemapFromCrossPath(
                 context.GetPhysicalDevice(),
                 context.GetDevice(),
                 context.GetGraphicsQueue(),
                 context.GetGraphicsQueueFamily(),
-                crossTexture,
+                snapshot.CrossTexture,
                 linearFiltering,
-                resolutionCap,
-                compression
+                snapshot.ResolutionCap,
+                snapshot.Compression
             );
         } else {
             newCubemap = CubemapUtils::CreateCubemapFromPaths(
@@ -151,10 +128,10 @@ void SkyboxRenderer::UpdateResources(VulkanContext& context) {
                 context.GetDevice(),
                 context.GetGraphicsQueue(),
                 context.GetGraphicsQueueFamily(),
-                faces,
+                snapshot.Faces,
                 linearFiltering,
-                resolutionCap,
-                compression
+                snapshot.ResolutionCap,
+                snapshot.Compression
             );
         }
         CubemapUtils::DestroyCubemap(context.GetDevice(), cubemap_);
@@ -167,7 +144,7 @@ void SkyboxRenderer::UpdateResources(VulkanContext& context) {
 }
 
 void SkyboxRenderer::UpdateResources(Common::GraphicsContext& context) {
-    UpdateResources(static_cast<VulkanContext&>(context));
+    UpdateResourcesInternal(static_cast<VulkanContext&>(context));
 }
 
 void SkyboxRenderer::WriteSceneBinding(Common::GraphicsContext& context, Common::ResourceBinding& binding) const {
@@ -190,10 +167,10 @@ void SkyboxRenderer::Draw(
     const std::uint32_t frameIndex,
     const Objects::Camera& camera
 ) {
-    Draw(static_cast<VulkanContext&>(context), commandBuffer, frameIndex, camera);
+    DrawInternal(static_cast<VulkanContext&>(context), commandBuffer, frameIndex, camera);
 }
 
-void SkyboxRenderer::Draw(
+void SkyboxRenderer::DrawInternal(
     VulkanContext& context,
     Common::CommandBuffer& commandBuffer,
     const std::uint32_t frameIndex,
@@ -298,8 +275,8 @@ std::unique_ptr<VulkanPipelineVariant> SkyboxRenderer::CreateGraphicsPipelineVar
     const Common::PipelineVariantKey& key
 ) {
     const VkDevice device = context.GetDevice();
-    const auto vertPath = Utils::PathUtils::GetResourcePath("Shaders/Vulkan/Sky.vert.spv");
-    const auto fragPath = Utils::PathUtils::GetResourcePath("Shaders/Vulkan/Sky.frag.spv");
+    const auto vertPath = pipelineManifest_->GetShaderPath("sky", Common::ShaderStage::Vertex);
+    const auto fragPath = pipelineManifest_->GetShaderPath("sky", Common::ShaderStage::Fragment);
 
     const auto vertCode = ShaderUtils::ReadBinaryFile(vertPath);
     const auto fragCode = ShaderUtils::ReadBinaryFile(fragPath);
@@ -499,7 +476,7 @@ void SkyboxRenderer::DestroySwapchainResources(VulkanContext& context) {
 }
 
 void SkyboxRenderer::UpdateSkyFromPlace() {
-    const auto sky = GetSkybox(GetLighting());
+    const auto sky = settingsResolver_.Resolve(place_).Source;
     if (sky != activeSkybox_) {
         if (skyboxPropertyConnection_.has_value()) {
             skyboxPropertyConnection_->Disconnect();
@@ -513,25 +490,6 @@ void SkyboxRenderer::UpdateSkyFromPlace() {
         }
         skyboxDirty_ = true;
     }
-}
-
-std::shared_ptr<DataModel::Lighting> SkyboxRenderer::GetLighting() const {
-    if (place_ == nullptr) {
-        return nullptr;
-    }
-    return std::dynamic_pointer_cast<DataModel::Lighting>(place_->FindService("Lighting"));
-}
-
-std::shared_ptr<Objects::Skybox> SkyboxRenderer::GetSkybox(const std::shared_ptr<DataModel::Lighting>& lighting) const {
-    if (lighting == nullptr) {
-        return nullptr;
-    }
-    for (const auto& child : lighting->GetChildren()) {
-        if (const auto sky = std::dynamic_pointer_cast<Objects::Skybox>(child); sky != nullptr) {
-            return sky;
-        }
-    }
-    return nullptr;
 }
 
 const VulkanPipelineVariant& SkyboxRenderer::GetPipeline(const Common::PipelineVariantKey& key) const {

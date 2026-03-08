@@ -5,7 +5,6 @@
 #include "Lvs/Engine/DataModel/Place.hpp"
 #include "Lvs/Engine/Rendering/Common/GraphicsContext.hpp"
 #include "Lvs/Engine/Rendering/Common/OverlayPrimitive.hpp"
-#include "Lvs/Engine/Rendering/Common/PostProcessRenderer.hpp"
 #include "Lvs/Engine/Rendering/Common/SceneRenderer.hpp"
 #include "Lvs/Engine/Rendering/RenderingApi.hpp"
 #include "Lvs/Engine/Rendering/RenderingFactory.hpp"
@@ -23,7 +22,6 @@ class Window;
 
 namespace Lvs::Engine::Rendering::Vulkan {
 
-class PostProcessRenderer;
 class SkyboxRenderer;
 class VulkanInitializationError final : public std::runtime_error {
 public:
@@ -41,7 +39,7 @@ private:
     Reason reason_;
 };
 
-class Renderer;
+class VulkanRenderer;
 class VulkanFrameManager;
 
 class VulkanContext final : public Rendering::Common::GraphicsContext {
@@ -89,9 +87,8 @@ public:
     ) override;
 
 private:
-    friend class Renderer;
+    friend class VulkanRenderer;
     friend class SkyboxRenderer;
-    friend class PostProcessRenderer;
 
     [[nodiscard]] VkRenderPass GetSceneRenderPassHandle() const;
     [[nodiscard]] VkRenderPass GetPostProcessRenderPassHandle() const;
@@ -125,7 +122,6 @@ private:
     std::shared_ptr<Rendering::RenderingFactory> renderingFactory_;
     std::unique_ptr<VulkanFrameManager> frameManager_;
     std::unique_ptr<Rendering::Common::SceneRenderer> renderer_;
-    std::unique_ptr<Rendering::Common::PostProcessRenderer> postProcessRenderer_;
     std::shared_ptr<DataModel::Place> currentPlace_;
 };
 

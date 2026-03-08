@@ -6,7 +6,7 @@ The engine is required to run Studio and App (which is not available yet, even i
 
 This will be expanding into online toy in the future!
 
-## Requirements
+## Project requirements
 
 Windows 10+, and:
 

@@ -1,4 +1,4 @@
-#include "Lvs/Engine/Rendering/Vulkan/Renderer.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/VulkanRenderer.hpp"
 
 #include "Lvs/Engine/DataModel/Lighting.hpp"
 #include "Lvs/Engine/DataModel/Place.hpp"
@@ -10,15 +10,19 @@
 #include "Lvs/Engine/Objects/Camera.hpp"
 #include "Lvs/Engine/Objects/DirectionalLight.hpp"
 #include "Lvs/Engine/Rendering/Common/Mesh.hpp"
-#include "Lvs/Engine/Rendering/Vulkan/RenderPartProxy.hpp"
+#include "Lvs/Engine/Rendering/Common/RenderPartProxy.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanBinding.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanGpuResources.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/VulkanMeshUploader.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanPipeline.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/PostProcessRenderer.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/ShadowRenderer.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/SkyboxRenderer.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanVertexLayout.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanContext.hpp"
+#include "Lvs/Engine/Rendering/Vulkan/VulkanRenderManifest.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanShaderUtils.hpp"
 #include "Lvs/Engine/Utils/FileIO.hpp"
-#include "Lvs/Engine/Utils/PathUtils.hpp"
 
 #include <array>
 #include <cmath>
@@ -72,75 +76,59 @@ VkCullModeFlags ToVkCullMode(const Common::PipelineCullMode cullMode) {
 
 } // namespace
 
-Renderer::Renderer(std::shared_ptr<::Lvs::Engine::Rendering::RenderingFactory> factory)
-    : factory_(std::move(factory)),
-      meshCache_(meshUploader_) {
-}
+VulkanRenderer::VulkanRenderer(std::shared_ptr<::Lvs::Engine::Rendering::RenderingFactory> factory)
+    : Common::Renderer(std::move(factory), std::make_unique<VulkanMeshUploader>()),
+      pipelineManifest_(std::make_shared<VulkanPipelineManifestProvider>()),
+      resourceRegistry_(std::make_shared<VulkanRenderResourceRegistry>()) {}
 
-Renderer::~Renderer() = default;
+VulkanRenderer::~VulkanRenderer() = default;
 
-void Renderer::Initialize(Common::GraphicsContext& context, const Common::RenderSurface& surface) {
-    surface_ = &surface;
-    Initialize(static_cast<VulkanContext&>(context));
-}
+void VulkanRenderer::OnInitialize(Common::GraphicsContext& context, const Common::RenderSurface& surface) {
+    auto& vkContext = static_cast<VulkanContext&>(context);
 
-void Renderer::RecreateSwapchain(Common::GraphicsContext& context, const Common::RenderSurface& surface) {
-    surface_ = &surface;
-    RecreateSwapchain(static_cast<VulkanContext&>(context));
-}
-
-void Renderer::DestroySwapchainResources(Common::GraphicsContext& context, const Common::RenderSurface& surface) {
-    static_cast<void>(surface);
-    DestroySwapchainResources(static_cast<VulkanContext&>(context));
-}
-
-void Renderer::Shutdown(Common::GraphicsContext& context) {
-    Shutdown(static_cast<VulkanContext&>(context));
-}
-
-void Renderer::Initialize(VulkanContext& context) {
-    context_ = &context;
-    if (initialized_) {
-        return;
+    bindingLayout_ = CreateBindingLayout(vkContext);
+    CreatePipelineLayout(vkContext);
+    uniformBuffers_ = AllocateUniformBuffers(vkContext);
+    bindings_ = CreateResourceBindings(vkContext);
+    CreateGraphicsPipelines(vkContext);
+    InitializeSubRenderers(vkContext);
+    if (postProcessRenderer_ != nullptr) {
+        postProcessRenderer_->Initialize(context, surface);
     }
-
-    meshCache_.Initialize();
-    bindingLayout_ = CreateBindingLayout(context);
-    CreatePipelineLayout(context);
-    uniformBuffers_ = AllocateUniformBuffers(context);
-    bindings_ = CreateResourceBindings(context);
-    CreateGraphicsPipelines(context);
-    InitializeSubRenderers(context);
-    CreateSurfaceTextures(context);
-
-    initialized_ = true;
+    CreateSurfaceTextures(vkContext);
 }
 
-void Renderer::RecreateSwapchain(VulkanContext& context) {
-    context_ = &context;
-    if (!initialized_) {
-        Initialize(context);
-        return;
-    }
-
-    DestroySwapchainResources(context);
-    CreateGraphicsPipelines(context);
+void VulkanRenderer::OnRecreateSwapchain(Common::GraphicsContext& context, const Common::RenderSurface& surface) {
+    auto& vkContext = static_cast<VulkanContext&>(context);
+    OnDestroySwapchainResources(context, surface);
+    CreateGraphicsPipelines(vkContext);
     if (skyboxRenderer_ != nullptr) {
         skyboxRenderer_->RecreateSwapchain(context);
     }
     if (shadowRenderer_ != nullptr) {
         shadowRenderer_->RecreateSwapchain(context);
     }
+    if (postProcessRenderer_ != nullptr) {
+        postProcessRenderer_->RecreateSwapchain(context, surface);
+    }
 }
 
-void Renderer::DestroySwapchainResources(VulkanContext& context) {
-    static_cast<void>(context);
+void VulkanRenderer::OnDestroySwapchainResources(Common::GraphicsContext& context, const Common::RenderSurface& surface) {
+    static_cast<void>(surface);
+    if (postProcessRenderer_ != nullptr) {
+        postProcessRenderer_->DestroySwapchainResources(context);
+    }
     pipelines_.clear();
 }
 
-void Renderer::Shutdown(VulkanContext& context) {
-    context_ = &context;
-    DestroySwapchainResources(context);
+void VulkanRenderer::OnShutdown(Common::GraphicsContext& context) {
+    auto& vkContext = static_cast<VulkanContext&>(context);
+    const auto* surface = GetCurrentSurface();
+    if (surface != nullptr) {
+        OnDestroySwapchainResources(context, *surface);
+    } else {
+        pipelines_.clear();
+    }
 
     if (skyboxRenderer_ != nullptr) {
         skyboxRenderer_->Shutdown(context);
@@ -148,11 +136,11 @@ void Renderer::Shutdown(VulkanContext& context) {
     if (shadowRenderer_ != nullptr) {
         shadowRenderer_->Shutdown(context);
     }
-    DestroySurfaceTextures(context);
-
-    for (auto& uniform : uniformBuffers_) {
-        BufferUtils::DestroyBuffer(context.GetDevice(), uniform);
+    if (postProcessRenderer_ != nullptr) {
+        postProcessRenderer_->Shutdown(context);
     }
+    DestroySurfaceTextures(vkContext);
+
     uniformBuffers_.clear();
     bindings_.clear();
     boundSkyImageView_ = VK_NULL_HANDLE;
@@ -161,35 +149,33 @@ void Renderer::Shutdown(VulkanContext& context) {
 
     pipelineLayout_.reset();
     bindingLayout_.reset();
-
-    meshCache_.Clear();
-    initialized_ = false;
 }
 
-void Renderer::BindToPlace(const std::shared_ptr<DataModel::Place>& place) {
-    place_ = place;
-    workspace_ = place_ != nullptr ? std::dynamic_pointer_cast<DataModel::Workspace>(place_->FindService("Workspace")) : nullptr;
-    scene_.Build(place_);
+void VulkanRenderer::OnBindToPlace(const std::shared_ptr<DataModel::Place>& place) {
+    scene_.Build(place);
     if (skyboxRenderer_ != nullptr) {
-        skyboxRenderer_->BindToPlace(place_);
+        skyboxRenderer_->BindToPlace(place);
+    }
+    if (postProcessRenderer_ != nullptr) {
+        postProcessRenderer_->BindToPlace(place);
     }
 }
 
-void Renderer::Unbind() {
-    place_.reset();
-    workspace_.reset();
+void VulkanRenderer::OnUnbind() {
     scene_.Build(nullptr);
     if (skyboxRenderer_ != nullptr) {
         skyboxRenderer_->Unbind();
     }
-    overlayPrimitives_.clear();
+    if (postProcessRenderer_ != nullptr) {
+        postProcessRenderer_->Unbind();
+    }
 }
 
-void Renderer::SetOverlayPrimitives(std::vector<Rendering::Common::OverlayPrimitive> primitives) {
-    overlayPrimitives_ = std::move(primitives);
+void VulkanRenderer::OnOverlayPrimitivesChanged(const std::vector<Common::OverlayPrimitive>& primitives) {
+    static_cast<void>(primitives);
 }
 
-void Renderer::RecordShadowCommands(
+void VulkanRenderer::OnRecordShadowCommands(
     Common::GraphicsContext& context,
     const Common::RenderSurface& surface,
     Common::CommandBuffer& commandBuffer,
@@ -198,63 +184,32 @@ void Renderer::RecordShadowCommands(
     static_cast<void>(surface);
     static_cast<void>(frameIndex);
     auto& vkContext = static_cast<VulkanContext&>(context);
-    context_ = &vkContext;
-    if (!initialized_ || place_ == nullptr || workspace_ == nullptr) {
-        return;
-    }
-
     const auto camera = GetCamera();
     if (camera == nullptr) {
         return;
     }
     camera->Resize(GetAspect(vkContext));
 
+    settingsSnapshot_ = settingsResolver_.Resolve(GetPlace());
     const auto cameraPosition = camera->GetProperty("CFrame").value<Math::CFrame>().Position;
-    scene_.BuildDrawLists(*this, cameraPosition);
-
-    Common::ShadowRenderer::ShadowSettings shadowSettings{};
-    const auto lighting = GetLighting();
-    auto directionalLight = lighting != nullptr ? GetDirectionalLight(lighting) : nullptr;
-    Math::Vector3 lightDirection{};
-
-    if (lighting != nullptr) {
-        shadowSettings.Enabled = lighting->GetProperty("ShadowsEnabled").toBool();
-        shadowSettings.BlurAmount = static_cast<float>(lighting->GetProperty("ShadowBlur").toDouble());
-        shadowSettings.TapCount = lighting->GetProperty("DefaultShadowTapCount").toInt();
-        shadowSettings.CascadeCount = lighting->GetProperty("DefaultShadowCascadeCount").toInt();
-        shadowSettings.MaxDistance = static_cast<float>(lighting->GetProperty("DefaultShadowMaxDistance").toDouble());
-        shadowSettings.MapResolution = static_cast<std::uint32_t>(lighting->GetProperty("DefaultShadowMapResolution").toInt());
-        shadowSettings.CascadeResolutionScale =
-            static_cast<float>(lighting->GetProperty("DefaultShadowCascadeResolutionScale").toDouble());
-        shadowSettings.CascadeSplitLambda = static_cast<float>(lighting->GetProperty("DefaultShadowCascadeSplitLambda").toDouble());
-    }
-
-    if (directionalLight != nullptr && directionalLight->GetProperty("Enabled").toBool()) {
-        lightDirection = directionalLight->GetProperty("Direction").value<Math::Vector3>();
-    } else {
-        shadowSettings.Enabled = false;
+    scene_.SyncProxies(*this);
+    frameRenderData_ = policyResolver_.Resolve(scene_.GetRenderProxies(), cameraPosition);
+    if (!settingsSnapshot_.DirectionalLightEnabled) {
+        settingsSnapshot_.Shadow.Enabled = false;
     }
 
     if (shadowRenderer_ != nullptr) {
-        std::vector<std::shared_ptr<Common::RenderProxy>> shadowCasters;
-        const auto& opaqueProxies = scene_.GetOpaqueProxies();
-        shadowCasters.reserve(opaqueProxies.size());
-        for (const auto& proxy : opaqueProxies) {
-            shadowCasters.push_back(proxy);
-        }
-        shadowRenderer_->Render(
-            vkContext,
-            commandBuffer,
-            shadowCasters,
-            *camera,
-            lightDirection,
-            GetAspect(vkContext),
-            shadowSettings
-        );
+        shadowRenderer_->Render(context, commandBuffer, Common::ShadowRenderer::ShadowPassInput{
+                                                        .Casters = &frameRenderData_.ShadowCasters,
+                                                        .Camera = camera.get(),
+                                                        .DirectionalLightDirection = settingsSnapshot_.DirectionalLightDirection,
+                                                        .CameraAspect = GetAspect(vkContext),
+                                                        .Quality = settingsSnapshot_.Shadow
+                                                    });
     }
 }
 
-void Renderer::RecordDrawCommands(
+void VulkanRenderer::OnRecordDrawCommands(
     Common::GraphicsContext& context,
     const Common::RenderSurface& surface,
     Common::CommandBuffer& commandBuffer,
@@ -267,8 +222,7 @@ void Renderer::RecordDrawCommands(
         .Commands = commandBuffer,
         .FrameIndex = frameIndex
     };
-    context_ = &vkContext;
-    if (!initialized_ || place_ == nullptr || workspace_ == nullptr || pipelines_.empty()) {
+    if (pipelines_.empty()) {
         return;
     }
 
@@ -296,7 +250,7 @@ void Renderer::RecordDrawCommands(
     });
 
     if (skyboxRenderer_ != nullptr) {
-        skyboxRenderer_->UpdateResources(vkContext);
+        skyboxRenderer_->UpdateResources(context);
     }
     UpdateMainSkyDescriptorSets(vkContext);
     UpdateShadowDescriptorSets(vkContext);
@@ -305,23 +259,147 @@ void Renderer::RecordDrawCommands(
 
     GetResourceBinding(frameContext.FrameIndex).Bind(frameContext.Commands, *pipelineLayout_, 0);
 
-    const auto cameraPosition = camera->GetProperty("CFrame").value<Math::CFrame>().Position;
-    scene_.BuildDrawLists(*this, cameraPosition);
-    scene_.DrawOpaque(frameContext.Commands, *this);
-    if (skyboxRenderer_ != nullptr) {
-        skyboxRenderer_->Draw(vkContext, frameContext.Commands, frameContext.FrameIndex, *camera);
+    for (const auto& proxy : frameRenderData_.OpaqueDraws) {
+        proxy->Draw(frameContext.Commands, *this);
     }
-    scene_.DrawTransparent(frameContext.Commands, *this);
-    for (const auto& primitive : overlayPrimitives_) {
+    if (skyboxRenderer_ != nullptr) {
+        skyboxRenderer_->Draw(context, frameContext.Commands, frameContext.FrameIndex, *camera);
+    }
+    for (const auto& proxy : frameRenderData_.TransparentDraws) {
+        if (proxy != nullptr) {
+            DrawRenderProxy(frameContext.Commands, *proxy, true);
+        }
+    }
+    for (const auto& primitive : GetOverlayPrimitives()) {
         DrawOverlayPrimitive(frameContext.Commands, primitive);
     }
 }
 
-Common::MeshCache& Renderer::GetMeshCache() {
-    return meshCache_;
+void VulkanRenderer::DrawRenderProxy(Common::CommandBuffer& commandBuffer, const Common::RenderProxy& proxy, const bool transparent) {
+    const auto* partProxy = dynamic_cast<const Common::RenderPartProxy*>(&proxy);
+    if (partProxy == nullptr) {
+        throw std::runtime_error("VulkanRenderer received an unsupported render proxy type.");
+    }
+    DrawPart(commandBuffer, *partProxy, transparent);
 }
 
-std::unique_ptr<Common::BindingLayout> Renderer::CreateBindingLayout(VulkanContext& context) const {
+void VulkanRenderer::RecordFrameCommands(
+    Common::GraphicsContext& context,
+    const Common::RenderSurface& surface,
+    Common::CommandBuffer& commandBuffer,
+    const std::uint32_t imageIndex,
+    const std::uint32_t frameIndex,
+    const std::array<float, 4>& clearColor
+) {
+    auto& vkCommandBuffer = dynamic_cast<VulkanRenderCommandBuffer&>(commandBuffer);
+    const VkCommandBuffer handle = vkCommandBuffer.GetHandle();
+
+    OnRecordShadowCommands(context, surface, commandBuffer, frameIndex);
+
+    std::array<VkClearValue, 3> clearValues{};
+    clearValues[0].color = {{clearColor[0], clearColor[1], clearColor[2], clearColor[3]}};
+    clearValues[1].color = {{0.0F, 0.0F, 0.0F, 0.0F}};
+    clearValues[2].depthStencil = {.depth = 0.0F, .stencil = 0};
+    const auto extent = surface.GetExtent();
+    const VkRenderPassBeginInfo scenePassInfo{
+        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+        .pNext = nullptr,
+        .renderPass = reinterpret_cast<VkRenderPass>(surface.GetSceneRenderPass().GetNativeHandle()),
+        .framebuffer = reinterpret_cast<VkFramebuffer>(surface.GetSceneFramebuffer(imageIndex).GetNativeHandle()),
+        .renderArea = {.offset = {0, 0}, .extent = {extent.Width, extent.Height}},
+        .clearValueCount = static_cast<std::uint32_t>(clearValues.size()),
+        .pClearValues = clearValues.data()
+    };
+    vkCmdBeginRenderPass(handle, &scenePassInfo, VK_SUBPASS_CONTENTS_INLINE);
+    OnRecordDrawCommands(context, surface, commandBuffer, frameIndex);
+    vkCmdEndRenderPass(handle);
+
+    const VkImageMemoryBarrier sceneToSampleBarrier{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+        .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+        .oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = reinterpret_cast<VkImage>(surface.GetOffscreenColorImage(imageIndex).Image),
+        .subresourceRange = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1
+        }
+    };
+    const VkImageMemoryBarrier glowToSampleBarrier{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+        .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+        .oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = reinterpret_cast<VkImage>(surface.GetOffscreenGlowImage(imageIndex).Image),
+        .subresourceRange = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1
+        }
+    };
+    const std::array barriers{sceneToSampleBarrier, glowToSampleBarrier};
+    vkCmdPipelineBarrier(
+        handle,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        0,
+        0,
+        nullptr,
+        0,
+        nullptr,
+        static_cast<std::uint32_t>(barriers.size()),
+        barriers.data()
+    );
+
+    if (postProcessRenderer_ == nullptr) {
+        return;
+    }
+
+    postProcessRenderer_->RecordBlurCommands(context, commandBuffer, imageIndex);
+
+    const VkClearValue postClearValue{.color = {{clearColor[0], clearColor[1], clearColor[2], clearColor[3]}}};
+    const VkRenderPassBeginInfo postPassInfo{
+        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+        .pNext = nullptr,
+        .renderPass = reinterpret_cast<VkRenderPass>(surface.GetPostProcessRenderPass().GetNativeHandle()),
+        .framebuffer = reinterpret_cast<VkFramebuffer>(surface.GetSwapchainFramebuffer(imageIndex).GetNativeHandle()),
+        .renderArea = {.offset = {0, 0}, .extent = {extent.Width, extent.Height}},
+        .clearValueCount = 1,
+        .pClearValues = &postClearValue
+    };
+    vkCmdBeginRenderPass(handle, &postPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+    commandBuffer.SetViewport({
+        .X = 0.0F,
+        .Y = 0.0F,
+        .Width = static_cast<float>(extent.Width),
+        .Height = static_cast<float>(extent.Height),
+        .MinDepth = 0.0F,
+        .MaxDepth = 1.0F
+    });
+    commandBuffer.SetScissor({
+        .X = 0,
+        .Y = 0,
+        .Width = extent.Width,
+        .Height = extent.Height
+    });
+    postProcessRenderer_->DrawComposite(context, commandBuffer, imageIndex, frameIndex);
+    vkCmdEndRenderPass(handle);
+}
+
+std::unique_ptr<Common::BindingLayout> VulkanRenderer::CreateBindingLayout(VulkanContext& context) const {
     const VkDescriptorSetLayoutBinding cameraBinding{
         .binding = 0,
         .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -395,7 +473,7 @@ std::unique_ptr<Common::BindingLayout> Renderer::CreateBindingLayout(VulkanConte
     );
 }
 
-void Renderer::CreatePipelineLayout(VulkanContext& context) {
+void VulkanRenderer::CreatePipelineLayout(VulkanContext& context) {
     const auto& bindingLayout = dynamic_cast<const VulkanBindingLayout&>(*bindingLayout_);
     const VkDescriptorSetLayout descriptorSetLayout = bindingLayout.GetLayoutHandle();
     const VkPushConstantRange pushRange{
@@ -415,20 +493,20 @@ void Renderer::CreatePipelineLayout(VulkanContext& context) {
     pipelineLayout_ = VulkanPipelineLayout::Create(context.GetDevice(), createInfo);
 }
 
-void Renderer::CreateGraphicsPipelines(VulkanContext& context) {
+void VulkanRenderer::CreateGraphicsPipelines(VulkanContext& context) {
     pipelines_.clear();
     for (const auto& key : GetPipelineVariants()) {
         pipelines_.emplace(key, CreateGraphicsPipelineVariant(context, key));
     }
 }
 
-std::unique_ptr<VulkanPipelineVariant> Renderer::CreateGraphicsPipelineVariant(
+std::unique_ptr<Common::Pipeline> VulkanRenderer::CreateGraphicsPipelineVariant(
     VulkanContext& context,
     const Common::PipelineVariantKey& key
 ) {
     const VkDevice device = context.GetDevice();
-    const auto vertPath = Utils::PathUtils::GetResourcePath("Shaders/Vulkan/Main.vert.spv");
-    const auto fragPath = Utils::PathUtils::GetResourcePath("Shaders/Vulkan/Main.frag.spv");
+    const auto vertPath = pipelineManifest_->GetShaderPath("main", Common::ShaderStage::Vertex);
+    const auto fragPath = pipelineManifest_->GetShaderPath("main", Common::ShaderStage::Fragment);
 
     const auto vertCode = ShaderUtils::ReadBinaryFile(vertPath);
     const auto fragCode = ShaderUtils::ReadBinaryFile(fragPath);
@@ -565,6 +643,7 @@ std::unique_ptr<VulkanPipelineVariant> Renderer::CreateGraphicsPipelineVariant(
         .pDynamicStates = dynamicStates.data()
     };
 
+    const auto* surface = GetCurrentSurface();
     const VkGraphicsPipelineCreateInfo pipelineInfo{
         .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
         .pNext = nullptr,
@@ -580,8 +659,8 @@ std::unique_ptr<VulkanPipelineVariant> Renderer::CreateGraphicsPipelineVariant(
         .pDepthStencilState = &depthStencil,
         .pColorBlendState = &colorBlend,
         .pDynamicState = &dynamicState,
-        .layout = pipelineLayout_->GetHandle(),
-        .renderPass = surface_ != nullptr ? reinterpret_cast<VkRenderPass>(surface_->GetSceneRenderPass().GetNativeHandle())
+        .layout = reinterpret_cast<VkPipelineLayout>(pipelineLayout_->GetNativeHandle()),
+        .renderPass = surface != nullptr ? reinterpret_cast<VkRenderPass>(surface->GetSceneRenderPass().GetNativeHandle())
                                           : VK_NULL_HANDLE,
         .subpass = 0,
         .basePipelineHandle = VK_NULL_HANDLE,
@@ -590,39 +669,32 @@ std::unique_ptr<VulkanPipelineVariant> Renderer::CreateGraphicsPipelineVariant(
     return VulkanPipelineVariant::CreateGraphicsPipeline(device, pipelineInfo, *pipelineLayout_);
 }
 
-std::vector<BufferUtils::BufferHandle> Renderer::AllocateUniformBuffers(VulkanContext& context) const {
-    const VkDeviceSize size = sizeof(CameraUniform);
-    std::vector<BufferUtils::BufferHandle> uniformBuffers(context.GetFramesInFlight());
-    for (auto& buffer : uniformBuffers) {
-        buffer = BufferUtils::CreateBuffer(
-            context.GetPhysicalDevice(),
-            context.GetDevice(),
-            size,
-            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-        );
+std::vector<std::unique_ptr<Common::BufferResource>> VulkanRenderer::AllocateUniformBuffers(VulkanContext& context) const {
+    std::vector<std::unique_ptr<Common::BufferResource>> uniformBuffers;
+    uniformBuffers.reserve(context.GetFramesInFlight());
+    for (std::uint32_t i = 0; i < context.GetFramesInFlight(); ++i) {
+        uniformBuffers.push_back(context.CreateBuffer(Common::BufferDesc{
+            .Size = sizeof(CameraUniform),
+            .Usage = Common::BufferUsage::Uniform,
+            .Memory = Common::MemoryUsage::CpuVisible
+        }));
     }
     return uniformBuffers;
 }
 
-std::vector<std::unique_ptr<Common::ResourceBinding>> Renderer::CreateResourceBindings(VulkanContext& context) const {
+std::vector<std::unique_ptr<Common::ResourceBinding>> VulkanRenderer::CreateResourceBindings(VulkanContext& context) const {
     const auto& bindingLayout = dynamic_cast<const VulkanBindingLayout&>(*bindingLayout_);
     std::vector<std::unique_ptr<Common::ResourceBinding>> bindings;
     bindings.reserve(context.GetFramesInFlight());
 
     for (std::uint32_t i = 0; i < context.GetFramesInFlight(); ++i) {
         bindings.push_back(bindingLayout.AllocateBinding());
-        const VkDescriptorBufferInfo bufferInfo{
-            .buffer = uniformBuffers_[i].Buffer,
-            .offset = 0,
-            .range = sizeof(CameraUniform)
-        };
-        dynamic_cast<VulkanResourceBinding&>(*bindings.back()).UpdateBuffer(0, bufferInfo);
+        bindings.back()->UpdateBuffer(0, *uniformBuffers_[i], 0, sizeof(CameraUniform));
     }
     return bindings;
 }
 
-std::vector<Common::PipelineVariantKey> Renderer::GetPipelineVariants() const {
+std::vector<Common::PipelineVariantKey> VulkanRenderer::GetPipelineVariants() const {
     return {
         Common::PipelineVariantKey{.CullMode = Common::PipelineCullMode::Back,
                                    .DepthMode = Common::PipelineDepthMode::ReadWrite,
@@ -654,18 +726,22 @@ std::vector<Common::PipelineVariantKey> Renderer::GetPipelineVariants() const {
     };
 }
 
-void Renderer::InitializeSubRenderers(VulkanContext& context) {
+void VulkanRenderer::InitializeSubRenderers(VulkanContext& context) {
+    const auto& factory = GetFactory();
     if (skyboxRenderer_ == nullptr) {
-        skyboxRenderer_ = factory_ != nullptr ? factory_->CreateSkyboxRenderer() : std::make_unique<VulkanSkyboxRenderer>();
+        skyboxRenderer_ = factory != nullptr ? factory->CreateSkyboxRenderer() : std::make_unique<SkyboxRenderer>();
     }
     if (shadowRenderer_ == nullptr) {
-        shadowRenderer_ = factory_ != nullptr ? factory_->CreateShadowRenderer() : std::make_unique<VulkanShadowRenderer>();
+        shadowRenderer_ = factory != nullptr ? factory->CreateShadowRenderer() : std::make_unique<ShadowRenderer>();
+    }
+    if (postProcessRenderer_ == nullptr) {
+        postProcessRenderer_ = factory != nullptr ? factory->CreatePostProcessRenderer() : std::make_unique<PostProcessRenderer>();
     }
     skyboxRenderer_->Initialize(context);
     shadowRenderer_->Initialize(context);
 }
 
-void Renderer::UpdateMainSkyDescriptorSets(VulkanContext& context) {
+void VulkanRenderer::UpdateMainSkyDescriptorSets(VulkanContext& context) {
     if (skyboxRenderer_ == nullptr) {
         return;
     }
@@ -676,7 +752,7 @@ void Renderer::UpdateMainSkyDescriptorSets(VulkanContext& context) {
     boundSkyImageView_ = VK_NULL_HANDLE;
 }
 
-void Renderer::UpdateShadowDescriptorSets(VulkanContext& context) {
+void VulkanRenderer::UpdateShadowDescriptorSets(VulkanContext& context) {
     if (shadowRenderer_ == nullptr) {
         return;
     }
@@ -686,7 +762,7 @@ void Renderer::UpdateShadowDescriptorSets(VulkanContext& context) {
     }
 }
 
-void Renderer::CreateSurfaceTextures(VulkanContext& context) {
+void VulkanRenderer::CreateSurfaceTextures(VulkanContext& context) {
     DestroySurfaceTextures(context);
 
     const auto device = context.GetDevice();
@@ -694,7 +770,7 @@ void Renderer::CreateSurfaceTextures(VulkanContext& context) {
     const auto queue = context.GetGraphicsQueue();
     const auto queueFamily = context.GetGraphicsQueueFamily();
 
-    const auto atlasPath = Utils::PathUtils::GetResourcePath("Surfaces/Surfaces2.png");
+    const auto atlasPath = resourceRegistry_->GetTexturePath("surface_atlas");
     surfaceAtlas_ = TextureUtils::CreateTexture2DFromPath(
         physicalDevice,
         device,
@@ -706,7 +782,7 @@ void Renderer::CreateSurfaceTextures(VulkanContext& context) {
         VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE
     );
 
-    const auto normalAtlasPath = Utils::PathUtils::GetResourcePath("Surfaces/Surfaces2_normals.png");
+    const auto normalAtlasPath = resourceRegistry_->GetTexturePath("surface_normal_atlas");
     hasSurfaceNormalAtlas_ = Utils::FileIO::Exists(normalAtlasPath);
     if (hasSurfaceNormalAtlas_) {
         surfaceNormalAtlas_ = TextureUtils::CreateTexture2DFromPath(
@@ -725,7 +801,7 @@ void Renderer::CreateSurfaceTextures(VulkanContext& context) {
     boundSurfaceNormalAtlasView_ = VK_NULL_HANDLE;
 }
 
-void Renderer::DestroySurfaceTextures(VulkanContext& context) {
+void VulkanRenderer::DestroySurfaceTextures(VulkanContext& context) {
     TextureUtils::DestroyTexture2D(context.GetDevice(), surfaceAtlas_);
     TextureUtils::DestroyTexture2D(context.GetDevice(), surfaceNormalAtlas_);
     hasSurfaceNormalAtlas_ = false;
@@ -733,7 +809,7 @@ void Renderer::DestroySurfaceTextures(VulkanContext& context) {
     boundSurfaceNormalAtlasView_ = VK_NULL_HANDLE;
 }
 
-void Renderer::UpdateSurfaceDescriptorSets(VulkanContext& context) {
+void VulkanRenderer::UpdateSurfaceDescriptorSets(VulkanContext& context) {
     if (surfaceAtlas_.View == VK_NULL_HANDLE || surfaceAtlas_.Sampler == VK_NULL_HANDLE) {
         return;
     }
@@ -768,13 +844,15 @@ void Renderer::UpdateSurfaceDescriptorSets(VulkanContext& context) {
     boundSurfaceNormalAtlasView_ = normalView;
 }
 
-void Renderer::UpdateCameraUniformAndLighting(VulkanContext& context, const Common::FrameContext& frameContext) {
+void VulkanRenderer::UpdateCameraUniformAndLighting(VulkanContext& context, const Common::FrameContext& frameContext) {
+    static_cast<void>(context);
     const auto camera = GetCamera();
     if (camera == nullptr) {
         return;
     }
 
     CameraUniform uniform{};
+    const Common::ShadowRenderer::ShadowData defaultShadowData{};
     const auto view = camera->GetViewMatrix().FlattenColumnMajor();
     const auto projection = camera->GetProjectionMatrix().FlattenColumnMajor();
     for (int i = 0; i < 16; ++i) {
@@ -802,12 +880,12 @@ void Renderer::UpdateCameraUniformAndLighting(VulkanContext& context, const Comm
     uniform.LightColorIntensity[2] = 0.0F;
     uniform.LightColorIntensity[3] = 0.0F;
     uniform.LightSpecular[0] = 0.0F;
-    uniform.LightSpecular[1] = 32.0F;
+    uniform.LightSpecular[1] = settingsSnapshot_.DirectionalLightShininess;
     uniform.LightSpecular[2] = 0.0F;
     uniform.LightSpecular[3] = 0.0F;
-    uniform.Ambient[0] = 0.1F;
-    uniform.Ambient[1] = 0.1F;
-    uniform.Ambient[2] = 0.1F;
+    uniform.Ambient[0] = static_cast<float>(settingsSnapshot_.AmbientColor.r);
+    uniform.Ambient[1] = static_cast<float>(settingsSnapshot_.AmbientColor.g);
+    uniform.Ambient[2] = static_cast<float>(settingsSnapshot_.AmbientColor.b);
     uniform.Ambient[3] = 1.0F;
 
     const auto skyTint = skyboxRenderer_ != nullptr ? skyboxRenderer_->GetSkyTint() : Math::Color3{1.0, 1.0, 1.0};
@@ -825,113 +903,76 @@ void Renderer::UpdateCameraUniformAndLighting(VulkanContext& context, const Comm
             uniform.ShadowMatrices[cascade][i] = static_cast<float>(identity[static_cast<std::size_t>(i)]);
         }
     }
-    uniform.ShadowCascadeSplits[0] = 220.0F;
-    uniform.ShadowCascadeSplits[1] = 220.0F;
-    uniform.ShadowCascadeSplits[2] = 220.0F;
+    uniform.ShadowCascadeSplits[0] = defaultShadowData.Split0;
+    uniform.ShadowCascadeSplits[1] = defaultShadowData.Split1;
+    uniform.ShadowCascadeSplits[2] = defaultShadowData.MaxDistance;
     uniform.ShadowCascadeSplits[3] = 1.0F;
-    uniform.ShadowParams[0] = 0.25F;
-    uniform.ShadowParams[1] = 0.0F;
-    uniform.ShadowParams[2] = 16.0F;
-    uniform.ShadowParams[3] = 0.25F;
+    uniform.ShadowParams[0] = defaultShadowData.Bias;
+    uniform.ShadowParams[1] = defaultShadowData.BlurAmount;
+    uniform.ShadowParams[2] = static_cast<float>(defaultShadowData.TapCount);
+    uniform.ShadowParams[3] = defaultShadowData.FadeWidth;
     uniform.ShadowState[0] = 0.0F;
-    uniform.ShadowState[1] = 1.0F / 16.0F;
-    uniform.ShadowState[2] = 1.0F / 16.0F;
+    uniform.ShadowState[1] = defaultShadowData.JitterScaleX;
+    uniform.ShadowState[2] = defaultShadowData.JitterScaleY;
     uniform.ShadowState[3] = 0.0F;
 
-    const auto lighting = GetLighting();
-    if (lighting != nullptr) {
-        const auto ambient = lighting->GetProperty("Ambient").value<Math::Color3>();
-        const float ambientStrength = static_cast<float>(lighting->GetProperty("AmbientStrength").toDouble());
-        uniform.Ambient[0] = static_cast<float>(ambient.r) * ambientStrength;
-        uniform.Ambient[1] = static_cast<float>(ambient.g) * ambientStrength;
-        uniform.Ambient[2] = static_cast<float>(ambient.b) * ambientStrength;
-        uniform.RenderSettings[1] = static_cast<float>(lighting->GetProperty("Shading").value<Enums::LightingComputationMode>());
-        uniform.RenderSettings[2] = lighting->GetProperty("GammaCorrection").toBool() ? 1.0F : 0.0F;
-        uniform.RenderSettings[3] = lighting->GetProperty("InaccurateNeon").toBool() ? 1.0F : 0.0F;
+    uniform.Ambient[0] = static_cast<float>(settingsSnapshot_.AmbientColor.r) * settingsSnapshot_.AmbientStrength;
+    uniform.Ambient[1] = static_cast<float>(settingsSnapshot_.AmbientColor.g) * settingsSnapshot_.AmbientStrength;
+    uniform.Ambient[2] = static_cast<float>(settingsSnapshot_.AmbientColor.b) * settingsSnapshot_.AmbientStrength;
+    uniform.RenderSettings[1] = static_cast<float>(settingsSnapshot_.ShadingMode);
+    uniform.RenderSettings[2] = settingsSnapshot_.GammaCorrection ? 1.0F : 0.0F;
+    uniform.RenderSettings[3] = settingsSnapshot_.InaccurateNeon ? 1.0F : 0.0F;
 
-        if (const auto light = GetDirectionalLight(lighting); light != nullptr && light->GetProperty("Enabled").toBool()) {
-            auto direction = light->GetProperty("Direction").value<Math::Vector3>();
-            float dir[3] = {static_cast<float>(direction.x), static_cast<float>(direction.y), static_cast<float>(direction.z)};
-            Normalize3(dir);
-            uniform.LightDirection[0] = dir[0];
-            uniform.LightDirection[1] = dir[1];
-            uniform.LightDirection[2] = dir[2];
+    if (settingsSnapshot_.DirectionalLightEnabled) {
+        float dir[3] = {
+            static_cast<float>(settingsSnapshot_.DirectionalLightDirection.x),
+            static_cast<float>(settingsSnapshot_.DirectionalLightDirection.y),
+            static_cast<float>(settingsSnapshot_.DirectionalLightDirection.z)
+        };
+        Normalize3(dir);
+        uniform.LightDirection[0] = dir[0];
+        uniform.LightDirection[1] = dir[1];
+        uniform.LightDirection[2] = dir[2];
 
-            const auto lightColor = light->GetProperty("Color").value<Math::Color3>();
-            const float intensity = static_cast<float>(light->GetProperty("Intensity").toDouble());
-            uniform.LightColorIntensity[0] = static_cast<float>(lightColor.r);
-            uniform.LightColorIntensity[1] = static_cast<float>(lightColor.g);
-            uniform.LightColorIntensity[2] = static_cast<float>(lightColor.b);
-            uniform.LightColorIntensity[3] = intensity;
-            uniform.LightSpecular[0] = static_cast<float>(light->GetProperty("SpecularStrength").toDouble());
-            uniform.LightSpecular[1] = static_cast<float>(light->GetProperty("Shininess").toDouble());
-            uniform.RenderSettings[0] = 1.0F;
-        }
+        uniform.LightColorIntensity[0] = static_cast<float>(settingsSnapshot_.DirectionalLightColor.r);
+        uniform.LightColorIntensity[1] = static_cast<float>(settingsSnapshot_.DirectionalLightColor.g);
+        uniform.LightColorIntensity[2] = static_cast<float>(settingsSnapshot_.DirectionalLightColor.b);
+        uniform.LightColorIntensity[3] = settingsSnapshot_.DirectionalLightIntensity;
+        uniform.LightSpecular[0] = settingsSnapshot_.DirectionalLightSpecularStrength;
+        uniform.LightSpecular[1] = settingsSnapshot_.DirectionalLightShininess;
+        uniform.RenderSettings[0] = 1.0F;
+    }
 
-        const auto* shadowData = shadowRenderer_ != nullptr ? &shadowRenderer_->GetShadowData() : nullptr;
-        if (shadowData != nullptr && shadowData->HasShadowData) {
-            for (int cascade = 0; cascade < 3; ++cascade) {
-                const auto flattened =
-                    shadowData->LightViewProjectionMatrices[static_cast<std::size_t>(cascade)].FlattenColumnMajor();
-                for (int i = 0; i < 16; ++i) {
-                    uniform.ShadowMatrices[cascade][i] = static_cast<float>(flattened[static_cast<std::size_t>(i)]);
-                }
+    const auto* shadowData = shadowRenderer_ != nullptr ? &shadowRenderer_->GetShadowData() : nullptr;
+    if (shadowData != nullptr && shadowData->HasShadowData) {
+        for (int cascade = 0; cascade < 3; ++cascade) {
+            const auto flattened = shadowData->LightViewProjectionMatrices[static_cast<std::size_t>(cascade)].FlattenColumnMajor();
+            for (int i = 0; i < 16; ++i) {
+                uniform.ShadowMatrices[cascade][i] = static_cast<float>(flattened[static_cast<std::size_t>(i)]);
             }
-            uniform.ShadowCascadeSplits[0] = shadowData->Split0;
-            uniform.ShadowCascadeSplits[1] = shadowData->Split1;
-            uniform.ShadowCascadeSplits[2] = shadowData->MaxDistance;
-            uniform.ShadowCascadeSplits[3] = static_cast<float>(shadowData->CascadeCount);
-            uniform.ShadowParams[0] = shadowData->Bias;
-            uniform.ShadowParams[1] = shadowData->BlurAmount;
-            uniform.ShadowParams[2] = static_cast<float>(shadowData->TapCount);
-            uniform.ShadowParams[3] = shadowData->FadeWidth;
-            uniform.ShadowState[0] = 1.0F;
-            uniform.ShadowState[1] = shadowData->JitterScaleX;
-            uniform.ShadowState[2] = shadowData->JitterScaleY;
         }
-
-        if (!lighting->GetProperty("ShadowsEnabled").toBool()) {
-            uniform.ShadowState[0] = 0.0F;
-        }
-        uniform.ShadowParams[1] = static_cast<float>(lighting->GetProperty("ShadowBlur").toDouble());
-        uniform.ShadowParams[2] = static_cast<float>(lighting->GetProperty("DefaultShadowTapCount").toInt());
+        uniform.ShadowCascadeSplits[0] = shadowData->Split0;
+        uniform.ShadowCascadeSplits[1] = shadowData->Split1;
+        uniform.ShadowCascadeSplits[2] = shadowData->MaxDistance;
+        uniform.ShadowCascadeSplits[3] = static_cast<float>(shadowData->CascadeCount);
+        uniform.ShadowParams[0] = shadowData->Bias;
+        uniform.ShadowParams[1] = shadowData->BlurAmount;
+        uniform.ShadowParams[2] = static_cast<float>(shadowData->TapCount);
+        uniform.ShadowParams[3] = shadowData->FadeWidth;
+        uniform.ShadowState[0] = settingsSnapshot_.Shadow.Enabled ? 1.0F : 0.0F;
+        uniform.ShadowState[1] = shadowData->JitterScaleX;
+        uniform.ShadowState[2] = shadowData->JitterScaleY;
+    } else {
+        uniform.ShadowState[0] = 0.0F;
     }
 
-    void* mapped = nullptr;
-    vkMapMemory(context.GetDevice(), uniformBuffers_[frameContext.FrameIndex].Memory, 0, sizeof(CameraUniform), 0, &mapped);
-    std::memcpy(mapped, &uniform, sizeof(CameraUniform));
-    vkUnmapMemory(context.GetDevice(), uniformBuffers_[frameContext.FrameIndex].Memory);
+    uniform.ShadowParams[1] = settingsSnapshot_.Shadow.BlurAmount;
+    uniform.ShadowParams[2] = static_cast<float>(settingsSnapshot_.Shadow.TapCount);
+
+    uniformBuffers_[frameContext.FrameIndex]->Upload(&uniform, sizeof(CameraUniform));
 }
 
-std::shared_ptr<Objects::Camera> Renderer::GetCamera() const {
-    if (workspace_ == nullptr) {
-        return nullptr;
-    }
-    return workspace_->GetProperty("CurrentCamera").value<std::shared_ptr<Objects::Camera>>();
-}
-
-std::shared_ptr<DataModel::Lighting> Renderer::GetLighting() const {
-    if (place_ == nullptr) {
-        return nullptr;
-    }
-    return std::dynamic_pointer_cast<DataModel::Lighting>(place_->FindService("Lighting"));
-}
-
-std::shared_ptr<Objects::DirectionalLight> Renderer::GetDirectionalLight(
-    const std::shared_ptr<DataModel::Lighting>& lighting
-) const {
-    if (lighting == nullptr) {
-        return nullptr;
-    }
-    for (const auto& child : lighting->GetChildren()) {
-        if (const auto light = std::dynamic_pointer_cast<Objects::DirectionalLight>(child); light != nullptr) {
-            return light;
-        }
-    }
-    return nullptr;
-}
-
-float Renderer::GetAspect(const VulkanContext& context) const {
+float VulkanRenderer::GetAspect(const VulkanContext& context) const {
     const auto extent = context.GetSwapchainExtent();
     if (extent.Height == 0) {
         return 1.0F;
@@ -939,7 +980,11 @@ float Renderer::GetAspect(const VulkanContext& context) const {
     return static_cast<float>(extent.Width) / static_cast<float>(extent.Height);
 }
 
-void Renderer::DrawPart(Common::CommandBuffer& commandBuffer, const RenderPartProxy& proxy, const bool transparent) {
+void VulkanRenderer::DrawPart(
+    Common::CommandBuffer& commandBuffer,
+    const Common::RenderPartProxy& proxy,
+    const bool transparent
+) {
     const auto mesh = std::dynamic_pointer_cast<Common::Mesh>(proxy.GetMesh());
     if (mesh == nullptr) {
         return;
@@ -982,19 +1027,21 @@ void Renderer::DrawPart(Common::CommandBuffer& commandBuffer, const RenderPartPr
         sizeof(PushConstants)
     );
 
-    if (context_ == nullptr) {
+    auto* activeContext = GetCurrentContext();
+    if (activeContext == nullptr) {
         return;
     }
-    mesh->EnsureUploaded(*context_);
+    mesh->EnsureUploaded(*activeContext);
     mesh->Draw(commandBuffer);
 }
 
-void Renderer::DrawOverlayPrimitive(
+void VulkanRenderer::DrawOverlayPrimitive(
     Common::CommandBuffer& commandBuffer,
     const Rendering::Common::OverlayPrimitive& primitive
 ) {
-    const auto mesh = std::dynamic_pointer_cast<Common::Mesh>(meshCache_.GetPrimitive(primitive.Shape));
-    if (mesh == nullptr || context_ == nullptr) {
+    const auto mesh = std::dynamic_pointer_cast<Common::Mesh>(GetMeshCache().GetPrimitive(primitive.Shape));
+    auto* activeContext = GetCurrentContext();
+    if (mesh == nullptr || activeContext == nullptr) {
         return;
     }
 
@@ -1034,11 +1081,11 @@ void Renderer::DrawOverlayPrimitive(
         sizeof(PushConstants)
     );
 
-    mesh->EnsureUploaded(*context_);
+    mesh->EnsureUploaded(*activeContext);
     mesh->Draw(commandBuffer);
 }
 
-const VulkanPipelineVariant& Renderer::GetPipeline(const Common::PipelineVariantKey& key) const {
+const Common::Pipeline& VulkanRenderer::GetPipeline(const Common::PipelineVariantKey& key) const {
     const auto it = pipelines_.find(key);
     if (it == pipelines_.end() || it->second == nullptr) {
         throw std::runtime_error("Requested graphics pipeline variant is not available.");
@@ -1046,7 +1093,7 @@ const VulkanPipelineVariant& Renderer::GetPipeline(const Common::PipelineVariant
     return *it->second;
 }
 
-const Common::ResourceBinding& Renderer::GetResourceBinding(const std::uint32_t frameIndex) const {
+const Common::ResourceBinding& VulkanRenderer::GetResourceBinding(const std::uint32_t frameIndex) const {
     if (frameIndex >= bindings_.size() || bindings_[frameIndex] == nullptr) {
         throw std::runtime_error("Requested frame resource binding is not available.");
     }
@@ -1054,3 +1101,4 @@ const Common::ResourceBinding& Renderer::GetResourceBinding(const std::uint32_t 
 }
 
 } // namespace Lvs::Engine::Rendering::Vulkan
+

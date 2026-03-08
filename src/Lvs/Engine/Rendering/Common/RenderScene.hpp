@@ -1,11 +1,10 @@
 #pragma once
 
+#include "Lvs/Engine/Rendering/Common/RenderPartProxy.hpp"
+#include "Lvs/Engine/Rendering/Common/SceneRenderer.hpp"
 #include "Lvs/Engine/Utils/Signal.hpp"
-#include "Lvs/Engine/Math/Vector3.hpp"
-#include "Lvs/Engine/Rendering/Common/CommandBuffer.hpp"
 
 #include <memory>
-#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -18,10 +17,7 @@ namespace Lvs::Engine::Core {
 class Instance;
 }
 
-namespace Lvs::Engine::Rendering::Vulkan {
-
-class RenderPartProxy;
-class Renderer;
+namespace Lvs::Engine::Rendering::Common {
 
 class RenderScene final {
 public:
@@ -29,10 +25,8 @@ public:
     ~RenderScene() = default;
 
     void Build(const std::shared_ptr<DataModel::Place>& place);
-    void BuildDrawLists(Renderer& renderer, const Math::Vector3& cameraPosition);
-    void DrawOpaque(Common::CommandBuffer& commandBuffer, Renderer& renderer);
-    void DrawTransparent(Common::CommandBuffer& commandBuffer, Renderer& renderer);
-    [[nodiscard]] const std::vector<std::shared_ptr<RenderPartProxy>>& GetOpaqueProxies() const;
+    void SyncProxies(SceneRenderer& renderer);
+    [[nodiscard]] std::vector<std::shared_ptr<RenderProxy>> GetRenderProxies() const;
 
 private:
     void Clear();
@@ -45,10 +39,8 @@ private:
     };
 
     std::vector<std::shared_ptr<RenderPartProxy>> partProxies_;
-    std::vector<std::shared_ptr<RenderPartProxy>> opaqueProxies_;
-    std::vector<std::shared_ptr<RenderPartProxy>> transparentProxies_;
     std::unordered_map<std::string, std::shared_ptr<RenderPartProxy>> proxyById_;
     std::unordered_map<std::string, InstanceConnections> instanceConnections_;
 };
 
-} // namespace Lvs::Engine::Rendering::Vulkan
+} // namespace Lvs::Engine::Rendering::Common

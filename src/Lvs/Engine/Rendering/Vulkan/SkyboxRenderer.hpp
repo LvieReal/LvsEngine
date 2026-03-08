@@ -6,8 +6,10 @@
 #include "Lvs/Engine/Rendering/Common/CommandBuffer.hpp"
 #include "Lvs/Engine/Rendering/Common/GraphicsContext.hpp"
 #include "Lvs/Engine/Rendering/Common/Mesh.hpp"
+#include "Lvs/Engine/Rendering/Common/PipelineManifestProvider.hpp"
 #include "Lvs/Engine/Rendering/Common/PipelineVariant.hpp"
 #include "Lvs/Engine/Rendering/Common/ResourceBinding.hpp"
+#include "Lvs/Engine/Rendering/Common/SkyboxSettingsResolver.hpp"
 #include "Lvs/Engine/Rendering/Common/SkyboxRenderer.hpp"
 #include "Lvs/Engine/Rendering/Vulkan/VulkanCubemapUtils.hpp"
 
@@ -49,10 +51,6 @@ public:
     void RecreateSwapchain(Common::GraphicsContext& context) override;
     void Shutdown(Common::GraphicsContext& context) override;
 
-    void Initialize(VulkanContext& context);
-    void RecreateSwapchain(VulkanContext& context);
-    void Shutdown(VulkanContext& context);
-
     void BindToPlace(const std::shared_ptr<DataModel::Place>& place) override;
     void Unbind() override;
 
@@ -64,9 +62,6 @@ public:
         std::uint32_t frameIndex,
         const Objects::Camera& camera
     ) override;
-
-    void UpdateResources(VulkanContext& context);
-    void Draw(VulkanContext& context, Common::CommandBuffer& commandBuffer, std::uint32_t frameIndex, const Objects::Camera& camera);
 
     [[nodiscard]] const CubemapUtils::CubemapHandle& GetCubemap() const;
     [[nodiscard]] Math::Color3 GetSkyTint() const override;
@@ -83,11 +78,10 @@ private:
     [[nodiscard]] std::vector<Common::PipelineVariantKey> GetPipelineVariants() const;
     void UpdateDescriptorSets(VulkanContext& context);
     void DestroySwapchainResources(VulkanContext& context);
+    void UpdateResourcesInternal(VulkanContext& context);
+    void DrawInternal(VulkanContext& context, Common::CommandBuffer& commandBuffer, std::uint32_t frameIndex, const Objects::Camera& camera);
     void UpdateSkyFromPlace();
     [[nodiscard]] const VulkanPipelineVariant& GetPipeline(const Common::PipelineVariantKey& key) const;
-
-    std::shared_ptr<DataModel::Lighting> GetLighting() const;
-    std::shared_ptr<Objects::Skybox> GetSkybox(const std::shared_ptr<DataModel::Lighting>& lighting) const;
 
     std::shared_ptr<DataModel::Place> place_;
     std::shared_ptr<Common::Mesh> skyboxMesh_;
@@ -97,6 +91,8 @@ private:
     std::unordered_map<Common::PipelineVariantKey, std::unique_ptr<VulkanPipelineVariant>, Common::PipelineVariantKeyHash>
         pipelines_;
     std::vector<std::unique_ptr<Common::ResourceBinding>> bindings_;
+    std::shared_ptr<Common::PipelineManifestProvider> pipelineManifest_;
+    Common::SkyboxSettingsResolver settingsResolver_{};
 
     CubemapUtils::CubemapHandle cubemap_;
     std::shared_ptr<Objects::Skybox> activeSkybox_;

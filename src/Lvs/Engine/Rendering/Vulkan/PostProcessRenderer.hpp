@@ -3,6 +3,8 @@
 #include "Lvs/Engine/Rendering/Common/BindingLayout.hpp"
 #include "Lvs/Engine/Rendering/Common/CommandBuffer.hpp"
 #include "Lvs/Engine/Rendering/Common/GraphicsContext.hpp"
+#include "Lvs/Engine/Rendering/Common/PipelineManifestProvider.hpp"
+#include "Lvs/Engine/Rendering/Common/PostProcessSettingsResolver.hpp"
 #include "Lvs/Engine/Rendering/Common/PostProcessRenderer.hpp"
 #include "Lvs/Engine/Rendering/Common/RenderSurface.hpp"
 #include "Lvs/Engine/Rendering/Common/ResourceBinding.hpp"
@@ -39,21 +41,6 @@ public:
     void DestroySwapchainResources(Common::GraphicsContext& context) override;
     void Shutdown(Common::GraphicsContext& context) override;
 
-    void Initialize(
-        VulkanContext& context,
-        const std::vector<VkImageView>& sceneViews,
-        const std::vector<VkImageView>& glowViews,
-        VkSampler sourceSampler
-    );
-    void RecreateSwapchain(
-        VulkanContext& context,
-        const std::vector<VkImageView>& sceneViews,
-        const std::vector<VkImageView>& glowViews,
-        VkSampler sourceSampler
-    );
-    void DestroySwapchainResources(VulkanContext& context);
-    void Shutdown(VulkanContext& context);
-
     void BindToPlace(const std::shared_ptr<DataModel::Place>& place) override;
     void Unbind() override;
 
@@ -84,14 +71,24 @@ private:
     );
     void CreateRenderPasses(VulkanContext& context);
     void CreatePipelines(VulkanContext& context);
+    void Initialize(
+        VulkanContext& context,
+        const std::vector<VkImageView>& sceneViews,
+        const std::vector<VkImageView>& glowViews,
+        VkSampler sourceSampler
+    );
+    void RecreateSwapchain(
+        VulkanContext& context,
+        const std::vector<VkImageView>& sceneViews,
+        const std::vector<VkImageView>& glowViews,
+        VkSampler sourceSampler
+    );
+    void DestroySwapchainResources(VulkanContext& context);
+    void Shutdown(VulkanContext& context);
     void DestroyBlurResources(VulkanContext& context);
     void DestroyPipelines(VulkanContext& context);
     [[nodiscard]] std::uint32_t ComputeUsedBlurLevels() const;
     [[nodiscard]] float GetBlurAmount() const;
-
-    std::shared_ptr<DataModel::Lighting> GetLighting() const;
-
-    static constexpr std::uint32_t MAX_BLUR_LEVELS = 4;
 
     std::shared_ptr<DataModel::Place> place_;
     std::unique_ptr<Common::BindingLayout> compositeBindingLayout_;
@@ -110,6 +107,9 @@ private:
     std::vector<std::vector<BlurImageLevel>> upLevels_;
     std::vector<VkExtent2D> blurExtents_;
     VkSampler blurSampler_{VK_NULL_HANDLE};
+    std::shared_ptr<Common::PipelineManifestProvider> pipelineManifest_;
+    Common::PostProcessSettingsResolver settingsResolver_{};
+    Common::PostProcessSettingsSnapshot settingsSnapshot_{};
     bool initialized_{false};
 };
 
