@@ -1,5 +1,8 @@
 #include "Lvs/Engine/Rendering/Renderer.hpp"
 
+#include <algorithm>
+#include <vector>
+
 namespace Lvs::Engine::Rendering {
 
 void GeometryPassRenderer::SetInputs(
@@ -23,17 +26,16 @@ void GeometryPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBuffe
     }
 
     const RHI::RenderPassInfo renderPass{
-        .width = surface_->Width,
-        .height = surface_->Height,
+        .width = scene_->GeometryTarget.Width,
+        .height = scene_->GeometryTarget.Height,
+        .colorAttachmentCount = scene_->GeometryTarget.ColorAttachmentCount,
         .renderPassHandle = scene_->GeometryTarget.RenderPass,
         .framebufferHandle = scene_->GeometryTarget.Framebuffer,
         .clearColor = false,
-        .clearDepth = true,
-        .clearDepthValue = 0.0F
+        .clearDepth = false
     };
 
     cmd.BeginRenderPass(renderPass);
-    cmd.BindPipeline(*pipeline_);
     cmd.BindResourceSet(0, *resources_);
 
     const auto recordDraw = [this, &ctx, &cmd](const SceneData::DrawPacket& draw) {
@@ -41,7 +43,8 @@ void GeometryPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBuffe
         if (mesh == nullptr || mesh->VertexBuffer == nullptr || mesh->IndexBuffer == nullptr || mesh->IndexCount == 0) {
             return;
         }
-        if (const auto* drawPipeline = renderer_->GetOrCreatePipeline(ctx, Renderer::PassKey::Geometry, draw.CullMode);
+        if (const auto* drawPipeline =
+                renderer_->GetOrCreateGeometryPipeline(ctx, draw.CullMode, draw.Transparent, draw.AlwaysOnTop);
             drawPipeline != nullptr) {
             cmd.BindPipeline(*drawPipeline);
         } else {
@@ -53,12 +56,45 @@ void GeometryPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBuffe
         cmd.DrawIndexed(mesh->IndexCount);
     };
 
+    std::vector<const SceneData::DrawPacket*> opaqueDraws{};
+    std::vector<const SceneData::DrawPacket*> transparentDraws{};
+    std::vector<const SceneData::DrawPacket*> alwaysOnTopDraws{};
+
+    const auto collectDraw = [&opaqueDraws, &transparentDraws, &alwaysOnTopDraws](const SceneData::DrawPacket& draw) {
+        if (draw.Mesh == nullptr) {
+            return;
+        }
+        if (draw.AlwaysOnTop) {
+            alwaysOnTopDraws.push_back(&draw);
+            return;
+        }
+        if (draw.Transparent) {
+            transparentDraws.push_back(&draw);
+            return;
+        }
+        opaqueDraws.push_back(&draw);
+    };
+
     if (!scene_->GeometryDraws.empty()) {
         for (const auto& draw : scene_->GeometryDraws) {
-            recordDraw(draw);
+            collectDraw(draw);
         }
     } else {
-        recordDraw(scene_->GeometryDraw);
+        collectDraw(scene_->GeometryDraw);
+    }
+
+    std::sort(transparentDraws.begin(), transparentDraws.end(), [](const auto* lhs, const auto* rhs) {
+        return lhs->SortDepth > rhs->SortDepth;
+    });
+
+    for (const auto* draw : opaqueDraws) {
+        recordDraw(*draw);
+    }
+    for (const auto* draw : transparentDraws) {
+        recordDraw(*draw);
+    }
+    for (const auto* draw : alwaysOnTopDraws) {
+        recordDraw(*draw);
     }
     cmd.EndRenderPass();
 }

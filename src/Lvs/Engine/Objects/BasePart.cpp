@@ -27,6 +27,9 @@ Core::ClassDescriptor& BasePart::Descriptor() {
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
             "Renders", true, true, "Appearance"
         ));
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
+            "AlwaysOnTop", false, true, "Appearance"
+        ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Enums::MeshCullMode>(
             "CullMode", Enums::MeshCullMode::Back, true, "Appearance"
         ));

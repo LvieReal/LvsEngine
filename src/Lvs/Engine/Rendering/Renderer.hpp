@@ -5,6 +5,7 @@
 #include "Lvs/Engine/Rendering/RHI/Types.hpp"
 
 #include <cstddef>
+#include <array>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -17,9 +18,14 @@ struct RenderSurface {
 };
 
 struct SceneData {
+    static constexpr RHI::u32 MaxPostBlurLevels = 4U;
+
     struct PassTarget {
         void* RenderPass{nullptr};
         void* Framebuffer{nullptr};
+        RHI::u32 ColorAttachmentCount{1};
+        RHI::u32 Width{0};
+        RHI::u32 Height{0};
     };
 
     struct MeshRef {
@@ -35,6 +41,9 @@ struct SceneData {
         const MeshRef* Mesh{nullptr};
         Common::DrawPushConstants PushConstants{};
         RHI::CullMode CullMode{RHI::CullMode::Back};
+        bool Transparent{false};
+        bool AlwaysOnTop{false};
+        float SortDepth{0.0F};
     };
 
     bool EnableShadows{true};
@@ -53,10 +62,24 @@ struct SceneData {
     DrawPacket GeometryDraw{};
     std::vector<DrawPacket> GeometryDraws{};
     Common::SkyboxPushConstants SkyboxPush{};
+    Common::PostProcessPushConstants PostProcessPush{};
+    float NeonBlur{1.0F};
+    RHI::u32 PostBlurLevelCount{0};
+    PassTarget PostBlurDownTarget{};
+    PassTarget PostBlurUpTarget{};
+    PassTarget PostBlurFinalTarget{};
+    std::array<PassTarget, MaxPostBlurLevels> PostBlurDownLevelTargets{};
+    std::array<PassTarget, MaxPostBlurLevels> PostBlurUpLevelTargets{};
     const RHI::ResourceBinding* GlobalBindings{nullptr};
     RHI::u32 GlobalBindingCount{0};
     std::size_t GlobalResourceKey{0};
     const RHI::IResourceSet* GlobalResources{nullptr};
+    const RHI::IResourceSet* PostBlurDownResources{nullptr};
+    const RHI::IResourceSet* PostBlurUpResources{nullptr};
+    const RHI::IResourceSet* PostBlurFinalResources{nullptr};
+    std::array<const RHI::IResourceSet*, MaxPostBlurLevels> PostBlurDownLevelResources{};
+    std::array<const RHI::IResourceSet*, MaxPostBlurLevels> PostBlurUpLevelResources{};
+    const RHI::IResourceSet* PostCompositeResources{nullptr};
 };
 
 using Pipeline = RHI::IPipeline;
@@ -109,14 +132,16 @@ private:
     void SetInputs(
         const RenderSurface* surface,
         const SceneData* scene,
-        const Pipeline* pipeline,
-        const RHI::IResourceSet* resources
+        const Pipeline* compositePipeline,
+        const Pipeline* blurDownPipeline,
+        const Pipeline* blurUpPipeline
     );
 
     const RenderSurface* surface_{nullptr};
     const SceneData* scene_{nullptr};
-    const Pipeline* pipeline_{nullptr};
-    const RHI::IResourceSet* resources_{nullptr};
+    const Pipeline* compositePipeline_{nullptr};
+    const Pipeline* blurDownPipeline_{nullptr};
+    const Pipeline* blurUpPipeline_{nullptr};
 };
 
 class GeometryPassRenderer {
@@ -157,10 +182,24 @@ private:
         Shadow = 1,
         Skybox = 2,
         PostProcess = 3,
-        Geometry = 4
+        Geometry = 4,
+        PostBlurDown = 5,
+        PostBlurUp = 6
     };
 
-    [[nodiscard]] Pipeline* GetOrCreatePipeline(RHI::IContext& ctx, PassKey key, RHI::CullMode cullMode = RHI::CullMode::Back);
+    [[nodiscard]] Pipeline* GetOrCreatePipeline(
+        RHI::IContext& ctx,
+        PassKey key,
+        RHI::CullMode cullMode,
+        void* renderPassHandle,
+        RHI::u32 colorAttachmentCount
+    );
+    [[nodiscard]] Pipeline* GetOrCreateGeometryPipeline(
+        RHI::IContext& ctx,
+        RHI::CullMode cullMode,
+        bool transparent,
+        bool alwaysOnTop
+    );
     [[nodiscard]] const RHI::IResourceSet* GetOrCreateGlobalResources(RHI::IContext& ctx, const SceneData& scene);
 
     RenderSurface surface_{};
@@ -168,6 +207,8 @@ private:
     SkyboxPassRenderer skyboxPass_{};
     PostProcessPassRenderer postProcessPass_{};
     GeometryPassRenderer geometryPass_{};
+    void* sceneRenderPassHandle_{nullptr};
+    RHI::u32 sceneColorAttachmentCount_{1};
     std::unordered_map<std::size_t, std::unique_ptr<Pipeline>> pipelineCache_{};
     std::unordered_map<std::size_t, std::unique_ptr<RHI::IResourceSet>> resourceSetCache_{};
 };

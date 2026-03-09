@@ -29,14 +29,21 @@ struct PushConstants
 
 uniform PushConstants pushData;
 
+layout(location = 0) in vec3 inPosition;
 layout(location = 0) out vec3 fragNormal;
 layout(location = 1) in vec3 inNormal;
-layout(location = 0) in vec3 inPosition;
+layout(location = 1) out vec3 fragWorldPos;
+layout(location = 2) out vec3 fragLocalPos;
+layout(location = 3) out vec3 fragLocalNormal;
 
 void main()
 {
+    vec4 worldPos = pushData.model * vec4(inPosition, 1.0);
     mat3 normalMatrix = mat3(pushData.model[0].xyz, pushData.model[1].xyz, pushData.model[2].xyz);
     fragNormal = normalize(normalMatrix * inNormal);
-    gl_Position = ((camera.projection * camera.view) * pushData.model) * vec4(inPosition, 1.0);
+    fragWorldPos = worldPos.xyz;
+    fragLocalPos = inPosition;
+    fragLocalNormal = inNormal;
+    gl_Position = (camera.projection * camera.view) * worldPos;
 }
 

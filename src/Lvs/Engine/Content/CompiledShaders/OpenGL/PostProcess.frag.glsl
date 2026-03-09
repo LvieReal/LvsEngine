@@ -20,16 +20,20 @@ float InterleavedGradientNoise(vec2 pixel, float frameSeed)
 
 void main()
 {
-    vec3 hdrColor = texture(sceneColor, fragUv).xyz + texture(glowColor, fragUv).xyz;
-    vec3 color = hdrColor / (vec3(1.0) + hdrColor);
+    vec3 hdrColor = texture(sceneColor, fragUv).xyz;
+    if (pushData.settings.z > 0.5)
+    {
+        hdrColor += texture(glowColor, fragUv).xyz;
+    }
+    vec3 color = max(hdrColor, vec3(0.0));
     if (pushData.settings.x > 0.5)
     {
-        color = pow(max(color, vec3(0.0)), vec3(0.4545454680919647216796875));
+        color = pow(color, vec3(0.4545454680919647216796875));
     }
     if (pushData.settings.y > 0.5)
     {
         vec2 param = gl_FragCoord.xy;
-        float param_1 = pushData.settings.z;
+        float param_1 = pushData.settings.w;
         float n = InterleavedGradientNoise(param, param_1);
         color += vec3((n - 0.5) / 255.0);
         color = clamp(color, vec3(0.0), vec3(1.0));

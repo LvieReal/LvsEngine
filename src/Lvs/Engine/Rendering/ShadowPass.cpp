@@ -25,8 +25,9 @@ void ShadowPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBuffer&
     }
 
     const RHI::RenderPassInfo renderPass{
-        .width = surface_->Width,
-        .height = surface_->Height,
+        .width = scene_->ShadowTarget.Width,
+        .height = scene_->ShadowTarget.Height,
+        .colorAttachmentCount = scene_->ShadowTarget.ColorAttachmentCount,
         .renderPassHandle = scene_->ShadowTarget.RenderPass,
         .framebufferHandle = scene_->ShadowTarget.Framebuffer,
         .clearColor = false,

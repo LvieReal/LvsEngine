@@ -7,6 +7,8 @@ struct GLApi {
     void* ContextHandle{nullptr};
     void* NativeWindowHandle{nullptr};
     unsigned int DefaultFramebuffer{0U};
+    unsigned int MajorVersion{0U};
+    unsigned int MinorVersion{0U};
 };
 
 } // namespace Lvs::Engine::Rendering::Backends::OpenGL

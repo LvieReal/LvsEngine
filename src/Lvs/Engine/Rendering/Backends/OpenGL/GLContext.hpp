@@ -18,8 +18,10 @@ public:
     ~GLContext() override;
     std::unique_ptr<RHI::ICommandBuffer> AllocateCommandBuffer() override;
     std::unique_ptr<RHI::IPipeline> CreatePipeline(const RHI::PipelineDesc& desc) override;
+    std::unique_ptr<RHI::IRenderTarget> CreateRenderTarget(const RHI::RenderTargetDesc& desc) override;
     std::unique_ptr<RHI::IBuffer> CreateBuffer(const RHI::BufferDesc& desc) override;
     std::unique_ptr<RHI::IResourceSet> CreateResourceSet(const RHI::ResourceSetDesc& desc) override;
+    [[nodiscard]] RHI::Texture CreateTexture2D(const RHI::Texture2DDesc& desc) override;
     [[nodiscard]] RHI::Texture CreateTextureCube(const RHI::CubemapDesc& desc) override;
     void DestroyTexture(RHI::Texture& texture) override;
     void BindTexture(RHI::u32 slot, const RHI::Texture& texture) override;
@@ -37,6 +39,7 @@ public:
     void BindIndexBuffer(const RHI::IBuffer& buffer, RHI::IndexType indexType, std::size_t offset);
     void BindResourceSet(RHI::u32 slot, const RHI::IResourceSet& set);
     void PushConstants(const void* data, std::size_t size);
+    void Draw(RHI::u32 vertexCount);
     void DrawIndexed(RHI::u32 indexCount);
 
 private:

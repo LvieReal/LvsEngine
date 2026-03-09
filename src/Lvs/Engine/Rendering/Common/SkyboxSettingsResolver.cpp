@@ -8,23 +8,29 @@ namespace Lvs::Engine::Rendering::Common {
 SkyboxSettingsSnapshot SkyboxSettingsResolver::Resolve(const std::shared_ptr<DataModel::Place>& place) const {
     SkyboxSettingsSnapshot snapshot{};
     snapshot.Source = FindSkyboxInstance(FindLightingService(place));
-    std::shared_ptr<Objects::Skybox> source = snapshot.Source;
-    if (source == nullptr) {
-        source = std::make_shared<Objects::Skybox>();
-    }
+    const auto defaults = std::make_shared<Objects::Skybox>();
+    const std::shared_ptr<Objects::Skybox> source = snapshot.Source != nullptr ? snapshot.Source : defaults;
+
+    const auto resolvePathOrDefault = [&source, &defaults](const char* propertyName) {
+        const auto value = source->GetProperty(propertyName).toString().trimmed().toStdString();
+        if (!value.empty()) {
+            return value;
+        }
+        return defaults->GetProperty(propertyName).toString().trimmed().toStdString();
+    };
 
     snapshot.Faces = {
-        source->GetProperty("RightTexture").toString().trimmed().toStdString(),
-        source->GetProperty("LeftTexture").toString().trimmed().toStdString(),
-        source->GetProperty("UpTexture").toString().trimmed().toStdString(),
-        source->GetProperty("DownTexture").toString().trimmed().toStdString(),
-        source->GetProperty("FrontTexture").toString().trimmed().toStdString(),
-        source->GetProperty("BackTexture").toString().trimmed().toStdString()
+        resolvePathOrDefault("RightTexture"),
+        resolvePathOrDefault("LeftTexture"),
+        resolvePathOrDefault("UpTexture"),
+        resolvePathOrDefault("DownTexture"),
+        resolvePathOrDefault("FrontTexture"),
+        resolvePathOrDefault("BackTexture")
     };
     snapshot.Tint = source->GetProperty("Tint").value<Math::Color3>();
     snapshot.Filtering = source->GetProperty("Filtering").value<Enums::TextureFiltering>();
     snapshot.TextureLayout = source->GetProperty("TextureLayout").value<Enums::SkyboxTextureLayout>();
-    snapshot.CrossTexture = source->GetProperty("CrossTexture").toString().trimmed().toStdString();
+    snapshot.CrossTexture = resolvePathOrDefault("CrossTexture");
     snapshot.ResolutionCap = source->GetProperty("ResolutionCap").toInt();
     snapshot.Compression = source->GetProperty("Compression").toBool();
     return snapshot;

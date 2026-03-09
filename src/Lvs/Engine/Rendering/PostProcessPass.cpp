@@ -1,47 +1,160 @@
 #include "Lvs/Engine/Rendering/Renderer.hpp"
 
+#include <algorithm>
+
 namespace Lvs::Engine::Rendering {
+
+namespace {
+
+void RecordFullScreenPass(
+    RHI::ICommandBuffer& cmd,
+    const RHI::RenderPassInfo& passInfo,
+    const Pipeline& pipeline,
+    const RHI::IResourceSet& resources,
+    const void* pushData,
+    const std::size_t pushDataSize
+) {
+    cmd.BeginRenderPass(passInfo);
+    cmd.BindPipeline(pipeline);
+    cmd.BindResourceSet(0, resources);
+    if (pushData != nullptr && pushDataSize > 0) {
+        cmd.PushConstants(pushData, pushDataSize);
+    }
+    cmd.Draw(3);
+    cmd.EndRenderPass();
+}
+
+} // namespace
 
 void PostProcessPassRenderer::SetInputs(
     const RenderSurface* surface,
     const SceneData* scene,
-    const Pipeline* pipeline,
-    const RHI::IResourceSet* resources
+    const Pipeline* compositePipeline,
+    const Pipeline* blurDownPipeline,
+    const Pipeline* blurUpPipeline
 ) {
     surface_ = surface;
     scene_ = scene;
-    pipeline_ = pipeline;
-    resources_ = resources;
+    compositePipeline_ = compositePipeline;
+    blurDownPipeline_ = blurDownPipeline;
+    blurUpPipeline_ = blurUpPipeline;
 }
 
 void PostProcessPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBuffer& cmd) {
     static_cast<void>(ctx);
-    if (surface_ == nullptr || scene_ == nullptr || pipeline_ == nullptr || !scene_->EnablePostProcess) {
+    if (surface_ == nullptr || scene_ == nullptr || !scene_->EnablePostProcess) {
         return;
     }
-    const auto* mesh = scene_->PostProcessDraw.Mesh;
-    if (mesh == nullptr || mesh->VertexBuffer == nullptr || mesh->IndexBuffer == nullptr || mesh->IndexCount == 0) {
+    if (compositePipeline_ == nullptr || blurDownPipeline_ == nullptr || blurUpPipeline_ == nullptr) {
+        return;
+    }
+    if (scene_->PostCompositeResources == nullptr) {
         return;
     }
 
-    const RHI::RenderPassInfo renderPass{
-        .width = surface_->Width,
-        .height = surface_->Height,
+    const RHI::u32 levelsUsed = std::max<RHI::u32>(1U, std::min(scene_->PostBlurLevelCount, SceneData::MaxPostBlurLevels));
+    const float blurAmount = std::max(1.0F, scene_->NeonBlur);
+    RHI::u32 sourceWidth = std::max(1U, scene_->GeometryTarget.Width);
+    RHI::u32 sourceHeight = std::max(1U, scene_->GeometryTarget.Height);
+
+    for (RHI::u32 level = 0; level < levelsUsed; ++level) {
+        const auto& target = scene_->PostBlurDownLevelTargets[level];
+        const auto* resources = scene_->PostBlurDownLevelResources[level];
+        if (resources == nullptr || target.Framebuffer == nullptr) {
+            continue;
+        }
+        const Common::PostProcessPushConstants blurSettings{
+            .Settings = {1.0F / static_cast<float>(std::max(1U, sourceWidth)),
+                         1.0F / static_cast<float>(std::max(1U, sourceHeight)),
+                         blurAmount,
+                         0.0F}
+        };
+        const RHI::RenderPassInfo pass{
+            .width = target.Width,
+            .height = target.Height,
+            .colorAttachmentCount = target.ColorAttachmentCount,
+            .renderPassHandle = target.RenderPass,
+            .framebufferHandle = target.Framebuffer,
+            .clearColor = true,
+            .clearDepth = false
+        };
+        RecordFullScreenPass(cmd, pass, *blurDownPipeline_, *resources, &blurSettings, sizeof(blurSettings));
+        sourceWidth = std::max(1U, target.Width);
+        sourceHeight = std::max(1U, target.Height);
+    }
+
+    if (levelsUsed > 1U) {
+        for (int level = static_cast<int>(levelsUsed) - 2; level >= 0; --level) {
+            const auto& target = scene_->PostBlurUpLevelTargets[static_cast<std::size_t>(level)];
+            const auto* resources = scene_->PostBlurUpLevelResources[static_cast<std::size_t>(level)];
+            if (resources == nullptr || target.Framebuffer == nullptr) {
+                continue;
+            }
+            const Common::PostProcessPushConstants blurSettings{
+                .Settings = {1.0F / static_cast<float>(std::max(1U, sourceWidth)),
+                             1.0F / static_cast<float>(std::max(1U, sourceHeight)),
+                             blurAmount,
+                             0.0F}
+            };
+            const RHI::RenderPassInfo pass{
+                .width = target.Width,
+                .height = target.Height,
+                .colorAttachmentCount = target.ColorAttachmentCount,
+                .renderPassHandle = target.RenderPass,
+                .framebufferHandle = target.Framebuffer,
+                .clearColor = true,
+                .clearDepth = false
+            };
+            RecordFullScreenPass(cmd, pass, *blurUpPipeline_, *resources, &blurSettings, sizeof(blurSettings));
+            sourceWidth = std::max(1U, target.Width);
+            sourceHeight = std::max(1U, target.Height);
+        }
+    }
+
+    if (scene_->PostBlurFinalResources != nullptr && scene_->PostBlurFinalTarget.Framebuffer != nullptr) {
+        const Common::PostProcessPushConstants blurSettings{
+            .Settings = {1.0F / static_cast<float>(std::max(1U, sourceWidth)),
+                         1.0F / static_cast<float>(std::max(1U, sourceHeight)),
+                         blurAmount,
+                         0.0F}
+        };
+        const RHI::RenderPassInfo finalPass{
+            .width = scene_->PostBlurFinalTarget.Width,
+            .height = scene_->PostBlurFinalTarget.Height,
+            .colorAttachmentCount = scene_->PostBlurFinalTarget.ColorAttachmentCount,
+            .renderPassHandle = scene_->PostBlurFinalTarget.RenderPass,
+            .framebufferHandle = scene_->PostBlurFinalTarget.Framebuffer,
+            .clearColor = true,
+            .clearDepth = false
+        };
+        RecordFullScreenPass(
+            cmd,
+            finalPass,
+            *blurUpPipeline_,
+            *scene_->PostBlurFinalResources,
+            &blurSettings,
+            sizeof(blurSettings)
+        );
+    }
+
+    const RHI::RenderPassInfo compositePass{
+        .width = scene_->PostProcessTarget.Width,
+        .height = scene_->PostProcessTarget.Height,
+        .colorAttachmentCount = scene_->PostProcessTarget.ColorAttachmentCount,
         .renderPassHandle = scene_->PostProcessTarget.RenderPass,
         .framebufferHandle = scene_->PostProcessTarget.Framebuffer,
         .clearColor = false,
         .clearDepth = false
     };
 
-    cmd.BeginRenderPass(renderPass);
-    cmd.BindPipeline(*pipeline_);
-    cmd.BindVertexBuffer(0, *mesh->VertexBuffer, mesh->VertexOffset);
-    cmd.BindIndexBuffer(*mesh->IndexBuffer, mesh->IndexBufferType, mesh->IndexOffset);
-    if (resources_ != nullptr) {
-        cmd.BindResourceSet(0, *resources_);
-    }
-    cmd.DrawIndexed(mesh->IndexCount);
-    cmd.EndRenderPass();
+    RecordFullScreenPass(
+        cmd,
+        compositePass,
+        *compositePipeline_,
+        *scene_->PostCompositeResources,
+        &scene_->PostProcessPush,
+        sizeof(scene_->PostProcessPush)
+    );
 }
 
 } // namespace Lvs::Engine::Rendering

@@ -18,6 +18,7 @@ public:
     void BindIndexBuffer(const RHI::IBuffer& buffer, RHI::IndexType indexType, std::size_t offset) override;
     void BindResourceSet(RHI::u32 slot, const RHI::IResourceSet& set) override;
     void PushConstants(const void* data, std::size_t size) override;
+    void Draw(RHI::u32 vertexCount) override;
     void DrawIndexed(RHI::u32 indexCount) override;
 
 private:

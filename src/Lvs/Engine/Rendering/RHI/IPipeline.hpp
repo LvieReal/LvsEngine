@@ -9,6 +9,8 @@ namespace Lvs::Engine::Rendering::RHI {
 struct PipelineDesc {
     std::string pipelineId{"main"};
     VertexLayout vertexLayout{VertexLayout::None};
+    void* renderPassHandle{nullptr};
+    u32 colorAttachmentCount{1};
     bool depthTest{true};
     bool depthWrite{true};
     DepthCompare depthCompare{DepthCompare::GreaterOrEqual};

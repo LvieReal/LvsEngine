@@ -23,13 +23,17 @@
 #include "Lvs/Engine/Objects/Part.hpp"
 #include "Lvs/Engine/Objects/Skybox.hpp"
 #include "Lvs/Engine/Enums/MeshCullMode.hpp"
+#include "Lvs/Engine/Enums/PartSurfaceType.hpp"
 #include "Lvs/Engine/Enums/PartShape.hpp"
 #include "Lvs/Engine/Utils/FileIO.hpp"
+#include "Lvs/Engine/Utils/ImageIO.hpp"
 #include "Lvs/Engine/Utils/PathUtils.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cmath>
+#include <cstdint>
 #include <deque>
 #include <exception>
 #include <filesystem>
@@ -66,8 +70,24 @@ std::array<float, 4> ToVec4(const Math::Color3& value, const float w = 1.0F) {
 }
 
 bool SupportsVulkan() {
-    std::uint32_t version = 0;
-    return vkEnumerateInstanceVersion(&version) == VK_SUCCESS && version > 0U;
+    std::uint32_t loaderVersion = VK_API_VERSION_1_0;
+    if (vkEnumerateInstanceVersion(&loaderVersion) != VK_SUCCESS) {
+        return false;
+    }
+    const std::array<std::uint32_t, 4> candidates{
+        VK_API_VERSION_1_3,
+        VK_API_VERSION_1_2,
+        VK_API_VERSION_1_1,
+        VK_API_VERSION_1_0
+    };
+    for (const auto candidate : candidates) {
+        if (VK_API_VERSION_MAJOR(loaderVersion) > VK_API_VERSION_MAJOR(candidate) ||
+            (VK_API_VERSION_MAJOR(loaderVersion) == VK_API_VERSION_MAJOR(candidate) &&
+             VK_API_VERSION_MINOR(loaderVersion) >= VK_API_VERSION_MINOR(candidate))) {
+            return true;
+        }
+    }
+    return false;
 }
 
 RenderApi ResolveApi(const RenderApi preferred) {
@@ -134,6 +154,12 @@ std::size_t BuildSkyboxSettingsKey(const Common::SkyboxSettingsSnapshot& snapsho
         key = HashCombine(key, std::hash<std::string>{}(face.string()));
     }
     return key;
+}
+
+RHI::u32 ComputePostBlurLevels(const float blurAmount) {
+    const float clampedBlur = std::max(0.0F, blurAmount);
+    const RHI::u32 requested = static_cast<RHI::u32>(std::ceil(clampedBlur)) + 1U;
+    return std::max<RHI::u32>(1U, std::min<RHI::u32>(SceneData::MaxPostBlurLevels, requested));
 }
 
 } // namespace
@@ -218,27 +244,106 @@ public:
             return;
         }
         EnsureBackend();
+        EnsurePostProcessTargets();
+        EnsureFallbackTextures();
         UpdateSkyboxTexture();
+        UpdateSurfaceAtlasTexture();
         SceneData scene{};
         scene.ClearColor = true;
         scene.ClearColorValue[0] = clearColor_[0];
         scene.ClearColorValue[1] = clearColor_[1];
         scene.ClearColorValue[2] = clearColor_[2];
         scene.ClearColorValue[3] = clearColor_[3];
-        // Keep frame output source-of-truth on clear color until scene pass data is fully wired.
         scene.EnableShadows = false;
         scene.EnableSkybox = hasSkyboxCubemap_;
-        scene.EnablePostProcess = false;
+        scene.EnablePostProcess = geometryTarget_ != nullptr && blurDownTargets_[0] != nullptr && blurFinalTarget_ != nullptr;
         scene.EnableGeometry = true;
-        scene.ShadowTarget = SceneData::PassTarget{.RenderPass = nullptr, .Framebuffer = nullptr};
+        scene.NeonBlur = 2.0F;
+        if (place_ != nullptr) {
+            if (const auto lightingService = std::dynamic_pointer_cast<DataModel::Lighting>(place_->FindService("Lighting"));
+                lightingService != nullptr) {
+                scene.NeonBlur = static_cast<float>(std::max(0.0, lightingService->GetProperty("NeonBlur").toDouble()));
+            }
+        }
+        scene.ShadowTarget = SceneData::PassTarget{
+            .RenderPass = nullptr,
+            .Framebuffer = nullptr,
+            .ColorAttachmentCount = 1,
+            .Width = surfaceWidth_,
+            .Height = surfaceHeight_
+        };
         scene.SkyboxTarget = scene.ShadowTarget;
-        scene.PostProcessTarget = scene.ShadowTarget;
         scene.GeometryTarget = scene.ShadowTarget;
+        scene.PostBlurDownTarget = scene.ShadowTarget;
+        scene.PostBlurUpTarget = scene.ShadowTarget;
+        scene.PostBlurFinalTarget = scene.ShadowTarget;
+        scene.PostProcessTarget = SceneData::PassTarget{
+            .RenderPass = GetRhiContext().GetDefaultRenderPassHandle(),
+            .Framebuffer = GetRhiContext().GetDefaultFramebufferHandle(),
+            .ColorAttachmentCount = 1,
+            .Width = surfaceWidth_,
+            .Height = surfaceHeight_
+        };
+        if (geometryTarget_ != nullptr) {
+            scene.SkyboxTarget = SceneData::PassTarget{
+                .RenderPass = geometryTarget_->GetRenderPassHandle(),
+                .Framebuffer = geometryTarget_->GetFramebufferHandle(),
+                .ColorAttachmentCount = geometryTarget_->GetColorAttachmentCount(),
+                .Width = geometryTarget_->GetWidth(),
+                .Height = geometryTarget_->GetHeight()
+            };
+            scene.GeometryTarget = scene.SkyboxTarget;
+        }
+        RHI::u32 availableBlurLevels = 0U;
+        for (RHI::u32 level = 0; level < SceneData::MaxPostBlurLevels; ++level) {
+            if (blurDownTargets_[level] == nullptr || blurUpTargets_[level] == nullptr) {
+                break;
+            }
+            ++availableBlurLevels;
+        }
+        const RHI::u32 postBlurLevels = scene.EnablePostProcess
+                                            ? std::min(ComputePostBlurLevels(scene.NeonBlur), availableBlurLevels)
+                                            : 0U;
+        scene.PostBlurLevelCount = postBlurLevels;
+        scene.EnablePostProcess = scene.EnablePostProcess && postBlurLevels > 0U && blurFinalTarget_ != nullptr;
+        for (RHI::u32 level = 0; level < SceneData::MaxPostBlurLevels; ++level) {
+            if (level < postBlurLevels && blurDownTargets_[level] != nullptr && blurUpTargets_[level] != nullptr) {
+                scene.PostBlurDownLevelTargets[level] = SceneData::PassTarget{
+                    .RenderPass = blurDownTargets_[level]->GetRenderPassHandle(),
+                    .Framebuffer = blurDownTargets_[level]->GetFramebufferHandle(),
+                    .ColorAttachmentCount = blurDownTargets_[level]->GetColorAttachmentCount(),
+                    .Width = blurDownTargets_[level]->GetWidth(),
+                    .Height = blurDownTargets_[level]->GetHeight()
+                };
+                scene.PostBlurUpLevelTargets[level] = SceneData::PassTarget{
+                    .RenderPass = blurUpTargets_[level]->GetRenderPassHandle(),
+                    .Framebuffer = blurUpTargets_[level]->GetFramebufferHandle(),
+                    .ColorAttachmentCount = blurUpTargets_[level]->GetColorAttachmentCount(),
+                    .Width = blurUpTargets_[level]->GetWidth(),
+                    .Height = blurUpTargets_[level]->GetHeight()
+                };
+            } else {
+                scene.PostBlurDownLevelTargets[level] = scene.ShadowTarget;
+                scene.PostBlurUpLevelTargets[level] = scene.ShadowTarget;
+            }
+        }
+        if (postBlurLevels > 0U) {
+            scene.PostBlurDownTarget = scene.PostBlurDownLevelTargets[0];
+            scene.PostBlurUpTarget = scene.PostBlurUpLevelTargets[0];
+        }
+        if (blurFinalTarget_ != nullptr) {
+            scene.PostBlurFinalTarget = SceneData::PassTarget{
+                .RenderPass = blurFinalTarget_->GetRenderPassHandle(),
+                .Framebuffer = blurFinalTarget_->GetFramebufferHandle(),
+                .ColorAttachmentCount = blurFinalTarget_->GetColorAttachmentCount(),
+                .Width = blurFinalTarget_->GetWidth(),
+                .Height = blurFinalTarget_->GetHeight()
+            };
+        }
 
         frameMeshRefs_.clear();
 
         scene.ShadowDraw = {};
-        scene.PostProcessDraw = {};
         scene.SkyboxDraw = {};
         if (scene.EnableSkybox) {
             if (GpuMesh* skyboxMesh = GetOrCreatePrimitiveMesh(Enums::PartShape::Cube); skyboxMesh != nullptr) {
@@ -262,6 +367,7 @@ public:
             scene.GeometryDraw = {};
         }
 
+        ++postProcessFrameSeed_;
         const Common::CameraUniformData cameraUniforms = BuildCameraUniforms();
         scene.SkyboxPush = BuildSkyboxPushConstants();
         if (frameResourceSet_ != nullptr) {
@@ -276,7 +382,7 @@ public:
             .size = sizeof(Common::CameraUniformData),
             .initialData = &cameraUniforms
         });
-        std::array<RHI::ResourceBinding, 2> frameBindings{};
+        std::array<RHI::ResourceBinding, 4> frameBindings{};
         RHI::u32 frameBindingCount = 0;
         frameBindings[frameBindingCount++] = RHI::ResourceBinding{
             .slot = 0,
@@ -292,12 +398,130 @@ public:
                 .buffer = nullptr
             };
         }
+        if (hasSurfaceAtlas_) {
+            frameBindings[frameBindingCount++] = RHI::ResourceBinding{
+                .slot = 2,
+                .kind = RHI::ResourceBindingKind::Texture2D,
+                .texture = surfaceAtlas_,
+                .buffer = nullptr
+            };
+        }
+        frameBindings[frameBindingCount++] = RHI::ResourceBinding{
+            .slot = 6,
+            .kind = RHI::ResourceBindingKind::Texture2D,
+            .texture = (blurFinalTarget_ != nullptr ? blurFinalTarget_->GetColorTexture(0) : fallbackBlackTexture_),
+            .buffer = nullptr
+        };
         frameResourceSet_ = GetRhiContext().CreateResourceSet(RHI::ResourceSetDesc{
             .bindings = frameBindings.data(),
             .bindingCount = frameBindingCount,
             .nativeHandleHint = nullptr
         });
         scene.GlobalResources = frameResourceSet_.get();
+
+        for (auto& set : postBlurDownLevelResourceSets_) {
+            if (set != nullptr) {
+                retiredFrameResourceSets_.push_back(std::move(set));
+            }
+        }
+        for (auto& set : postBlurUpLevelResourceSets_) {
+            if (set != nullptr) {
+                retiredFrameResourceSets_.push_back(std::move(set));
+            }
+        }
+        if (postBlurFinalResourceSet_ != nullptr) {
+            retiredFrameResourceSets_.push_back(std::move(postBlurFinalResourceSet_));
+        }
+        if (postCompositeResourceSet_ != nullptr) {
+            retiredFrameResourceSets_.push_back(std::move(postCompositeResourceSet_));
+        }
+        if (scene.EnablePostProcess) {
+            scene.PostBlurDownLevelResources.fill(nullptr);
+            scene.PostBlurUpLevelResources.fill(nullptr);
+            const RHI::Texture sceneColor = geometryTarget_->GetColorTexture(0);
+            const RHI::Texture sceneGlow = geometryTarget_->GetColorTexture(1);
+            const RHI::u32 blurLevels = std::max<RHI::u32>(
+                1U,
+                std::min(scene.PostBlurLevelCount, SceneData::MaxPostBlurLevels)
+            );
+            for (RHI::u32 level = 0; level < blurLevels; ++level) {
+                const RHI::Texture source = (level == 0U) ? sceneGlow : blurDownTargets_[level - 1]->GetColorTexture(0);
+                const std::array<RHI::ResourceBinding, 1> bindings{RHI::ResourceBinding{
+                    .slot = 1,
+                    .kind = RHI::ResourceBindingKind::Texture2D,
+                    .texture = source,
+                    .buffer = nullptr
+                }};
+                postBlurDownLevelResourceSets_[level] = GetRhiContext().CreateResourceSet(
+                    RHI::ResourceSetDesc{.bindings = bindings.data(), .bindingCount = 1}
+                );
+                scene.PostBlurDownLevelResources[level] = postBlurDownLevelResourceSets_[level].get();
+            }
+
+            if (blurLevels > 1U) {
+                for (int level = static_cast<int>(blurLevels) - 2; level >= 0; --level) {
+                    const RHI::Texture source = (level == static_cast<int>(blurLevels) - 2)
+                                                    ? blurDownTargets_[blurLevels - 1]->GetColorTexture(0)
+                                                    : blurUpTargets_[static_cast<RHI::u32>(level + 1)]->GetColorTexture(0);
+                    const std::array<RHI::ResourceBinding, 1> bindings{RHI::ResourceBinding{
+                        .slot = 1,
+                        .kind = RHI::ResourceBindingKind::Texture2D,
+                        .texture = source,
+                        .buffer = nullptr
+                    }};
+                    postBlurUpLevelResourceSets_[static_cast<RHI::u32>(level)] = GetRhiContext().CreateResourceSet(
+                        RHI::ResourceSetDesc{.bindings = bindings.data(), .bindingCount = 1}
+                    );
+                    scene.PostBlurUpLevelResources[static_cast<RHI::u32>(level)] =
+                        postBlurUpLevelResourceSets_[static_cast<RHI::u32>(level)].get();
+                }
+            }
+
+            const RHI::Texture finalBlurSource =
+                (blurLevels > 1U) ? blurUpTargets_[0]->GetColorTexture(0) : blurDownTargets_[0]->GetColorTexture(0);
+            const std::array<RHI::ResourceBinding, 1> finalBlurBindings{RHI::ResourceBinding{
+                .slot = 1,
+                .kind = RHI::ResourceBindingKind::Texture2D,
+                .texture = finalBlurSource,
+                .buffer = nullptr
+            }};
+            postBlurFinalResourceSet_ = GetRhiContext().CreateResourceSet(
+                RHI::ResourceSetDesc{.bindings = finalBlurBindings.data(), .bindingCount = 1}
+            );
+            scene.PostBlurFinalResources = postBlurFinalResourceSet_.get();
+
+            const std::array<RHI::ResourceBinding, 2> compositeBindings{
+                RHI::ResourceBinding{
+                    .slot = 1,
+                    .kind = RHI::ResourceBindingKind::Texture2D,
+                    .texture = sceneColor,
+                    .buffer = nullptr
+                },
+                RHI::ResourceBinding{
+                    .slot = 2,
+                    .kind = RHI::ResourceBindingKind::Texture2D,
+                    .texture = blurFinalTarget_->GetColorTexture(0),
+                    .buffer = nullptr
+                }
+            };
+            postCompositeResourceSet_ = GetRhiContext().CreateResourceSet(
+                RHI::ResourceSetDesc{.bindings = compositeBindings.data(), .bindingCount = 2}
+            );
+            scene.PostBlurDownResources = scene.PostBlurDownLevelResources[0];
+            scene.PostBlurUpResources = scene.PostBlurUpLevelResources[0];
+            scene.PostCompositeResources = postCompositeResourceSet_.get();
+            scene.PostProcessPush = Common::PostProcessPushConstants{
+                .Settings = {cameraUniforms.RenderSettings[0], cameraUniforms.RenderSettings[1], cameraUniforms.RenderSettings[2], static_cast<float>(postProcessFrameSeed_)}
+            };
+        } else {
+            scene.PostProcessPush = {};
+            scene.PostBlurDownResources = nullptr;
+            scene.PostBlurUpResources = nullptr;
+            scene.PostBlurFinalResources = nullptr;
+            scene.PostBlurDownLevelResources.fill(nullptr);
+            scene.PostBlurUpLevelResources.fill(nullptr);
+            scene.PostCompositeResources = nullptr;
+        }
 
         static_cast<void>(place_);
         static_cast<void>(overlayPrimitives_);
@@ -328,19 +552,114 @@ private:
     }
 
     void ReleaseGpuResources() {
+        if (hasSurfaceAtlas_ && (vkBackend_ != nullptr || glBackend_ != nullptr)) {
+            GetRhiContext().DestroyTexture(surfaceAtlas_);
+            surfaceAtlas_ = {};
+            hasSurfaceAtlas_ = false;
+        }
+        if (hasFallbackBlackTexture_ && (vkBackend_ != nullptr || glBackend_ != nullptr)) {
+            GetRhiContext().DestroyTexture(fallbackBlackTexture_);
+            fallbackBlackTexture_ = {};
+            hasFallbackBlackTexture_ = false;
+        }
         if (hasSkyboxCubemap_ && (vkBackend_ != nullptr || glBackend_ != nullptr)) {
             GetRhiContext().DestroyTexture(skyboxCubemap_);
             skyboxCubemap_ = {};
             hasSkyboxCubemap_ = false;
         }
         frameResourceSet_.reset();
+        for (auto& set : postBlurDownLevelResourceSets_) {
+            set.reset();
+        }
+        for (auto& set : postBlurUpLevelResourceSets_) {
+            set.reset();
+        }
+        postBlurFinalResourceSet_.reset();
+        postCompositeResourceSet_.reset();
         frameUniformBuffer_.reset();
         retiredFrameResourceSets_.clear();
         retiredFrameUniformBuffers_.clear();
         primitiveMeshCache_.clear();
         meshPartCache_.clear();
         frameMeshRefs_.clear();
+        geometryTarget_.reset();
+        for (auto& target : blurDownTargets_) {
+            target.reset();
+        }
+        for (auto& target : blurUpTargets_) {
+            target.reset();
+        }
+        blurFinalTarget_.reset();
         skyboxSettingsKey_.reset();
+    }
+
+    void EnsurePostProcessTargets() {
+        if (surfaceWidth_ == 0U || surfaceHeight_ == 0U) {
+            return;
+        }
+        const auto needsRecreate = [this](const std::unique_ptr<RHI::IRenderTarget>& target,
+                                          const RHI::u32 width,
+                                          const RHI::u32 height,
+                                          const RHI::u32 colors) {
+            return target == nullptr || target->GetWidth() != width || target->GetHeight() != height ||
+                   target->GetColorAttachmentCount() != colors;
+        };
+        if (needsRecreate(geometryTarget_, surfaceWidth_, surfaceHeight_, 2U)) {
+            geometryTarget_ = GetRhiContext().CreateRenderTarget(
+                RHI::RenderTargetDesc{.width = surfaceWidth_, .height = surfaceHeight_, .colorAttachmentCount = 2, .hasDepth = true}
+            );
+        }
+
+        RHI::u32 levelWidth = std::max<RHI::u32>(1U, surfaceWidth_ / 2U);
+        RHI::u32 levelHeight = std::max<RHI::u32>(1U, surfaceHeight_ / 2U);
+        for (RHI::u32 level = 0; level < SceneData::MaxPostBlurLevels; ++level) {
+            if (needsRecreate(blurDownTargets_[level], levelWidth, levelHeight, 1U)) {
+                blurDownTargets_[level] = GetRhiContext().CreateRenderTarget(
+                    RHI::RenderTargetDesc{
+                        .width = levelWidth,
+                        .height = levelHeight,
+                        .colorAttachmentCount = 1,
+                        .hasDepth = false
+                    }
+                );
+            }
+            if (needsRecreate(blurUpTargets_[level], levelWidth, levelHeight, 1U)) {
+                blurUpTargets_[level] = GetRhiContext().CreateRenderTarget(
+                    RHI::RenderTargetDesc{
+                        .width = levelWidth,
+                        .height = levelHeight,
+                        .colorAttachmentCount = 1,
+                        .hasDepth = false
+                    }
+                );
+            }
+            levelWidth = std::max<RHI::u32>(1U, levelWidth / 2U);
+            levelHeight = std::max<RHI::u32>(1U, levelHeight / 2U);
+        }
+        if (needsRecreate(blurFinalTarget_, surfaceWidth_, surfaceHeight_, 1U)) {
+            blurFinalTarget_ = GetRhiContext().CreateRenderTarget(
+                RHI::RenderTargetDesc{
+                    .width = surfaceWidth_,
+                    .height = surfaceHeight_,
+                    .colorAttachmentCount = 1,
+                    .hasDepth = false
+                }
+            );
+        }
+    }
+
+    void EnsureFallbackTextures() {
+        if (hasFallbackBlackTexture_) {
+            return;
+        }
+        RHI::Texture2DDesc blackDesc{};
+        blackDesc.width = 1;
+        blackDesc.height = 1;
+        blackDesc.format = RHI::Format::R8G8B8A8_UNorm;
+        blackDesc.linearFiltering = true;
+        blackDesc.pixels = {0, 0, 0, 255};
+        fallbackBlackTexture_ = GetRhiContext().CreateTexture2D(blackDesc);
+        hasFallbackBlackTexture_ = fallbackBlackTexture_.graphic_handle_ptr != nullptr;
     }
 
     void EnsureBackend() {
@@ -505,13 +824,66 @@ private:
             hasSkyboxCubemap_ = true;
             skyboxSettingsKey_ = resolvedKey;
         } catch (const std::exception&) {
-            // Keep currently uploaded cubemap if loading the new one fails.
+        }
+    }
+
+    void UpdateSurfaceAtlasTexture() {
+        if (hasSurfaceAtlas_) {
+            return;
+        }
+        const auto atlasPath = Utils::PathUtils::GetResourcePath("Surfaces/Surfaces2.png");
+        if (!Utils::FileIO::Exists(atlasPath)) {
+            return;
+        }
+
+        try {
+            const auto image = Utils::ImageIO::LoadRgba8(atlasPath);
+            RHI::Texture2DDesc atlasDesc{};
+            atlasDesc.width = image.Width;
+            atlasDesc.height = image.Height;
+            atlasDesc.format = RHI::Format::R8G8B8A8_UNorm;
+            atlasDesc.linearFiltering = true;
+            atlasDesc.pixels = image.Pixels;
+            auto texture = GetRhiContext().CreateTexture2D(atlasDesc);
+            if (texture.graphic_handle_ptr == nullptr) {
+                return;
+            }
+            if (hasSurfaceAtlas_) {
+                GetRhiContext().DestroyTexture(surfaceAtlas_);
+            }
+            surfaceAtlas_ = texture;
+            hasSurfaceAtlas_ = true;
+        } catch (const std::exception&) {
         }
     }
 
     [[nodiscard]] std::vector<SceneData::DrawPacket> BuildGeometryDraws() {
         std::vector<SceneData::DrawPacket> draws;
-        const auto pushOverlayDraw = [this, &draws](const Common::OverlayPrimitive& overlay) {
+        bool hasCameraPosition = false;
+        Math::Vector3 cameraPosition{};
+        if (place_ != nullptr) {
+            if (const auto workspaceService = std::dynamic_pointer_cast<DataModel::Workspace>(place_->FindService("Workspace"));
+                workspaceService != nullptr) {
+                if (const auto camera =
+                        workspaceService->GetProperty("CurrentCamera").value<std::shared_ptr<Objects::Camera>>();
+                    camera != nullptr) {
+                    cameraPosition = camera->GetProperty("CFrame").value<Math::CFrame>().Position;
+                    hasCameraPosition = true;
+                }
+            }
+        }
+
+        const auto computeSortDepth = [hasCameraPosition, cameraPosition](const Math::Vector3& worldPosition) {
+            if (!hasCameraPosition) {
+                return 0.0F;
+            }
+            const double dx = worldPosition.x - cameraPosition.x;
+            const double dy = worldPosition.y - cameraPosition.y;
+            const double dz = worldPosition.z - cameraPosition.z;
+            return static_cast<float>(dx * dx + dy * dy + dz * dz);
+        };
+
+        const auto pushOverlayDraw = [this, &draws, &computeSortDepth](const Common::OverlayPrimitive& overlay) {
             GpuMesh* gpuMesh = GetOrCreatePrimitiveMesh(overlay.Shape);
             if (gpuMesh == nullptr) {
                 return;
@@ -531,10 +903,16 @@ private:
             };
             push.SurfaceData0 = {0.0F, 0.0F, 0.0F, overlay.AlwaysOnTop ? 1.0F : 0.0F};
             push.SurfaceData1 = {0.0F, 0.0F, 0.0F, 0.0F};
+            const auto rows = overlay.Model.Rows();
+            const Math::Vector3 worldPosition{rows[0][3], rows[1][3], rows[2][3]};
+            const float alpha = std::clamp(overlay.Alpha, 0.0F, 1.0F);
             draws.push_back(SceneData::DrawPacket{
                 .Mesh = meshRef,
                 .PushConstants = push,
-                .CullMode = RHI::CullMode::None
+                .CullMode = RHI::CullMode::Back,
+                .Transparent = alpha < 1.0F || overlay.AlwaysOnTop,
+                .AlwaysOnTop = overlay.AlwaysOnTop,
+                .SortDepth = computeSortDepth(worldPosition)
             });
         };
 
@@ -567,7 +945,8 @@ private:
 
                     Common::DrawPushConstants push{};
                     push.Model = ToFloatMat4ColumnMajor(model);
-                    push.BaseColor = ToVec4(color, static_cast<float>(1.0 - std::clamp(transparency, 0.0, 1.0)));
+                    const float alpha = static_cast<float>(1.0 - std::clamp(transparency, 0.0, 1.0));
+                    push.BaseColor = ToVec4(color, alpha);
                     push.Material = {
                         static_cast<float>(std::clamp(part->GetProperty("Roughness").toDouble(), 0.0, 1.0)),
                         static_cast<float>(std::clamp(part->GetProperty("Metalness").toDouble(), 0.0, 1.0)),
@@ -575,7 +954,21 @@ private:
                         0.0F
                     };
                     push.SurfaceData0 = {0.0F, 0.0F, 0.0F, 0.0F};
-                    push.SurfaceData1 = {0.0F, 0.0F, 0.0F, 0.0F};
+                    push.SurfaceData1 = {0.0F, 0.0F, hasSurfaceAtlas_ ? 1.0F : 0.0F, 0.0F};
+                    if (const auto partInstance = std::dynamic_pointer_cast<Objects::Part>(instance); partInstance != nullptr) {
+                        push.SurfaceData0 = {
+                            static_cast<float>(partInstance->GetProperty("TopSurface").value<Enums::PartSurfaceType>()),
+                            static_cast<float>(partInstance->GetProperty("BottomSurface").value<Enums::PartSurfaceType>()),
+                            static_cast<float>(partInstance->GetProperty("FrontSurface").value<Enums::PartSurfaceType>()),
+                            static_cast<float>(partInstance->GetProperty("BackSurface").value<Enums::PartSurfaceType>())
+                        };
+                        push.SurfaceData1[0] = static_cast<float>(
+                            partInstance->GetProperty("LeftSurface").value<Enums::PartSurfaceType>()
+                        );
+                        push.SurfaceData1[1] = static_cast<float>(
+                            partInstance->GetProperty("RightSurface").value<Enums::PartSurfaceType>()
+                        );
+                    }
 
                     GpuMesh* gpuMesh = nullptr;
                     if (const auto meshPart = std::dynamic_pointer_cast<Objects::MeshPart>(instance); meshPart != nullptr) {
@@ -598,10 +991,14 @@ private:
                         continue;
                     }
 
+                    const bool alwaysOnTop = part->GetProperty("AlwaysOnTop").toBool();
                     draws.push_back(SceneData::DrawPacket{
                         .Mesh = meshRef,
                         .PushConstants = push,
-                        .CullMode = ToRhiCullMode(part->GetProperty("CullMode").value<Enums::MeshCullMode>())
+                        .CullMode = ToRhiCullMode(part->GetProperty("CullMode").value<Enums::MeshCullMode>()),
+                        .Transparent = alpha < 1.0F || alwaysOnTop,
+                        .AlwaysOnTop = alwaysOnTop,
+                        .SortDepth = computeSortDepth(part->GetWorldPosition())
                     });
                 }
             }
@@ -613,7 +1010,7 @@ private:
         return draws;
     }
 
-    [[nodiscard]] Common::CameraUniformData BuildCameraUniforms() const {
+    [[nodiscard]] Common::CameraUniformData BuildCameraUniforms() {
         Common::CameraUniformData uniforms{};
         uniforms.View = ToFloatMat4ColumnMajor(Math::Matrix4::Identity());
         uniforms.Projection = ToFloatMat4ColumnMajor(Math::Matrix4::Identity());
@@ -623,7 +1020,7 @@ private:
         uniforms.LightSpecular = {0.0F, 0.0F, 0.0F, 0.0F};
         uniforms.Ambient = {0.15F, 0.15F, 0.15F, 1.0F};
         uniforms.SkyTint = {1.0F, 1.0F, 1.0F, 1.0F};
-        uniforms.RenderSettings = {1.0F, 0.0F, 0.0F, 0.0F};
+        uniforms.RenderSettings = {1.0F, 0.0F, 1.0F, 0.0F};
         uniforms.ShadowMatrices[0] = ToFloatMat4ColumnMajor(Math::Matrix4::Identity());
         uniforms.ShadowMatrices[1] = ToFloatMat4ColumnMajor(Math::Matrix4::Identity());
         uniforms.ShadowMatrices[2] = ToFloatMat4ColumnMajor(Math::Matrix4::Identity());
@@ -651,8 +1048,8 @@ private:
             uniforms.RenderSettings = {
                 lightingService->GetProperty("GammaCorrection").toBool() ? 1.0F : 0.0F,
                 lightingService->GetProperty("Dithering").toBool() ? 1.0F : 0.0F,
-                lightingService->GetProperty("ShadowsEnabled").toBool() ? 1.0F : 0.0F,
-                0.0F
+                lightingService->GetProperty("NeonEnabled").toBool() ? 1.0F : 0.0F,
+                lightingService->GetProperty("InaccurateNeon").toBool() ? 1.0F : 0.0F
             };
 
             for (const auto& child : lightingService->GetChildren()) {
@@ -738,13 +1135,26 @@ private:
     std::deque<SceneData::MeshRef> frameMeshRefs_{};
     std::unique_ptr<RHI::IBuffer> frameUniformBuffer_{};
     std::unique_ptr<RHI::IResourceSet> frameResourceSet_{};
+    std::array<std::unique_ptr<RHI::IResourceSet>, SceneData::MaxPostBlurLevels> postBlurDownLevelResourceSets_{};
+    std::array<std::unique_ptr<RHI::IResourceSet>, SceneData::MaxPostBlurLevels> postBlurUpLevelResourceSets_{};
+    std::unique_ptr<RHI::IResourceSet> postBlurFinalResourceSet_{};
+    std::unique_ptr<RHI::IResourceSet> postCompositeResourceSet_{};
+    std::unique_ptr<RHI::IRenderTarget> geometryTarget_{};
+    std::array<std::unique_ptr<RHI::IRenderTarget>, SceneData::MaxPostBlurLevels> blurDownTargets_{};
+    std::array<std::unique_ptr<RHI::IRenderTarget>, SceneData::MaxPostBlurLevels> blurUpTargets_{};
+    std::unique_ptr<RHI::IRenderTarget> blurFinalTarget_{};
     std::deque<std::unique_ptr<RHI::IBuffer>> retiredFrameUniformBuffers_{};
     std::deque<std::unique_ptr<RHI::IResourceSet>> retiredFrameResourceSets_{};
     Common::SkyboxSettingsResolver skyboxResolver_{};
     std::optional<std::size_t> skyboxSettingsKey_{};
     Math::Color3 skyboxTint_{1.0, 1.0, 1.0};
+    RHI::Texture surfaceAtlas_{};
+    bool hasSurfaceAtlas_{false};
     RHI::Texture skyboxCubemap_{};
     bool hasSkyboxCubemap_{false};
+    RHI::Texture fallbackBlackTexture_{};
+    bool hasFallbackBlackTexture_{false};
+    std::uint32_t postProcessFrameSeed_{0};
     RHI::u32 surfaceWidth_{0};
     RHI::u32 surfaceHeight_{0};
     float clearColor_[4]{1.0F, 1.0F, 1.0F, 1.0F};

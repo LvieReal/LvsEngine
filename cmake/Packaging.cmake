@@ -101,6 +101,24 @@ function(lvs_add_distribution_target target)
             if(NOT EXISTS "${objdump}")
                 set(objdump "${compiler_bin_dir}/llvm-objdump.exe")
             endif()
+            set(extra_runtime_search_dirs "")
+            if(TARGET assimp::assimp)
+                foreach(assimp_location_prop
+                    IMPORTED_LOCATION_RELEASE
+                    IMPORTED_LOCATION_RELWITHDEBINFO
+                    IMPORTED_LOCATION_MINSIZEREL
+                    IMPORTED_LOCATION_DEBUG
+                    IMPORTED_LOCATION
+                )
+                    get_target_property(assimp_runtime_path assimp::assimp ${assimp_location_prop})
+                    if(assimp_runtime_path AND EXISTS "${assimp_runtime_path}")
+                        get_filename_component(assimp_runtime_dir "${assimp_runtime_path}" DIRECTORY)
+                        list(APPEND extra_runtime_search_dirs "${assimp_runtime_dir}")
+                    endif()
+                endforeach()
+            endif()
+            list(REMOVE_DUPLICATES extra_runtime_search_dirs)
+            list(JOIN extra_runtime_search_dirs ";" extra_runtime_search_dirs_arg)
 
             list(APPEND dist_args -DWINDEPLOYQT=${windeployqt})
 
@@ -113,6 +131,7 @@ function(lvs_add_distribution_target target)
                     -DQT_BIN_DIR=${qt_bin_dir}
                     -DCOMPILER_BIN_DIR=${compiler_bin_dir}
                     -DOBJDUMP_EXECUTABLE=${objdump}
+                    -DEXTRA_RUNTIME_SEARCH_DIRS=${extra_runtime_search_dirs_arg}
                     -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/SeedRuntimeCache.cmake"
                 DEPENDS ${target}
                 COMMENT "Caching runtime dependencies for ${target} into project"

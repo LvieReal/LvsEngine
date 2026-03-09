@@ -18,7 +18,7 @@ function(is_system_dll dll_name out_var)
     string(TOLOWER "${dll_name}" dll_lower)
     if(dll_lower MATCHES "^api-ms-win-" OR dll_lower MATCHES "^ext-ms-win-")
         set(${out_var} TRUE PARENT_SCOPE)
-    elseif(dll_lower MATCHES "^(kernel32|user32|gdi32|advapi32|shell32|ole32|oleaut32|comdlg32|winspool|ws2_32|bcrypt|crypt32|dwmapi|imm32|setupapi|version|winmm|shlwapi|shcore|uxtheme|mpr|netapi32|wtsapi32|dwrite|dxgi|d3d11|d3d12|vulkan-1|msvcrt|ntdll)\\.dll$")
+    elseif(dll_lower MATCHES "^(kernel32|kernelbase|user32|userenv|gdi32|advapi32|shell32|ole32|oleaut32|comdlg32|winspool|ws2_32|bcrypt|crypt32|dwmapi|imm32|setupapi|version|winmm|shlwapi|shcore|uxtheme|mpr|netapi32|wtsapi32|dwrite|dxgi|d3d11|d3d12|rpcrt4|authz|usp10|opengl32|vulkan-1|msvcrt|ntdll)\\.dll$")
         set(${out_var} TRUE PARENT_SCOPE)
     else()
         set(${out_var} FALSE PARENT_SCOPE)
@@ -80,7 +80,7 @@ function(resolve_and_copy_runtime root_binary)
     endwhile()
 endfunction()
 
-set(seed_dir "${SOURCE_DIR}/.lvs_runtime_seed")
+set(seed_dir "${SOURCE_DIR}/.lvs_runtime_seed_${EXE_NAME}")
 file(REMOVE_RECURSE "${seed_dir}")
 file(MAKE_DIRECTORY "${seed_dir}")
 file(COPY "${SOURCE_DIR}/${EXE_NAME}" DESTINATION "${seed_dir}")
@@ -91,6 +91,27 @@ set(search_dirs
     "${QT_BIN_DIR}"
     "${COMPILER_BIN_DIR}"
 )
+
+# Pull runtime dependencies from toolchain/system PATH as a fallback.
+if(DEFINED ENV{PATH} AND NOT "$ENV{PATH}" STREQUAL "")
+    string(REPLACE ";" ";" path_search_dirs "$ENV{PATH}")
+    foreach(path_dir IN LISTS path_search_dirs)
+        if(path_dir AND EXISTS "${path_dir}")
+            list(APPEND search_dirs "${path_dir}")
+        endif()
+    endforeach()
+endif()
+
+# Optional additional runtime search locations passed by caller.
+if(DEFINED EXTRA_RUNTIME_SEARCH_DIRS AND NOT "${EXTRA_RUNTIME_SEARCH_DIRS}" STREQUAL "")
+    foreach(extra_dir IN LISTS EXTRA_RUNTIME_SEARCH_DIRS)
+        if(extra_dir AND EXISTS "${extra_dir}")
+            list(APPEND search_dirs "${extra_dir}")
+        endif()
+    endforeach()
+endif()
+
+list(REMOVE_DUPLICATES search_dirs)
 
 execute_process(
     COMMAND "${WINDEPLOYQT}"

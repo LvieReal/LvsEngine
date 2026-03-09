@@ -24,8 +24,10 @@ public:
     ~VulkanContext() override;
     std::unique_ptr<RHI::ICommandBuffer> AllocateCommandBuffer() override;
     std::unique_ptr<RHI::IPipeline> CreatePipeline(const RHI::PipelineDesc& desc) override;
+    std::unique_ptr<RHI::IRenderTarget> CreateRenderTarget(const RHI::RenderTargetDesc& desc) override;
     std::unique_ptr<RHI::IBuffer> CreateBuffer(const RHI::BufferDesc& desc) override;
     std::unique_ptr<RHI::IResourceSet> CreateResourceSet(const RHI::ResourceSetDesc& desc) override;
+    [[nodiscard]] RHI::Texture CreateTexture2D(const RHI::Texture2DDesc& desc) override;
     [[nodiscard]] RHI::Texture CreateTextureCube(const RHI::CubemapDesc& desc) override;
     void DestroyTexture(RHI::Texture& texture) override;
     void BindTexture(RHI::u32 slot, const RHI::Texture& texture) override;
@@ -44,6 +46,7 @@ public:
     void BindIndexBuffer(VkCommandBuffer commandBuffer, const RHI::IBuffer& buffer, RHI::IndexType indexType, std::size_t offset) const;
     void BindResourceSet(VkCommandBuffer commandBuffer, RHI::u32 slot, const RHI::IResourceSet& set) const;
     void PushConstants(VkCommandBuffer commandBuffer, const void* data, std::size_t size) const;
+    void Draw(VkCommandBuffer commandBuffer, RHI::u32 vertexCount) const;
     void DrawIndexed(VkCommandBuffer commandBuffer, RHI::u32 indexCount) const;
 
 private:
@@ -89,7 +92,9 @@ private:
         VkImageView View{VK_NULL_HANDLE};
         VkSampler Sampler{VK_NULL_HANDLE};
     };
+    using OwnedTexture2D = OwnedCubeTexture;
     std::unordered_map<VkImageView, OwnedCubeTexture> ownedCubeTextures_{};
+    std::unordered_map<VkImageView, OwnedTexture2D> owned2DTextures_{};
 };
 
 } // namespace Lvs::Engine::Rendering::Backends::Vulkan

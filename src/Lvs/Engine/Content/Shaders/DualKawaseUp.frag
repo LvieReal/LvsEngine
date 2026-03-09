@@ -2,7 +2,7 @@
 
 layout(location = 0) in vec2 fragUv;
 
-layout(set = 0, binding = 0) uniform sampler2D sourceTexture;
+layout(set = 0, binding = 1) uniform sampler2D sourceTexture;
 
 layout(push_constant) uniform BlurSettings {
     vec4 settings; // xy: texel size, z: offset, w: unused

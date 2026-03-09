@@ -22,6 +22,14 @@ struct CubemapDesc {
     std::array<std::vector<std::uint8_t>, 6> faces{};
 };
 
+struct Texture2DDesc {
+    u32 width{0};
+    u32 height{0};
+    Format format{Format::R8G8B8A8_UNorm};
+    bool linearFiltering{true};
+    std::vector<std::uint8_t> pixels{};
+};
+
 struct Texture {
     u32 width{0};
     u32 height{0};

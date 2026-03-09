@@ -1,5 +1,3 @@
 {
-    "cmake.useCMakePresets": "always",
-    "cmake.configurePreset": "studio-mingw-debug",
-    "cmake.buildPreset": "studio-mingw-debug"
+    "cmake.useCMakePresets": "always"
 }

@@ -160,24 +160,6 @@
             "problemMatcher": [
                 "$gcc"
             ]
-        },
-        {
-            "label": "studio-bundle-release-mingw",
-            "type": "shell",
-            "command": "cmake",
-            "args": [
-                "--build",
-                "--preset",
-                "studio-mingw-release",
-                "--target",
-                "lvs_dist",
-                "--parallel",
-                "${env:NUMBER_OF_PROCESSORS}"
-            ],
-            "dependsOn": "studio-configure-release-mingw",
-            "problemMatcher": [
-                "$gcc"
-            ]
         }
     ]
 }

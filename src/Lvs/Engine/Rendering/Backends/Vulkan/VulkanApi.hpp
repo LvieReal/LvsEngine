@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vulkan/vulkan.h>
+#include <cstdint>
 #include <vector>
 
 namespace Lvs::Engine::Rendering::Backends::Vulkan {
@@ -33,6 +34,7 @@ struct VulkanApi {
     VkSampler DefaultSampler{VK_NULL_HANDLE};
 
     VkExtent2D SurfaceExtent{0U, 0U};
+    std::uint32_t NegotiatedApiVersion{VK_API_VERSION_1_0};
 };
 
 } // namespace Lvs::Engine::Rendering::Backends::Vulkan

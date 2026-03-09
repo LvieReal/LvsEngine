@@ -26,6 +26,9 @@ Core::ClassDescriptor& Lighting::Descriptor() {
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
             "NeonBlur", 2.0, true, "Rendering", "Dual Kawase blur amount for neon glow."
         ));
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
+            "NeonEnabled", true, true, "Rendering", "Enable neon glow contribution in post-process composite."
+        ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Math::Color3>(
             "Ambient", Math::Color3{1.0, 1.0, 1.0}, true, "Rendering", "Global ambient color."
         ));

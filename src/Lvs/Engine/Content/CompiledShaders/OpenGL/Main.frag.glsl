@@ -33,6 +33,7 @@ layout(binding = 4) uniform sampler2D surfaceAtlas;
 layout(binding = 5) uniform sampler2D surfaceNormalAtlas;
 layout(binding = 2) uniform sampler2DShadow directionalShadowMaps[3];
 layout(binding = 3) uniform sampler3D directionalShadowJitter;
+layout(binding = 6) uniform sampler2D neonTexture;
 layout(binding = 1) uniform samplerCube skyboxTex;
 
 layout(location = 1) in vec3 fragWorldPos;
@@ -567,9 +568,10 @@ void main()
     float metalness = clamp(fragMaterial.x, 0.0, 1.0);
     float roughness = clamp(fragMaterial.y, 0.0, 1.0);
     float emissive = max(fragMaterial.z, 0.0);
-    bool allowBlackNeon = camera.renderSettings.w > 0.5;
+    bool neonEnabled = camera.renderSettings.z > 0.5;
+    bool allowBlackNeon = (camera.renderSettings.w > 0.5) && neonEnabled;
     float albedoL2 = dot(albedo, albedo);
-    float glowMask = float(emissive > 0.0);
+    float glowMask = float((neonEnabled && (ignoreLighting <= 0.5)) && (emissive > 9.9999997473787516355514526367188e-05));
     if ((!allowBlackNeon) && (albedoL2 < 9.9999999747524270787835121154785e-07))
     {
         glowMask = 0.0;
@@ -583,15 +585,26 @@ void main()
     }
     vec3 emissiveScene = (albedo * emissive) * 4.0;
     vec3 glowColor = (((glowBase * emissive) * 8.0) * blackNeonGlowBoost) * glowMask;
+    vec2 neonUv = gl_FragCoord.xy / vec2(max(textureSize(neonTexture, 0), ivec2(1)));
+    vec3 _1257;
+    if (neonEnabled)
+    {
+        _1257 = texture(neonTexture, neonUv).xyz;
+    }
+    else
+    {
+        _1257 = vec3(0.0);
+    }
+    vec3 neonSample = _1257;
     if (ignoreLighting > 0.5)
     {
-        outSceneColor = vec4(albedo + emissiveScene, alpha);
+        outSceneColor = vec4((albedo + emissiveScene) + ((neonSample * 0.100000001490116119384765625) * glowMask), alpha);
         outGlowColor = vec4(0.0);
         return;
     }
     if (allowBlackNeon && (emissive > 0.0))
     {
-        outSceneColor = vec4(albedo + emissiveScene, alpha);
+        outSceneColor = vec4((albedo + emissiveScene) + ((neonSample * 0.100000001490116119384765625) * glowMask), alpha);
         outGlowColor = vec4(glowColor, glowMask);
         return;
     }
@@ -628,7 +641,7 @@ void main()
             }
         }
         color += emissiveScene;
-        outSceneColor = vec4(color, alpha);
+        outSceneColor = vec4(color + ((neonSample * 0.100000001490116119384765625) * glowMask), alpha);
         outGlowColor = vec4(glowColor, glowMask);
         return;
     }
@@ -683,7 +696,7 @@ void main()
         }
     }
     color_1 += emissiveScene;
-    outSceneColor = vec4(color_1, alpha);
+    outSceneColor = vec4(color_1 + ((neonSample * 0.100000001490116119384765625) * glowMask), alpha);
     outGlowColor = vec4(glowColor, glowMask);
 }
 

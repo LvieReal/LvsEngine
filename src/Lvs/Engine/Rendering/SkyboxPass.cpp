@@ -25,8 +25,9 @@ void SkyboxPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBuffer&
     }
 
     const RHI::RenderPassInfo renderPass{
-        .width = surface_->Width,
-        .height = surface_->Height,
+        .width = scene_->SkyboxTarget.Width,
+        .height = scene_->SkyboxTarget.Height,
+        .colorAttachmentCount = 1,
         .renderPassHandle = scene_->SkyboxTarget.RenderPass,
         .framebufferHandle = scene_->SkyboxTarget.Framebuffer,
         .clearColor = false,

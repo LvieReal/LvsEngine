@@ -35,6 +35,10 @@ void GLCommandBuffer::PushConstants(const void* data, const std::size_t size) {
     context_.PushConstants(data, size);
 }
 
+void GLCommandBuffer::Draw(const RHI::u32 vertexCount) {
+    context_.Draw(vertexCount);
+}
+
 void GLCommandBuffer::DrawIndexed(const RHI::u32 indexCount) {
     context_.DrawIndexed(indexCount);
 }

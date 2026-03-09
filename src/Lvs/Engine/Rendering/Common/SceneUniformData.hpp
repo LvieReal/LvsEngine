@@ -34,4 +34,8 @@ struct SkyboxPushConstants {
     std::array<float, 4> Tint{};
 };
 
+struct PostProcessPushConstants {
+    std::array<float, 4> Settings{}; // x: gamma, y: dithering, z: neonEnabled, w: frameSeed
+};
+
 } // namespace Lvs::Engine::Rendering::Common
