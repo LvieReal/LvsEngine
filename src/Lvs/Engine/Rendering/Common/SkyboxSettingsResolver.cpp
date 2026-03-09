@@ -1,7 +1,7 @@
 #include "Lvs/Engine/Rendering/Common/SkyboxSettingsResolver.hpp"
 
-#include "Lvs/Engine/Rendering/Common/EnvironmentLookup.hpp"
 #include "Lvs/Engine/Objects/Skybox.hpp"
+#include "Lvs/Engine/Rendering/Common/EnvironmentLookup.hpp"
 
 namespace Lvs::Engine::Rendering::Common {
 
@@ -31,4 +31,3 @@ SkyboxSettingsSnapshot SkyboxSettingsResolver::Resolve(const std::shared_ptr<Dat
 }
 
 } // namespace Lvs::Engine::Rendering::Common
-

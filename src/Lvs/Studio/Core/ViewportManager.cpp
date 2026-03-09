@@ -3,6 +3,7 @@
 #include "Lvs/Engine/Context.hpp"
 #include "Lvs/Engine/Core/Viewport.hpp"
 #include "Lvs/Engine/Core/Window.hpp"
+#include "Lvs/Engine/Rendering/IRenderContext.hpp"
 
 namespace Lvs::Studio::Core {
 
@@ -80,6 +81,13 @@ void ViewportManager::BindSettings() {
     settingsConnections_.push_back(Settings::Changed("TransformSnapIncrement", [this](const QVariant& value) {
         if (viewport_ != nullptr) {
             viewport_->SetSnapIncrement(value.toDouble());
+        }
+    }, true));
+    settingsConnections_.push_back(Settings::Changed("RenderingApi", [this](const QVariant& value) {
+        if (viewport_ != nullptr) {
+            viewport_->SetRenderingApiPreference(
+                Engine::Rendering::ParseRenderApi(value.toString().toStdString())
+            );
         }
     }, true));
 }

@@ -26,4 +26,3 @@ std::shared_ptr<Objects::Skybox> FindSkyboxInstance(const std::shared_ptr<DataMo
 }
 
 } // namespace Lvs::Engine::Rendering::Common
-

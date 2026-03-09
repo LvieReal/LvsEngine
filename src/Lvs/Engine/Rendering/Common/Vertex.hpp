@@ -1,12 +1,10 @@
 #pragma once
 
-#include <cstdint>
-
 namespace Lvs::Engine::Rendering::Common {
 
-struct Vertex {
-    float Position[3];
-    float Normal[3];
+struct VertexP3N3 {
+    float Position[3]{0.0F, 0.0F, 0.0F};
+    float Normal[3]{0.0F, 1.0F, 0.0F};
 };
 
 } // namespace Lvs::Engine::Rendering::Common

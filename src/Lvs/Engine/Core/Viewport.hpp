@@ -46,6 +46,7 @@ public:
     void SetSnapIncrement(double value);
     void SetCameraSpeed(double speed);
     void SetCameraShiftSpeed(double speed);
+    void SetRenderingApiPreference(Rendering::RenderApi api);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -59,7 +60,7 @@ protected:
     void keyReleaseEvent(QKeyEvent* event) override;
 
 private:
-    void EnsureVulkanBound();
+    void EnsureGraphicsBound();
     void UpdateCamera(double deltaSeconds);
     void PickSelection(const Utils::Ray& ray);
     bool CanDragGizmo() const;
@@ -90,6 +91,7 @@ private:
     bool IsSlowMovePressed() const;
     bool HasKey(int key) const;
     bool HasScanCode(std::uint32_t sc) const;
+    void RecreateRenderContext(Rendering::RenderApi api);
 
     EngineContextPtr context_;
     std::weak_ptr<DataModel::Place> place_;
@@ -123,8 +125,8 @@ private:
     QPoint lockedCursorPos_{};
     bool rightMouseDown_{false};
     bool rightMousePanned_{false};
-    bool vulkanBound_{false};
-    bool vulkanUnavailable_{false};
+    bool graphicsBound_{false};
+    bool graphicsUnavailable_{false};
     bool gizmoAlwaysOnTop_{true};
     bool gizmoIgnoreDiffuseSpecular_{true};
     bool gizmoAlignByMagnitude_{true};

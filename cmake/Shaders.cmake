@@ -1,22 +1,29 @@
 find_program(LVS_GLSLANG_VALIDATOR NAMES glslangValidator)
 find_program(LVS_GLSLC NAMES glslc)
+find_program(LVS_SPIRV_CROSS NAMES spirv-cross spirv-cross.exe)
 
 if(NOT LVS_GLSLANG_VALIDATOR AND NOT LVS_GLSLC)
     message(FATAL_ERROR "No shader compiler found. Install Vulkan SDK (glslangValidator or glslc).")
 endif()
 
-set(LVS_VULKAN_SHADER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/Lvs/Engine/Content/Shaders/Vulkan")
+set(LVS_SHADER_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/Lvs/Engine/Content/Shaders")
+set(LVS_COMPILED_SHADER_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/src/Lvs/Engine/Content/CompiledShaders")
+set(LVS_VULKAN_COMPILED_DIR "${LVS_COMPILED_SHADER_ROOT}/Vulkan")
+file(MAKE_DIRECTORY "${LVS_VULKAN_COMPILED_DIR}")
 file(GLOB_RECURSE LVS_VULKAN_GLSL_SOURCES CONFIGURE_DEPENDS
-    "${LVS_VULKAN_SHADER_DIR}/*.vert"
-    "${LVS_VULKAN_SHADER_DIR}/*.frag"
+    "${LVS_SHADER_SOURCE_DIR}/*.vert"
+    "${LVS_SHADER_SOURCE_DIR}/*.frag"
 )
 
 set(LVS_VULKAN_SPV_OUTPUTS "")
 foreach(shader_src IN LISTS LVS_VULKAN_GLSL_SOURCES)
-    set(shader_spv "${shader_src}.spv")
+    file(RELATIVE_PATH shader_rel "${LVS_SHADER_SOURCE_DIR}" "${shader_src}")
+    set(shader_spv "${LVS_VULKAN_COMPILED_DIR}/${shader_rel}.spv")
+    get_filename_component(shader_spv_dir "${shader_spv}" DIRECTORY)
     if(LVS_GLSLANG_VALIDATOR)
         add_custom_command(
             OUTPUT "${shader_spv}"
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${shader_spv_dir}"
             COMMAND "${LVS_GLSLANG_VALIDATOR}" -V "${shader_src}" -o "${shader_spv}"
             DEPENDS "${shader_src}"
             COMMENT "Compiling GLSL -> SPIR-V: ${shader_src}"
@@ -25,6 +32,7 @@ foreach(shader_src IN LISTS LVS_VULKAN_GLSL_SOURCES)
     else()
         add_custom_command(
             OUTPUT "${shader_spv}"
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${shader_spv_dir}"
             COMMAND "${LVS_GLSLC}" "${shader_src}" -o "${shader_spv}"
             DEPENDS "${shader_src}"
             COMMENT "Compiling GLSL -> SPIR-V: ${shader_src}"
@@ -35,6 +43,34 @@ foreach(shader_src IN LISTS LVS_VULKAN_GLSL_SOURCES)
 endforeach()
 
 add_custom_target(lvs_compile_shaders DEPENDS ${LVS_VULKAN_SPV_OUTPUTS})
+
+# OpenGL pipeline consumes GLSL generated from SPIR-V binaries via spirv-cross.
+set(LVS_OPENGL_COMPILED_DIR "${LVS_COMPILED_SHADER_ROOT}/OpenGL")
+file(MAKE_DIRECTORY "${LVS_OPENGL_COMPILED_DIR}")
+
+set(LVS_OPENGL_GLSL_OUTPUTS "")
+if(NOT LVS_SPIRV_CROSS)
+    message(FATAL_ERROR "spirv-cross is required to transpile OpenGL SPIR-V shaders to GLSL.")
+endif()
+
+foreach(vulkan_spv IN LISTS LVS_VULKAN_SPV_OUTPUTS)
+    file(RELATIVE_PATH shader_rel_spv "${LVS_VULKAN_COMPILED_DIR}" "${vulkan_spv}")
+    string(REGEX REPLACE "\\.spv$" ".glsl" shader_rel_glsl "${shader_rel_spv}")
+    set(shader_glsl "${LVS_OPENGL_COMPILED_DIR}/${shader_rel_glsl}")
+    get_filename_component(shader_glsl_dir "${shader_glsl}" DIRECTORY)
+    add_custom_command(
+        OUTPUT "${shader_glsl}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${shader_glsl_dir}"
+        COMMAND "${LVS_SPIRV_CROSS}" "${vulkan_spv}" --output "${shader_glsl}"
+        DEPENDS "${vulkan_spv}"
+        COMMENT "Transpiling SPIR-V -> GLSL: ${vulkan_spv}"
+        VERBATIM
+    )
+    list(APPEND LVS_OPENGL_GLSL_OUTPUTS "${shader_glsl}")
+endforeach()
+
+add_custom_target(lvs_transpile_opengl_shaders DEPENDS ${LVS_OPENGL_GLSL_OUTPUTS})
+add_dependencies(lvs_compile_shaders lvs_transpile_opengl_shaders)
 
 function(lvs_attach_shader_compilation target)
     add_dependencies(${target} lvs_compile_shaders)

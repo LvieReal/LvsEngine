@@ -34,7 +34,7 @@ void UpdateEditorValue(QWidget* editor, const QString& key, const QVariant& valu
     }
     if (auto* combo = qobject_cast<QComboBox*>(editor); combo != nullptr) {
         const QSignalBlocker blocker(combo);
-        if (key == "Theme" || key == "ExplorerIconPack") {
+        if (key == "Theme" || key == "ExplorerIconPack" || key == "RenderingApi") {
             combo->setCurrentText(value.toString());
         }
     }
@@ -214,6 +214,18 @@ QWidget* SettingsWidget::CreateEditor(const QString& key) {
         for (const QString& pack : packs) {
             combo->addItem(pack);
         }
+        combo->setCurrentText(value.toString());
+        connect(combo, &QComboBox::currentTextChanged, combo, [key](const QString& current) {
+            Core::Settings::Set(key, current);
+        });
+        return combo;
+    }
+
+    if (key == "RenderingApi") {
+        auto* combo = new QComboBox(settingsPanel_);
+        combo->addItem("Auto");
+        combo->addItem("Vulkan");
+        combo->addItem("OpenGL");
         combo->setCurrentText(value.toString());
         connect(combo, &QComboBox::currentTextChanged, combo, [key](const QString& current) {
             Core::Settings::Set(key, current);

@@ -18,7 +18,7 @@
             "externalConsole": false,
             "MIMode": "gdb",
             "miDebuggerPath": "C:/msys64/mingw64/bin/gdb.exe",
-            "preLaunchTask": "studio-debug-mingw",
+            // "preLaunchTask": "studio-debug-mingw",
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing for gdb",
@@ -49,7 +49,7 @@
             "externalConsole": false,
             "MIMode": "gdb",
             "miDebuggerPath": "C:/msys64/mingw64/bin/gdb.exe",
-            "preLaunchTask": "studio-release-mingw",
+            // "preLaunchTask": "studio-release-mingw",
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing for gdb",
@@ -92,7 +92,7 @@
             "externalConsole": false,
             "MIMode": "gdb",
             "miDebuggerPath": "C:/msys64/clang64/bin/gdb.exe",
-            "preLaunchTask": "studio-asan-clang",
+            // "preLaunchTask": "studio-asan-clang",
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing for gdb",

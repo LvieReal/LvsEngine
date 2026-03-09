@@ -8,13 +8,14 @@ This will be expanding into online toy in the future!
 
 ## Project requirements
 
-Windows 10+, and:
+Windows 10+ 64 Bit, and:
 
 - CMake 3.27+
 - Ninja
 - MSYS2
 - MinGW-w64 toolchain (`mingw64`)
 - Qt6 (MSYS2 `mingw-w64-x86_64-qt6-base`, `mingw-w64-x86_64-qt6-tools`)
+- Assimp (MSYS2 `mingw-w64-x86_64-assimp`)
 - Optional: Clang toolchain for ASAN (`clang64`)
 - Vulkan SDK
   - `VULKAN_SDK` env var should point to your SDK install
@@ -26,6 +27,7 @@ Run from MSYS2 shell:
 
 ```bash
 pacman -S --needed mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja mingw-w64-x86_64-qt6-base mingw-w64-x86_64-qt6-tools
+pacman -S --needed mingw-w64-x86_64-assimp
 ```
 
 Optional ASAN/Clang profile:

@@ -16,6 +16,9 @@ function(lvs_attach_content_packaging target)
             COMMENT "Packaging Engine/Content assets"
             VERBATIM
         )
+        if(TARGET lvs_compile_shaders)
+            add_dependencies(${content_pack_target} lvs_compile_shaders)
+        endif()
 
         set_property(GLOBAL PROPERTY LVS_CONTENT_PACKAGE_TARGET "${content_pack_target}")
     endif()

@@ -1,16 +1,27 @@
 add_library(lvs_core STATIC
     ${ENGINE_SOURCES}
     ${ENGINE_HEADERS}
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/lib/glad/glad.c
 )
 
-target_include_directories(lvs_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(lvs_core
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/lib
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/lib/glad
+)
 target_link_libraries(lvs_core
     PUBLIC
         Qt6::Core
         Qt6::Gui
         Qt6::Widgets
         Vulkan::Vulkan
+        assimp::assimp
 )
+
+if(WIN32)
+    target_link_libraries(lvs_core PUBLIC opengl32)
+endif()
 
 qt_add_resources(lvs_core lvs_app_info_resource
     PREFIX "/config"

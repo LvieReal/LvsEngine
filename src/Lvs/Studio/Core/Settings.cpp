@@ -18,7 +18,7 @@ QMap<QString, SettingMeta> g_settings = {
     {"ShiftCameraSpeed", {"Shift Camera Speed", "Shift camera speed", 5.0}},
     {"Theme", {"Theme", "Main studio theme", "Light"}},
     {"ExplorerIconPack", {"Explorer Icon Pack", "Explorer icon pack folder name", "famfamfam-silk"}},
-    {"RenderingApi", {"Rendering API", "Preferred rendering backend (restart viewport to apply API changes)", "Auto"}},
+    {"RenderingApi", {"Rendering API", "Preferred rendering backend", "Auto"}},
     {"GizmoAlwaysOnTop", {"Gizmo Always On Top", "Render gizmos on top of scene geometry", true}},
     {"GizmoIgnoreDiffuseSpecular", {"Gizmo Ignore Lighting", "Ignore diffuse and specular lighting for gizmos", true}},
     {"GizmoAlignByMagnitude", {"Gizmo Align By Magnitude", "Place gizmo handles using bounds magnitude", true}},

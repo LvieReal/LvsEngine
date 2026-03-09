@@ -1,15 +1,15 @@
 #pragma once
 
 #include "Lvs/Engine/Rendering/Common/Vertex.hpp"
+#include "Lvs/Engine/Rendering/RHI/Types.hpp"
 
-#include <cstdint>
 #include <vector>
 
 namespace Lvs::Engine::Rendering::Common {
 
 struct MeshData {
-    std::vector<Vertex> Vertices;
-    std::vector<std::uint32_t> Indices;
+    std::vector<VertexP3N3> Vertices{};
+    std::vector<RHI::u32> Indices{};
 };
 
 } // namespace Lvs::Engine::Rendering::Common

@@ -14,7 +14,6 @@
 #include "Lvs/Engine/Utils/Command.hpp"
 #include "Lvs/Studio/Controllers/ToolbarController.hpp"
 #include "Lvs/Studio/Core/IconPackManager.hpp"
-#include "Lvs/Studio/Core/ViewportManager.hpp"
 #include "Lvs/Studio/Widgets/Explorer/ExplorerWidget.hpp"
 
 #include <QAbstractSpinBox>
@@ -43,15 +42,24 @@ namespace Lvs::Studio::Core {
 StudioQuickActions::StudioQuickActions(
     QApplication& app,
     QWidget& window,
-    const Engine::EngineContextPtr& context
+    const Engine::EngineContextPtr& context,
+    Engine::Core::Viewport* viewport,
+    Controllers::ToolbarController* toolbarController
 )
-    : QObject(&app),
+    : QObject(nullptr),
       context_(context),
+      app_(&app),
+      viewport_(viewport),
+      toolbarController_(toolbarController),
       window_(&window) {
     app.installEventFilter(this);
 }
 
-StudioQuickActions::~StudioQuickActions() = default;
+StudioQuickActions::~StudioQuickActions() {
+    // QObject destruction automatically detaches installed event filters.
+    // Avoid touching QApplication during process teardown, where destruction
+    // order may already have invalidated the application object.
+}
 
 void StudioQuickActions::SetContext(const Engine::EngineContextPtr& context) {
     context_ = context;
@@ -210,14 +218,10 @@ bool StudioQuickActions::IsTextInputFocused() const {
 }
 
 bool StudioQuickActions::IsViewportShortcutContext() const {
-    if (context_ == nullptr || context_->ViewportManager == nullptr) {
+    if (viewport_ == nullptr || !viewport_->isVisible()) {
         return false;
     }
-    Engine::Core::Viewport* viewport = context_->ViewportManager->GetViewport();
-    if (viewport == nullptr || !viewport->isVisible()) {
-        return false;
-    }
-    return viewport->hasFocus() || viewport->underMouse();
+    return viewport_->hasFocus() || viewport_->underMouse();
 }
 
 bool StudioQuickActions::IsExplorerShortcutContext() const {
@@ -272,8 +276,8 @@ void StudioQuickActions::ActivateToolShortcut(const int key) const {
         return;
     }
 
-    if (context_->ToolbarController != nullptr) {
-        context_->ToolbarController->ActivateTool(tool);
+    if (toolbarController_ != nullptr) {
+        toolbarController_->ActivateTool(tool);
         return;
     }
     if (context_->EditorToolState != nullptr) {

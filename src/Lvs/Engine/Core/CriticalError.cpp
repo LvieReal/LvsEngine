@@ -3,6 +3,7 @@
 #include <QCoreApplication>
 #include <QMessageBox>
 #include <QPushButton>
+#include <cstdlib>
 
 namespace Lvs::Engine::Core::CriticalError {
 
@@ -14,13 +15,13 @@ void ShowCriticalError(const QString& text) {
     );
 }
 
-void ShowVulkanUnsupportedError(const QString& text) {
+void ShowGraphicsUnsupportedError(const QString& text) {
     QMessageBox box;
     box.setIcon(QMessageBox::Critical);
-    box.setWindowTitle("Vulkan Unsupported");
-    box.setText("This system cannot run Lvs Engine because Vulkan is unavailable or no compatible GPU was found.");
+    box.setWindowTitle("Graphics Unsupported");
+    box.setText("This system cannot run Lvs Engine because Graphics are unavailable or no compatible GPU was found.");
     box.setInformativeText(
-        text + "\n\nUpdate your GPU drivers or run the app on hardware with Vulkan support."
+        text + "\n\nUpdate your GPU drivers or run the app on hardware with Graphics support."
     );
     QPushButton* exitButton = box.addButton("Exit", QMessageBox::DestructiveRole);
     box.setDefaultButton(exitButton);
@@ -28,6 +29,25 @@ void ShowVulkanUnsupportedError(const QString& text) {
     box.exec();
 
     QCoreApplication::exit(1);
+}
+
+[[noreturn]] void ShowUnexpectedNoReturnError(const QString& text) {
+    const QString appName = QCoreApplication::applicationName();
+    const QString appLabel = appName.contains("studio", Qt::CaseInsensitive) ? "Studio" : "App";
+
+    QMessageBox box;
+    box.setIcon(QMessageBox::Critical);
+    box.setWindowTitle("Unexpected Error");
+    box.setText(
+        QString("An unexpected error occured and %1 needs to quit, sorry!\n%2").arg(appLabel, text)
+    );
+    QPushButton* exitButton = box.addButton("Exit", QMessageBox::DestructiveRole);
+    box.setDefaultButton(exitButton);
+    box.setEscapeButton(exitButton);
+    box.exec();
+
+    QCoreApplication::quit();
+    std::exit(1);
 }
 
 void ShowCriticalErrorFromException(const std::exception& ex) {

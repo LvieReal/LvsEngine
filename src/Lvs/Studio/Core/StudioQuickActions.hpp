@@ -22,6 +22,10 @@ class Instance;
 class Viewport;
 }
 
+namespace Lvs::Studio::Controllers {
+class ToolbarController;
+}
+
 namespace Lvs::Engine::DataModel {
 class ChangeHistoryService;
 class Place;
@@ -40,7 +44,13 @@ namespace Lvs::Studio::Core {
 
 class StudioQuickActions final : public QObject {
 public:
-    StudioQuickActions(QApplication& app, QWidget& window, const Engine::EngineContextPtr& context);
+    StudioQuickActions(
+        QApplication& app,
+        QWidget& window,
+        const Engine::EngineContextPtr& context,
+        Engine::Core::Viewport* viewport,
+        Controllers::ToolbarController* toolbarController
+    );
     ~StudioQuickActions() override;
 
     void SetContext(const Engine::EngineContextPtr& context);
@@ -86,6 +96,9 @@ private:
     ) const;
 
     Engine::EngineContextPtr context_;
+    QApplication* app_{nullptr};
+    Engine::Core::Viewport* viewport_{nullptr};
+    Controllers::ToolbarController* toolbarController_{nullptr};
     QWidget* window_{nullptr};
 };
 

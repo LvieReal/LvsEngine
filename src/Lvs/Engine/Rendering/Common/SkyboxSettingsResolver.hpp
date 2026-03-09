@@ -16,4 +16,3 @@ public:
 };
 
 } // namespace Lvs::Engine::Rendering::Common
-

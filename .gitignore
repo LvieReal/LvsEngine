@@ -27,3 +27,6 @@ Thumbs.db
 
 # Local runtime config
 /studioConfig.json
+
+# Archived code
+/archive/

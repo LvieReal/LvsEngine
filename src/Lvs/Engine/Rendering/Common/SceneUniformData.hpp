@@ -4,7 +4,7 @@
 
 namespace Lvs::Engine::Rendering::Common {
 
-struct SceneUniformData {
+struct CameraUniformData {
     std::array<float, 16> View{};
     std::array<float, 16> Projection{};
     std::array<float, 4> CameraPosition{};
@@ -19,6 +19,19 @@ struct SceneUniformData {
     std::array<float, 4> ShadowParams{};
     std::array<float, 4> ShadowState{};
     std::array<float, 4> CameraForward{};
+};
+
+struct DrawPushConstants {
+    std::array<float, 16> Model{};
+    std::array<float, 4> BaseColor{};
+    std::array<float, 4> Material{};
+    std::array<float, 4> SurfaceData0{};
+    std::array<float, 4> SurfaceData1{};
+};
+
+struct SkyboxPushConstants {
+    std::array<float, 16> ViewProjection{};
+    std::array<float, 4> Tint{};
 };
 
 } // namespace Lvs::Engine::Rendering::Common

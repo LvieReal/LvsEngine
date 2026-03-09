@@ -8,6 +8,8 @@ namespace Lvs::Engine::Rendering::Common::Primitives {
 namespace {
 constexpr double PI = 3.14159265358979323846;
 
+using Vertex = VertexP3N3;
+
 Vertex MakeVertex(const float x, const float y, const float z, const float nx, const float ny, const float nz) {
     return Vertex{
         .Position = {x, y, z},

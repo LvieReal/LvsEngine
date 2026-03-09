@@ -18,7 +18,29 @@
 
 namespace Lvs::Studio::Bootstrap {
 
+namespace {
+
+struct StudioRuntimeState {
+    std::unique_ptr<Core::DockManager> DockManager;
+    std::unique_ptr<Core::ViewportManager> ViewportManager;
+    std::unique_ptr<Controllers::TopBarController> TopBarController;
+    std::unique_ptr<Controllers::ToolbarController> ToolbarController;
+    std::unique_ptr<Core::HistoryShortcuts> HistoryShortcuts;
+    std::unique_ptr<Core::StudioQuickActions> StudioQuickActions;
+};
+
+} // namespace
+
 void Run(QApplication& app, Engine::Core::Window& window, const Engine::EngineContextPtr& context) {
+    static std::shared_ptr<StudioRuntimeState> studio = std::make_shared<StudioRuntimeState>();
+    static bool cleanupHookInstalled = false;
+    if (!cleanupHookInstalled) {
+        QObject::connect(&app, &QApplication::aboutToQuit, []() {
+            studio.reset();
+        });
+        cleanupHookInstalled = true;
+    }
+
     if (const auto* screen = window.screen(); screen != nullptr) {
         const QSize available = screen->availableSize();
         window.resize(available);
@@ -30,58 +52,64 @@ void Run(QApplication& app, Engine::Core::Window& window, const Engine::EngineCo
     context->PlaceManager = std::make_unique<Engine::DataModel::PlaceManager>();
     context->EditorToolState = std::make_unique<Engine::Core::EditorToolState>();
 
-    context->ViewportManager = std::make_unique<Core::ViewportManager>(window, context);
+    studio->ViewportManager = std::make_unique<Core::ViewportManager>(window, context);
 
-    context->DockManager = std::make_unique<Core::DockManager>(window);
-    context->DockManager->Build();
+    studio->DockManager = std::make_unique<Core::DockManager>(window);
+    studio->DockManager->Build();
 
-    context->TopBarController = std::make_unique<Controllers::TopBarController>(
+    studio->TopBarController = std::make_unique<Controllers::TopBarController>(
         window,
-        *context->DockManager,
+        *studio->DockManager,
         *context->PlaceManager
     );
-    context->TopBarController->Build();
+    studio->TopBarController->Build();
     window.addToolBarBreak();
-    context->ToolbarController = std::make_unique<Controllers::ToolbarController>(
+    studio->ToolbarController = std::make_unique<Controllers::ToolbarController>(
         window,
         *context->EditorToolState
     );
-    context->ToolbarController->Build();
+    studio->ToolbarController->Build();
 
-    context->HistoryShortcuts = std::make_unique<Core::HistoryShortcuts>(app, window, context);
-    context->StudioQuickActions = std::make_unique<Core::StudioQuickActions>(app, window, context);
+    studio->HistoryShortcuts = std::make_unique<Core::HistoryShortcuts>(app, window, context);
+    studio->StudioQuickActions = std::make_unique<Core::StudioQuickActions>(
+        app,
+        window,
+        context,
+        studio->ViewportManager != nullptr ? studio->ViewportManager->GetViewport() : nullptr,
+        studio->ToolbarController.get()
+    );
 
-    context->DockManager->HidePlaceRequiredDocks();
-    context->ViewportManager->Hide();
-    if (context->ToolbarController != nullptr) {
-        context->ToolbarController->SetVisible(false);
+    studio->DockManager->HidePlaceRequiredDocks();
+    studio->ViewportManager->Hide();
+    if (studio->ToolbarController != nullptr) {
+        studio->ToolbarController->SetVisible(false);
     }
 
     context->PlaceManager->PlaceOpened.Connect([context](const std::shared_ptr<Engine::DataModel::Place>& place) {
-        if (context->ViewportManager != nullptr) {
-            context->ViewportManager->BindToPlace(place);
-            context->ViewportManager->Show();
+        if (studio != nullptr && studio->ViewportManager != nullptr) {
+            studio->ViewportManager->BindToPlace(place);
+            studio->ViewportManager->Show();
         }
-        if (context->DockManager != nullptr) {
-            context->DockManager->BindToPlace(place);
-            context->DockManager->ApplyPlaceRequiredDockVisibility();
+        if (studio != nullptr && studio->DockManager != nullptr) {
+            studio->DockManager->BindToPlace(place);
+            studio->DockManager->ApplyPlaceRequiredDockVisibility();
         }
-        if (context->ToolbarController != nullptr) {
-            context->ToolbarController->SetVisible(true);
+        if (studio != nullptr && studio->ToolbarController != nullptr) {
+            studio->ToolbarController->SetVisible(true);
         }
     });
-    context->PlaceManager->PlaceClosed.Connect([context](const std::shared_ptr<Engine::DataModel::Place>&) {
-        if (context->ViewportManager != nullptr) {
-            context->ViewportManager->Unbind();
-            context->ViewportManager->Hide();
+    context->PlaceManager->PlaceClosed.Connect([](const std::shared_ptr<Engine::DataModel::Place>&) {
+        if (studio != nullptr && studio->ViewportManager != nullptr) {
+            studio->ViewportManager->Unbind();
+            studio->ViewportManager->Hide();
         }
-        if (context->DockManager != nullptr) {
-            context->DockManager->CachePlaceRequiredDockVisibility();
-            context->DockManager->Unbind();
-            context->DockManager->HidePlaceRequiredDocks();
+        if (studio != nullptr && studio->DockManager != nullptr) {
+            studio->DockManager->CachePlaceRequiredDockVisibility();
+            studio->DockManager->Unbind();
+            studio->DockManager->HidePlaceRequiredDocks();
         }
-        if (context->ToolbarController != nullptr) {
-            context->ToolbarController->SetVisible(false);
+        if (studio != nullptr && studio->ToolbarController != nullptr) {
+            studio->ToolbarController->SetVisible(false);
         }
     });
 

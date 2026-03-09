@@ -17,4 +17,3 @@ namespace Lvs::Engine::Rendering::Common {
 [[nodiscard]] std::shared_ptr<Objects::Skybox> FindSkyboxInstance(const std::shared_ptr<DataModel::Lighting>& lighting);
 
 } // namespace Lvs::Engine::Rendering::Common
-
