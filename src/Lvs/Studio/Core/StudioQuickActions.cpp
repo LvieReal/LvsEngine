@@ -11,8 +11,12 @@
 #include "Lvs/Engine/DataModel/PlaceManager.hpp"
 #include "Lvs/Engine/DataModel/Selection.hpp"
 #include "Lvs/Engine/DataModel/Workspace.hpp"
+#include "Lvs/Engine/Math/AABB.hpp"
+#include "Lvs/Engine/Math/Vector3.hpp"
 #include "Lvs/Engine/Objects/BasePart.hpp"
+#include "Lvs/Engine/Objects/Camera.hpp"
 #include "Lvs/Engine/Utils/Command.hpp"
+#include "Lvs/Engine/Utils/Raycast.hpp"
 #include "Lvs/Studio/Controllers/ToolbarController.hpp"
 #include "Lvs/Studio/Core/IconPackManager.hpp"
 #include "Lvs/Studio/Core/StudioShortcutManager.hpp"
@@ -38,8 +42,59 @@
 
 #include <exception>
 #include <memory>
+#include <array>
+#include <cmath>
 
 namespace Lvs::Studio::Core {
+
+namespace {
+
+struct HitFace {
+    int Axis{0}; // 0=x,1=y,2=z
+    double Sign{1.0}; // +1 max face, -1 min face
+};
+
+HitFace FindClosestHitFace(const Engine::Math::AABB& aabb, const Engine::Math::Vector3& point) {
+    const std::array<double, 6> distances{
+        std::abs(point.x - aabb.Min.x),
+        std::abs(point.x - aabb.Max.x),
+        std::abs(point.y - aabb.Min.y),
+        std::abs(point.y - aabb.Max.y),
+        std::abs(point.z - aabb.Min.z),
+        std::abs(point.z - aabb.Max.z)
+    };
+
+    std::size_t best = 0;
+    double bestDistance = distances[0];
+    for (std::size_t i = 1; i < distances.size(); ++i) {
+        if (distances[i] < bestDistance) {
+            bestDistance = distances[i];
+            best = i;
+        }
+    }
+
+    switch (best) {
+        case 0: return HitFace{.Axis = 0, .Sign = -1.0};
+        case 1: return HitFace{.Axis = 0, .Sign = 1.0};
+        case 2: return HitFace{.Axis = 1, .Sign = -1.0};
+        case 3: return HitFace{.Axis = 1, .Sign = 1.0};
+        case 4: return HitFace{.Axis = 2, .Sign = -1.0};
+        case 5: return HitFace{.Axis = 2, .Sign = 1.0};
+        default: return HitFace{};
+    }
+}
+
+Engine::Math::Vector3 AxisNormal(const HitFace& face) {
+    if (face.Axis == 0) {
+        return {face.Sign, 0.0, 0.0};
+    }
+    if (face.Axis == 1) {
+        return {0.0, face.Sign, 0.0};
+    }
+    return {0.0, 0.0, face.Sign};
+}
+
+} // namespace
 
 StudioQuickActions::StudioQuickActions(
     QApplication& app,
@@ -71,7 +126,14 @@ bool StudioQuickActions::TryShowViewportContextMenu(Engine::Core::Viewport& view
     if (!viewport.hasFocus() && !viewport.underMouse()) {
         return false;
     }
-    return ShowSelectionContextMenu(viewport, globalPos);
+
+    const auto selected = GetSelectedInstance();
+    const auto place = GetCurrentPlace();
+    const auto insertParent = selected != nullptr
+        ? selected
+        : (place != nullptr ? place->FindService("Workspace") : nullptr);
+
+    return ShowContextMenu(viewport, globalPos, selected, insertParent);
 }
 
 bool StudioQuickActions::TryShowExplorerContextMenu(
@@ -95,7 +157,9 @@ bool StudioQuickActions::TryShowExplorerContextMenu(
         }
     }
 
-    return ShowSelectionContextMenu(explorer, globalPos);
+    const auto selected = GetSelectedInstance();
+    const auto insertParent = selected != nullptr ? selected : (place != nullptr ? place->FindService("Workspace") : nullptr);
+    return ShowContextMenu(explorer, globalPos, selected, insertParent);
 }
 
 bool StudioQuickActions::eventFilter(QObject* watched, QEvent* event) {
@@ -108,14 +172,25 @@ bool StudioQuickActions::eventFilter(QObject* watched, QEvent* event) {
         if (mouseEvent == nullptr || mouseEvent->button() != Qt::RightButton) {
             return false;
         }
-        auto* explorer = ResolveExplorerWidgetFromObject(watched);
-        if (explorer == nullptr) {
+
+        if (auto* explorer = ResolveExplorerWidgetFromObject(watched); explorer != nullptr) {
+            if (TryShowExplorerContextMenu(*explorer, mouseEvent->globalPosition().toPoint())) {
+                event->accept();
+                return true;
+            }
             return false;
         }
-        if (TryShowExplorerContextMenu(*explorer, mouseEvent->globalPosition().toPoint())) {
-            event->accept();
-            return true;
+
+        if (auto* viewport = ResolveViewportFromObject(watched); viewport != nullptr) {
+            if (viewport->WasRightMousePanned()) {
+                return false;
+            }
+            if (TryShowViewportContextMenu(*viewport, mouseEvent->globalPosition().toPoint())) {
+                return false;
+            }
+            return false;
         }
+
         return false;
     }
 
@@ -416,7 +491,7 @@ void StudioQuickActions::PopulateInsertMenu(
             }
 
             QObject::connect(action, &QAction::triggered, window_, [this, parent, className = classInfo.Name]() {
-                InsertObject(parent, className);
+                InsertObject(parent, className, QCursor::pos());
             });
 
             hasAction = true;
@@ -435,9 +510,11 @@ void StudioQuickActions::PopulateInsertMenu(
 
 void StudioQuickActions::InsertObject(
     const std::shared_ptr<Engine::Core::Instance>& parent,
-    const QString& className
+    const QString& className,
+    const QPoint& spawnGlobalPos
 ) const {
     try {
+        static_cast<void>(spawnGlobalPos);
         if (parent == nullptr || className.isEmpty()) {
             return;
         }
@@ -453,6 +530,54 @@ void StudioQuickActions::InsertObject(
         const auto place = GetCurrentPlace();
         const auto historyService = GetHistoryService(place);
         const auto selectionService = GetSelectionService(place);
+
+        if (const auto createdPart = std::dynamic_pointer_cast<Engine::Objects::BasePart>(created); createdPart != nullptr &&
+            viewport_ != nullptr && place != nullptr) {
+            const auto workspace = std::dynamic_pointer_cast<Engine::DataModel::Workspace>(place->FindService("Workspace"));
+            const auto camera = workspace != nullptr
+                ? workspace->GetProperty("CurrentCamera").value<std::shared_ptr<Engine::Objects::Camera>>()
+                : nullptr;
+
+            if (camera != nullptr && viewport_->isVisible() && viewport_->width() > 0 && viewport_->height() > 0) {
+                const QPoint local = QPoint(viewport_->width() / 2, viewport_->height() / 2);
+
+                const Engine::Utils::Ray ray = Engine::Utils::ScreenPointToRay(
+                    static_cast<double>(local.x()),
+                    static_cast<double>(local.y()),
+                    viewport_->width(),
+                    viewport_->height(),
+                    camera
+                );
+
+                std::vector<std::shared_ptr<Engine::Objects::BasePart>> parts;
+                if (workspace != nullptr) {
+                    for (const auto& descendant : workspace->GetDescendants()) {
+                        const auto part = std::dynamic_pointer_cast<Engine::Objects::BasePart>(descendant);
+                        if (part == nullptr || part->GetParent() == nullptr) {
+                            continue;
+                        }
+                        parts.push_back(part);
+                    }
+                }
+
+                const auto [hitPart, hitDistance] = Engine::Utils::RaycastParts(ray, parts);
+                const Engine::Math::Vector3 size =
+                    createdPart->GetProperty("Size").value<Engine::Math::Vector3>();
+                const Engine::Math::Vector3 halfExtents{size.x * 0.5, size.y * 0.5, size.z * 0.5};
+
+                Engine::Math::Vector3 newPosition = ray.Origin + (ray.Direction * 8.0);
+                if (hitPart != nullptr && std::isfinite(hitDistance) && hitDistance > 0.0) {
+                    const Engine::Math::Vector3 hitPoint = ray.Origin + (ray.Direction * hitDistance);
+                    const Engine::Math::AABB hitAabb = Engine::Utils::BuildPartWorldAABB(hitPart);
+                    const HitFace face = FindClosestHitFace(hitAabb, hitPoint);
+                    const Engine::Math::Vector3 normal = AxisNormal(face);
+                    const double pushOut = (face.Axis == 0) ? halfExtents.x : (face.Axis == 1) ? halfExtents.y : halfExtents.z;
+                    newPosition = hitPoint + (normal * (pushOut + 1e-3));
+                }
+
+                createdPart->SetProperty("Position", QVariant::fromValue(newPosition));
+            }
+        }
 
         auto command = std::make_shared<Engine::Utils::ReparentCommand>(created, parent);
         if (historyService == nullptr) {
@@ -478,16 +603,20 @@ void StudioQuickActions::InsertObject(
     }
 }
 
-bool StudioQuickActions::ShowSelectionContextMenu(QWidget& owner, const QPoint& globalPos) const {
-    const auto selected = GetSelectedInstance();
-    if (selected == nullptr) {
+bool StudioQuickActions::ShowContextMenu(
+    QWidget& owner,
+    const QPoint& globalPos,
+    const std::shared_ptr<Engine::Core::Instance>& selected,
+    const std::shared_ptr<Engine::Core::Instance>& insertParent
+) const {
+    if (selected == nullptr && insertParent == nullptr && clipboardPrototype_ == nullptr) {
         return false;
     }
 
     QMenu menu(&owner);
 
     auto* insertMenu = menu.addMenu("Insert Object");
-    PopulateInsertMenu(*insertMenu, selected);
+    PopulateInsertMenu(*insertMenu, insertParent);
     if (insertMenu->isEmpty()) {
         menu.removeAction(insertMenu->menuAction());
         delete insertMenu;
@@ -497,12 +626,12 @@ bool StudioQuickActions::ShowSelectionContextMenu(QWidget& owner, const QPoint& 
 
     QAction* copyAction = menu.addAction("Copy");
     StudioShortcutManager::ApplyToAction(*copyAction, StudioShortcutAction::Copy);
-    copyAction->setEnabled(selected->IsInsertable());
+    copyAction->setEnabled(selected != nullptr && selected->IsInsertable());
     QObject::connect(copyAction, &QAction::triggered, &owner, [this]() { CopySelection(); });
 
     QAction* cutAction = menu.addAction("Cut");
     StudioShortcutManager::ApplyToAction(*cutAction, StudioShortcutAction::Cut);
-    cutAction->setEnabled(selected->IsInsertable() && selected->GetParent() != nullptr);
+    cutAction->setEnabled(selected != nullptr && selected->IsInsertable() && selected->GetParent() != nullptr);
     QObject::connect(cutAction, &QAction::triggered, &owner, [this]() { CutSelection(); });
 
     QAction* pasteAction = menu.addAction("Paste");
@@ -512,19 +641,19 @@ bool StudioQuickActions::ShowSelectionContextMenu(QWidget& owner, const QPoint& 
 
     QAction* pasteIntoAction = menu.addAction("Paste Into Selection");
     StudioShortcutManager::ApplyToAction(*pasteIntoAction, StudioShortcutAction::PasteInto);
-    pasteIntoAction->setEnabled(clipboardPrototype_ != nullptr);
+    pasteIntoAction->setEnabled(clipboardPrototype_ != nullptr && selected != nullptr);
     QObject::connect(pasteIntoAction, &QAction::triggered, &owner, [this]() { PasteSelectionIntoSelection(); });
 
     menu.addSeparator();
 
     QAction* duplicateAction = menu.addAction("Duplicate");
     StudioShortcutManager::ApplyToAction(*duplicateAction, StudioShortcutAction::Duplicate);
-    duplicateAction->setEnabled(selected->IsInsertable() && selected->GetParent() != nullptr);
+    duplicateAction->setEnabled(selected != nullptr && selected->IsInsertable() && selected->GetParent() != nullptr);
     QObject::connect(duplicateAction, &QAction::triggered, &owner, [this]() { DuplicateSelection(); });
 
     QAction* deleteAction = menu.addAction("Delete");
     StudioShortcutManager::ApplyToAction(*deleteAction, StudioShortcutAction::Delete);
-    deleteAction->setEnabled(selected->IsInsertable() && selected->GetParent() != nullptr);
+    deleteAction->setEnabled(selected != nullptr && selected->IsInsertable() && selected->GetParent() != nullptr);
     QObject::connect(deleteAction, &QAction::triggered, &owner, [this]() { DeleteSelection(); });
 
     if (menu.actions().isEmpty()) {
@@ -609,6 +738,21 @@ Widgets::Explorer::ExplorerWidget* StudioQuickActions::ResolveExplorerWidgetFrom
     while (current != nullptr) {
         if (auto* explorer = dynamic_cast<Widgets::Explorer::ExplorerWidget*>(current); explorer != nullptr) {
             return explorer;
+        }
+        current = current->parent();
+    }
+    return nullptr;
+}
+
+Engine::Core::Viewport* StudioQuickActions::ResolveViewportFromObject(QObject* object) const {
+    if (viewport_ == nullptr) {
+        return nullptr;
+    }
+
+    QObject* current = object;
+    while (current != nullptr) {
+        if (current == viewport_) {
+            return viewport_;
         }
         current = current->parent();
     }

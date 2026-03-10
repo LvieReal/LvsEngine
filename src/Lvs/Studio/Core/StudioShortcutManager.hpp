@@ -13,6 +13,8 @@ enum class StudioShortcutAction {
     ToolSelect,
     ToolMove,
     ToolSize,
+    Undo,
+    Redo,
     Duplicate,
     Delete,
     Copy,
@@ -30,4 +32,3 @@ public:
 };
 
 } // namespace Lvs::Studio::Core
-

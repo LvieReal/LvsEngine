@@ -196,6 +196,10 @@ void Viewport::SetRenderingApiPreference(const Rendering::RenderApi api) {
     RecreateRenderContext(api);
 }
 
+bool Viewport::WasRightMousePanned() const {
+    return rightMousePanned_;
+}
+
 void Viewport::paintEvent(QPaintEvent* event) {
     static_cast<void>(event);
     if (graphicsUnavailable_) {

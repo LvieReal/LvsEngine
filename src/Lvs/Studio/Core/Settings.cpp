@@ -16,9 +16,9 @@ namespace {
 QMap<QString, SettingMeta> g_settings = {
     {"BaseCameraSpeed", {"Base Camera Speed", "Base camera speed", 15.0}},
     {"ShiftCameraSpeed", {"Shift Camera Speed", "Shift camera speed", 5.0}},
-    {"Theme", {"Theme", "Main studio theme", "Light"}},
+    {"Theme", {"Theme", "Main studio theme", "Light", QStringList{"Light", "Dark"}}},
     {"ExplorerIconPack", {"Explorer Icon Pack", "Explorer icon pack folder name", "famfamfam-silk"}},
-    {"RenderingApi", {"Rendering API", "Preferred rendering backend", "Auto"}},
+    {"RenderingApi", {"Rendering API", "Preferred rendering backend", "Auto", QStringList{"Auto", "Vulkan", "OpenGL"}}},
     {"GizmoAlwaysOnTop", {"Gizmo Always On Top", "Render gizmos on top of scene geometry", true}},
     {"GizmoIgnoreDiffuseSpecular", {"Gizmo Ignore Lighting", "Ignore diffuse and specular lighting for gizmos", true}},
     {"GizmoAlignByMagnitude", {"Gizmo Align By Magnitude", "Place gizmo handles using bounds magnitude", true}},
@@ -26,13 +26,7 @@ QMap<QString, SettingMeta> g_settings = {
     {"DockLayoutState", {"Dock Layout State", "Serialized dock and toolbar layout", ""}},
     {"Shortcut.Tool.Select", {"Select Tool", "Keyboard shortcut(s) for Select tool (separate with ';')", "1;Shift+1"}},
     {"Shortcut.Tool.Move", {"Move Tool", "Keyboard shortcut(s) for Move tool (separate with ';')", "2;Shift+2"}},
-    {"Shortcut.Tool.Size", {"Size Tool", "Keyboard shortcut(s) for Size tool (separate with ';')", "3;Shift+3"}},
-    {"Shortcut.Edit.Duplicate", {"Duplicate", "Keyboard shortcut(s) for Duplicate (separate with ';')", "Ctrl+D"}},
-    {"Shortcut.Edit.Delete", {"Delete", "Keyboard shortcut(s) for Delete (separate with ';')", "Delete"}},
-    {"Shortcut.Edit.Copy", {"Copy", "Keyboard shortcut(s) for Copy (separate with ';')", "Ctrl+C"}},
-    {"Shortcut.Edit.Cut", {"Cut", "Keyboard shortcut(s) for Cut (separate with ';')", "Ctrl+X"}},
-    {"Shortcut.Edit.Paste", {"Paste", "Keyboard shortcut(s) for Paste (separate with ';')", "Ctrl+V"}},
-    {"Shortcut.Edit.PasteInto", {"Paste Into Selection", "Keyboard shortcut(s) for Paste Into (separate with ';')", "Ctrl+Shift+V"}}
+    {"Shortcut.Tool.Size", {"Size Tool", "Keyboard shortcut(s) for Size tool (separate with ';')", "3;Shift+3"}}
 };
 
 QMap<QString, QStringList> g_categories = {
@@ -57,16 +51,12 @@ QMap<QString, QStringList> g_categories = {
         {
          "Shortcut.Tool.Select",
          "Shortcut.Tool.Move",
-         "Shortcut.Tool.Size",
-         "Shortcut.Edit.Duplicate",
-         "Shortcut.Edit.Delete",
-         "Shortcut.Edit.Copy",
-         "Shortcut.Edit.Cut",
-         "Shortcut.Edit.Paste",
-         "Shortcut.Edit.PasteInto"
+         "Shortcut.Tool.Size"
         }
     }
 };
+
+QStringList g_categoryOrder = {"Studio", "Rendering", "Shortcuts"};
 
 QMap<QString, QVariant> g_values;
 QMap<QString, std::vector<std::pair<std::size_t, SettingChangedCallback>>> g_callbacks;
@@ -297,6 +287,10 @@ const QMap<QString, SettingMeta>& All() {
 
 const QMap<QString, QStringList>& Categories() {
     return g_categories;
+}
+
+const QStringList& CategoryOrder() {
+    return g_categoryOrder;
 }
 
 } // namespace Lvs::Studio::Core::Settings

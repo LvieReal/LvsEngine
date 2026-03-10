@@ -26,6 +26,35 @@ QKeySequence PressedSequence(const QKeyEvent& event) {
     return QKeySequence(event.key() | int(event.modifiers()));
 }
 
+QList<QKeySequence> DefaultShortcuts(const StudioShortcutAction action) {
+    switch (action) {
+        case StudioShortcutAction::ToolSelect:
+            return ParseShortcuts("1;Shift+1");
+        case StudioShortcutAction::ToolMove:
+            return ParseShortcuts("2;Shift+2");
+        case StudioShortcutAction::ToolSize:
+            return ParseShortcuts("3;Shift+3");
+        case StudioShortcutAction::Undo:
+            return {QKeySequence(QKeySequence::Undo), QKeySequence("Ctrl+Z")};
+        case StudioShortcutAction::Redo:
+            return {QKeySequence(QKeySequence::Redo), QKeySequence("Ctrl+Y"), QKeySequence("Ctrl+Shift+Z")};
+        case StudioShortcutAction::Duplicate:
+            return ParseShortcuts("Ctrl+D");
+        case StudioShortcutAction::Delete:
+            return ParseShortcuts("Delete");
+        case StudioShortcutAction::Copy:
+            return ParseShortcuts("Ctrl+C");
+        case StudioShortcutAction::Cut:
+            return ParseShortcuts("Ctrl+X");
+        case StudioShortcutAction::Paste:
+            return ParseShortcuts("Ctrl+V");
+        case StudioShortcutAction::PasteInto:
+            return ParseShortcuts("Ctrl+Shift+V");
+        default:
+            return {};
+    }
+}
+
 } // namespace
 
 QString StudioShortcutManager::SettingKey(const StudioShortcutAction action) {
@@ -36,18 +65,6 @@ QString StudioShortcutManager::SettingKey(const StudioShortcutAction action) {
             return "Shortcut.Tool.Move";
         case StudioShortcutAction::ToolSize:
             return "Shortcut.Tool.Size";
-        case StudioShortcutAction::Duplicate:
-            return "Shortcut.Edit.Duplicate";
-        case StudioShortcutAction::Delete:
-            return "Shortcut.Edit.Delete";
-        case StudioShortcutAction::Copy:
-            return "Shortcut.Edit.Copy";
-        case StudioShortcutAction::Cut:
-            return "Shortcut.Edit.Cut";
-        case StudioShortcutAction::Paste:
-            return "Shortcut.Edit.Paste";
-        case StudioShortcutAction::PasteInto:
-            return "Shortcut.Edit.PasteInto";
         default:
             return {};
     }
@@ -55,10 +72,15 @@ QString StudioShortcutManager::SettingKey(const StudioShortcutAction action) {
 
 QList<QKeySequence> StudioShortcutManager::Shortcuts(const StudioShortcutAction action) {
     const QString key = SettingKey(action);
-    if (key.isEmpty()) {
-        return {};
+    if (key.isEmpty() || !Settings::All().contains(key)) {
+        return DefaultShortcuts(action);
     }
-    return ParseShortcuts(Settings::Get(key).toString());
+
+    const QList<QKeySequence> configured = ParseShortcuts(Settings::Get(key).toString());
+    if (!configured.isEmpty()) {
+        return configured;
+    }
+    return DefaultShortcuts(action);
 }
 
 bool StudioShortcutManager::Matches(const StudioShortcutAction action, const QKeyEvent& event) {
@@ -81,4 +103,3 @@ void StudioShortcutManager::ApplyToAction(QAction& action, const StudioShortcutA
 }
 
 } // namespace Lvs::Studio::Core
-

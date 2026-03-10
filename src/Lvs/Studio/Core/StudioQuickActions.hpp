@@ -90,10 +90,17 @@ private:
     ) const;
     void InsertObject(
         const std::shared_ptr<Engine::Core::Instance>& parent,
-        const QString& className
+        const QString& className,
+        const QPoint& spawnGlobalPos
     ) const;
-    bool ShowSelectionContextMenu(QWidget& owner, const QPoint& globalPos) const;
+    bool ShowContextMenu(
+        QWidget& owner,
+        const QPoint& globalPos,
+        const std::shared_ptr<Engine::Core::Instance>& selected,
+        const std::shared_ptr<Engine::Core::Instance>& insertParent
+    ) const;
     Widgets::Explorer::ExplorerWidget* ResolveExplorerWidgetFromObject(QObject* object) const;
+    Engine::Core::Viewport* ResolveViewportFromObject(QObject* object) const;
     [[nodiscard]] std::shared_ptr<Engine::Core::Instance> ResolveTopmostServicePasteParent(
         const std::shared_ptr<Engine::Core::Instance>& contextInstance
     ) const;

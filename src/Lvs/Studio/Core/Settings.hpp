@@ -14,6 +14,15 @@ struct SettingMeta {
     QString Name;
     QString Description;
     QVariant DefaultValue;
+    QStringList Options;
+
+    SettingMeta() = default;
+    SettingMeta(QString name, QString description, QVariant defaultValue, QStringList options = {})
+        : Name(std::move(name)),
+          Description(std::move(description)),
+          DefaultValue(std::move(defaultValue)),
+          Options(std::move(options)) {
+    }
 };
 
 class Connection {
@@ -44,5 +53,6 @@ Connection Changed(const QString& key, SettingChangedCallback callback, bool fir
 
 const QMap<QString, SettingMeta>& All();
 const QMap<QString, QStringList>& Categories();
+const QStringList& CategoryOrder();
 
 } // namespace Lvs::Studio::Core::Settings

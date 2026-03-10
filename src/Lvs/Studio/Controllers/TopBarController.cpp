@@ -5,13 +5,13 @@
 #include "Lvs/Engine/DataModel/Place.hpp"
 #include "Lvs/Engine/DataModel/PlaceManager.hpp"
 #include "Lvs/Studio/Core/DockManager.hpp"
+#include "Lvs/Studio/Core/PlaceFileUtils.hpp"
 #include "Lvs/Studio/Widgets/AboutStudioDialog.hpp"
 #include "Lvs/Studio/Widgets/Settings/SettingsWidget.hpp"
 
 #include <QAction>
 #include <QDockWidget>
 #include <QFileDialog>
-#include <QFileInfo>
 #include <QMenu>
 #include <QMessageBox>
 #include <QObject>
@@ -97,7 +97,7 @@ void TopBarController::BuildFileMenu() {
             &window_,
             "Open Place from File",
             defaultPath,
-            "Lvs Place Files (*.lvsx);;XML Files (*.xml);;All Files (*)"
+            Core::PlaceFileUtils::FileDialogFilter()
         );
         if (selectedPath.isEmpty()) {
             return;
@@ -215,23 +215,19 @@ QString TopBarController::PromptSavePath() const {
 
     QString defaultPath = currentPlace->GetFilePath();
     if (defaultPath.isEmpty()) {
-        defaultPath = "untitled.lvsx";
+        defaultPath = Core::PlaceFileUtils::DefaultUntitledFileName();
     }
     QString selectedPath = QFileDialog::getSaveFileName(
         &window_,
         "Save Place to File",
         defaultPath,
-        "Lvs Place Files (*.lvsx);;XML Files (*.xml);;All Files (*)"
+        Core::PlaceFileUtils::FileDialogFilter()
     );
     if (selectedPath.isEmpty()) {
         return {};
     }
 
-    QFileInfo info(selectedPath);
-    if (info.suffix().compare("lvsx", Qt::CaseInsensitive) != 0) {
-        selectedPath += ".lvsx";
-    }
-    return selectedPath;
+    return Core::PlaceFileUtils::EnsureExtension(std::move(selectedPath));
 }
 
 void TopBarController::SaveCurrentPlaceToPath(const QString& path) const {

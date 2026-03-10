@@ -150,43 +150,45 @@ vec3 GetMeshSizeFromModel()
 
 vec2 GetFaceUV(vec3 localPos, vec3 localNormal)
 {
-    vec3 scaledPos = localPos * GetMeshSizeFromModel();
+    vec3 size = GetMeshSizeFromModel();
+    vec3 scaledPos = localPos * size;
+    vec3 halfSize = size * 0.5;
     vec3 n = normalize(localNormal);
     vec3 a = abs(n);
-    bool _397 = a.x >= a.y;
-    bool _405;
-    if (_397)
+    bool _402 = a.x >= a.y;
+    bool _410;
+    if (_402)
     {
-        _405 = a.x >= a.z;
+        _410 = a.x >= a.z;
     }
     else
     {
-        _405 = _397;
+        _410 = _402;
     }
     vec2 uv;
-    if (_405)
+    if (_410)
     {
-        uv = scaledPos.zy;
+        uv = scaledPos.zy + halfSize.zy;
     }
     else
     {
-        bool _416 = a.y >= a.x;
-        bool _424;
-        if (_416)
-        {
-            _424 = a.y >= a.z;
-        }
-        else
-        {
-            _424 = _416;
-        }
+        bool _424 = a.y >= a.x;
+        bool _432;
         if (_424)
         {
-            uv = scaledPos.xz;
+            _432 = a.y >= a.z;
         }
         else
         {
-            uv = scaledPos.xy;
+            _432 = _424;
+        }
+        if (_432)
+        {
+            uv = scaledPos.xz + halfSize.xz;
+        }
+        else
+        {
+            uv = scaledPos.xy + halfSize.xy;
         }
     }
     return fract(uv * vec2(0.5));
@@ -221,17 +223,17 @@ vec2 GetSurfaceAtlasUV(int surfaceType, vec2 uv)
 
 vec3 SampleSurfaceColor(int surfaceType, vec2 uv)
 {
-    bool _515 = surfaceType == 0;
-    bool _521;
-    if (!_515)
+    bool _529 = surfaceType == 0;
+    bool _535;
+    if (!_529)
     {
-        _521 = !IsSurfaceEnabled();
+        _535 = !IsSurfaceEnabled();
     }
     else
     {
-        _521 = _515;
+        _535 = _529;
     }
-    if (_521)
+    if (_535)
     {
         return vec3(1.0);
     }
@@ -247,52 +249,52 @@ bool IsSurfaceNormalEnabled()
 
 vec3 GetSurfaceMappedNormal(vec3 localNormal, int surfaceType, vec2 uv)
 {
-    bool _537 = !IsSurfaceEnabled();
-    bool _543;
-    if (!_537)
+    bool _551 = !IsSurfaceEnabled();
+    bool _557;
+    if (!_551)
     {
-        _543 = !IsSurfaceNormalEnabled();
+        _557 = !IsSurfaceNormalEnabled();
     }
     else
     {
-        _543 = _537;
+        _557 = _551;
     }
-    if (_543 || (surfaceType == 0))
+    if (_557 || (surfaceType == 0))
     {
         return normalize(mat3(pushData.model[0].xyz, pushData.model[1].xyz, pushData.model[2].xyz) * localNormal);
     }
     vec3 n = normalize(localNormal);
     vec3 a = abs(n);
-    bool _574 = a.x >= a.y;
-    bool _582;
-    if (_574)
+    bool _588 = a.x >= a.y;
+    bool _596;
+    if (_588)
     {
-        _582 = a.x >= a.z;
+        _596 = a.x >= a.z;
     }
     else
     {
-        _582 = _574;
+        _596 = _588;
     }
     vec3 tangentLocal;
     vec3 bitangentLocal;
-    if (_582)
+    if (_596)
     {
         tangentLocal = vec3(0.0, 0.0, 1.0);
         bitangentLocal = vec3(0.0, 1.0, 0.0);
     }
     else
     {
-        bool _594 = a.y >= a.x;
-        bool _602;
-        if (_594)
+        bool _608 = a.y >= a.x;
+        bool _616;
+        if (_608)
         {
-            _602 = a.y >= a.z;
+            _616 = a.y >= a.z;
         }
         else
         {
-            _602 = _594;
+            _616 = _608;
         }
-        if (_602)
+        if (_616)
         {
             tangentLocal = vec3(1.0, 0.0, 0.0);
             bitangentLocal = vec3(0.0, 0.0, 1.0);
@@ -380,15 +382,15 @@ float SampleDirectionalAdaptivePCF64(int cascadeIndex, vec3 baseShadowCoord, flo
     {
         vec4 offset = (texture(directionalShadowJitter, jcoord) * 2.0) - vec4(1.0);
         jcoord.z += 0.03125;
-        vec2 _795 = (offset.xy * fsize) + baseShadowCoord.xy;
-        smCoord.x = _795.x;
-        smCoord.y = _795.y;
+        vec2 _809 = (offset.xy * fsize) + baseShadowCoord.xy;
+        smCoord.x = _809.x;
+        smCoord.y = _809.y;
         int param_3 = cascadeIndex;
         vec3 param_4 = smCoord;
         shadow += (SampleDirectionalShadowMap(param_3, param_4) * 0.125);
-        vec2 _815 = (offset.zw * fsize) + baseShadowCoord.xy;
-        smCoord.x = _815.x;
-        smCoord.y = _815.y;
+        vec2 _829 = (offset.zw * fsize) + baseShadowCoord.xy;
+        smCoord.x = _829.x;
+        smCoord.y = _829.y;
         int param_5 = cascadeIndex;
         vec3 param_6 = smCoord;
         shadow += (SampleDirectionalShadowMap(param_5, param_6) * 0.125);
@@ -400,15 +402,15 @@ float SampleDirectionalAdaptivePCF64(int cascadeIndex, vec3 baseShadowCoord, flo
         {
             vec4 offset_1 = (texture(directionalShadowJitter, jcoord) * 2.0) - vec4(1.0);
             jcoord.z += 0.03125;
-            vec2 _868 = (offset_1.xy * fsize) + baseShadowCoord.xy;
-            smCoord.x = _868.x;
-            smCoord.y = _868.y;
+            vec2 _882 = (offset_1.xy * fsize) + baseShadowCoord.xy;
+            smCoord.x = _882.x;
+            smCoord.y = _882.y;
             int param_7 = cascadeIndex;
             vec3 param_8 = smCoord;
             shadow += (SampleDirectionalShadowMap(param_7, param_8) * 0.015625);
-            vec2 _888 = (offset_1.zw * fsize) + baseShadowCoord.xy;
-            smCoord.x = _888.x;
-            smCoord.y = _888.y;
+            vec2 _902 = (offset_1.zw * fsize) + baseShadowCoord.xy;
+            smCoord.x = _902.x;
+            smCoord.y = _902.y;
             int param_9 = cascadeIndex;
             vec3 param_10 = smCoord;
             shadow += (SampleDirectionalShadowMap(param_9, param_10) * 0.015625);
@@ -426,33 +428,33 @@ float ComputeShadowFactor(vec3 normal, vec3 lightDir)
     int cascadeCount = clamp(int(camera.shadowCascadeSplits.w + 0.5), 1, 3);
     float viewDepth = max(dot(fragWorldPos - camera.cameraPosition.xyz, normalize(camera.cameraForward.xyz)), 0.0);
     int cascadeIndex = 0;
-    bool _996 = cascadeCount >= 3;
-    bool _1003;
-    if (_996)
+    bool _1010 = cascadeCount >= 3;
+    bool _1017;
+    if (_1010)
     {
-        _1003 = viewDepth > camera.shadowCascadeSplits.y;
+        _1017 = viewDepth > camera.shadowCascadeSplits.y;
     }
     else
     {
-        _1003 = _996;
+        _1017 = _1010;
     }
-    if (_1003)
+    if (_1017)
     {
         cascadeIndex = 2;
     }
     else
     {
-        bool _1008 = cascadeCount >= 2;
-        bool _1015;
-        if (_1008)
+        bool _1022 = cascadeCount >= 2;
+        bool _1029;
+        if (_1022)
         {
-            _1015 = viewDepth > camera.shadowCascadeSplits.x;
+            _1029 = viewDepth > camera.shadowCascadeSplits.x;
         }
         else
         {
-            _1015 = _1008;
+            _1029 = _1022;
         }
-        if (_1015)
+        if (_1029)
         {
             cascadeIndex = 1;
         }
@@ -469,35 +471,35 @@ float ComputeShadowFactor(vec3 normal, vec3 lightDir)
     {
         return 1.0;
     }
-    bool _1063 = shadowUv.x < 0.0;
-    bool _1070;
-    if (!_1063)
-    {
-        _1070 = shadowUv.x > 1.0;
-    }
-    else
-    {
-        _1070 = _1063;
-    }
-    bool _1077;
-    if (!_1070)
-    {
-        _1077 = shadowUv.y < 0.0;
-    }
-    else
-    {
-        _1077 = _1070;
-    }
+    bool _1077 = shadowUv.x < 0.0;
     bool _1084;
     if (!_1077)
     {
-        _1084 = shadowUv.y > 1.0;
+        _1084 = shadowUv.x > 1.0;
     }
     else
     {
         _1084 = _1077;
     }
-    if (_1084)
+    bool _1091;
+    if (!_1084)
+    {
+        _1091 = shadowUv.y < 0.0;
+    }
+    else
+    {
+        _1091 = _1084;
+    }
+    bool _1098;
+    if (!_1091)
+    {
+        _1098 = shadowUv.y > 1.0;
+    }
+    else
+    {
+        _1098 = _1091;
+    }
+    if (_1098)
     {
         return 1.0;
     }
@@ -612,16 +614,16 @@ void main()
     vec3 emissiveScene = (albedo * emissive) * 4.0;
     vec3 glowColor = (((glowBase * emissive) * 8.0) * blackNeonGlowBoost) * glowMask;
     vec2 neonUv = gl_FragCoord.xy / vec2(max(textureSize(neonTexture, 0), ivec2(1)));
-    vec3 _1293;
+    vec3 _1307;
     if (neonEnabled)
     {
-        _1293 = texture(neonTexture, neonUv).xyz;
+        _1307 = texture(neonTexture, neonUv).xyz;
     }
     else
     {
-        _1293 = vec3(0.0);
+        _1307 = vec3(0.0);
     }
-    vec3 neonSample = _1293;
+    vec3 neonSample = _1307;
     if (ignoreLighting > 0.5)
     {
         outSceneColor = vec4((albedo + emissiveScene) + ((neonSample * 0.100000001490116119384765625) * glowMask), alpha);

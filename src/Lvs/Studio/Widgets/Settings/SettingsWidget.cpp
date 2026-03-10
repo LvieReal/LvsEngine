@@ -34,9 +34,8 @@ void UpdateEditorValue(QWidget* editor, const QString& key, const QVariant& valu
     }
     if (auto* combo = qobject_cast<QComboBox*>(editor); combo != nullptr) {
         const QSignalBlocker blocker(combo);
-        if (key == "Theme" || key == "ExplorerIconPack" || key == "RenderingApi") {
-            combo->setCurrentText(value.toString());
-        }
+        static_cast<void>(key);
+        combo->setCurrentText(value.toString());
     }
 }
 
@@ -74,8 +73,17 @@ void SettingsWidget::BuildUi() {
     auto* resetAllBtn = new QPushButton("Reset All to Default", this);
     layout->addWidget(resetAllBtn);
 
-    for (auto it = Core::Settings::Categories().cbegin(); it != Core::Settings::Categories().cend(); ++it) {
-        categoryList_->addItem(it.key());
+    const QStringList orderedCategories = Core::Settings::CategoryOrder();
+    if (!orderedCategories.isEmpty()) {
+        for (const QString& category : orderedCategories) {
+            if (Core::Settings::Categories().contains(category)) {
+                categoryList_->addItem(category);
+            }
+        }
+    } else {
+        for (auto it = Core::Settings::Categories().cbegin(); it != Core::Settings::Categories().cend(); ++it) {
+            categoryList_->addItem(it.key());
+        }
     }
 
     connect(search_, &QLineEdit::textChanged, this, [this]() { ReloadCategory(); });
@@ -162,6 +170,7 @@ QWidget* SettingsWidget::CreateSettingRow(const QString& key, const QString& lab
 }
 
 QWidget* SettingsWidget::CreateEditor(const QString& key) {
+    const auto& meta = Core::Settings::All().value(key);
     const QVariant defaultValue = Core::Settings::GetDefault(key);
     const QVariant value = Core::Settings::Get(key);
 
@@ -196,17 +205,6 @@ QWidget* SettingsWidget::CreateEditor(const QString& key) {
         return line;
     }
 
-    if (key == "Theme") {
-        auto* combo = new QComboBox(settingsPanel_);
-        combo->addItem("Light");
-        combo->addItem("Dark");
-        combo->setCurrentText(value.toString());
-        connect(combo, &QComboBox::currentTextChanged, combo, [key](const QString& current) {
-            Core::Settings::Set(key, current);
-        });
-        return combo;
-    }
-
     if (key == "ExplorerIconPack") {
         auto* combo = new QComboBox(settingsPanel_);
         combo->setEditable(true);
@@ -221,11 +219,10 @@ QWidget* SettingsWidget::CreateEditor(const QString& key) {
         return combo;
     }
 
-    if (key == "RenderingApi") {
+    if (defaultValue.typeId() == QMetaType::QString && !meta.Options.isEmpty()) {
         auto* combo = new QComboBox(settingsPanel_);
-        combo->addItem("Auto");
-        combo->addItem("Vulkan");
-        combo->addItem("OpenGL");
+        combo->setEditable(false);
+        combo->addItems(meta.Options);
         combo->setCurrentText(value.toString());
         connect(combo, &QComboBox::currentTextChanged, combo, [key](const QString& current) {
             Core::Settings::Set(key, current);

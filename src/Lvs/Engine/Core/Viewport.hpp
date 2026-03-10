@@ -48,6 +48,8 @@ public:
     void SetCameraShiftSpeed(double speed);
     void SetRenderingApiPreference(Rendering::RenderApi api);
 
+    [[nodiscard]] bool WasRightMousePanned() const;
+
 protected:
     void paintEvent(QPaintEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;

@@ -27,8 +27,6 @@ protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
-    bool IsUndoKey(const QKeyEvent& event) const;
-    bool IsRedoKey(const QKeyEvent& event) const;
     void Undo() const;
     void Redo() const;
 

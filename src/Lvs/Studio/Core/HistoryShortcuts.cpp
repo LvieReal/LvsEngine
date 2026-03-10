@@ -4,12 +4,12 @@
 #include "Lvs/Engine/DataModel/ChangeHistoryService.hpp"
 #include "Lvs/Engine/DataModel/Place.hpp"
 #include "Lvs/Engine/DataModel/PlaceManager.hpp"
+#include "Lvs/Studio/Core/StudioShortcutManager.hpp"
 
 #include <QAction>
 #include <QApplication>
 #include <QEvent>
 #include <QKeyEvent>
-#include <QKeySequence>
 #include <QWidget>
 
 #include <memory>
@@ -20,13 +20,13 @@ HistoryShortcuts::HistoryShortcuts(QApplication& app, QWidget& window, const Eng
     : QObject(&app),
       context_(context) {
     undoAction_ = new QAction(&window);
-    undoAction_->setShortcuts({QKeySequence::Undo, QKeySequence("Ctrl+Z")});
+    StudioShortcutManager::ApplyToAction(*undoAction_, StudioShortcutAction::Undo);
     undoAction_->setShortcutContext(Qt::ApplicationShortcut);
     QObject::connect(undoAction_, &QAction::triggered, &window, [this]() { Undo(); });
     window.addAction(undoAction_);
 
     redoAction_ = new QAction(&window);
-    redoAction_->setShortcuts({QKeySequence::Redo, QKeySequence("Ctrl+Y"), QKeySequence("Ctrl+Shift+Z")});
+    StudioShortcutManager::ApplyToAction(*redoAction_, StudioShortcutAction::Redo);
     redoAction_->setShortcutContext(Qt::ApplicationShortcut);
     QObject::connect(redoAction_, &QAction::triggered, &window, [this]() { Redo(); });
     window.addAction(redoAction_);
@@ -55,8 +55,8 @@ bool HistoryShortcuts::eventFilter(QObject* watched, QEvent* event) {
         return false;
     }
 
-    const bool isUndo = IsUndoKey(*keyEvent);
-    const bool isRedo = IsRedoKey(*keyEvent);
+    const bool isUndo = StudioShortcutManager::Matches(StudioShortcutAction::Undo, *keyEvent);
+    const bool isRedo = StudioShortcutManager::Matches(StudioShortcutAction::Redo, *keyEvent);
     if (!isUndo && !isRedo) {
         return false;
     }
@@ -73,28 +73,6 @@ bool HistoryShortcuts::eventFilter(QObject* watched, QEvent* event) {
     }
     event->accept();
     return true;
-}
-
-bool HistoryShortcuts::IsUndoKey(const QKeyEvent& event) const {
-    const Qt::KeyboardModifiers mods = event.modifiers();
-    const bool ctrl = mods.testFlag(Qt::ControlModifier);
-    const bool shift = mods.testFlag(Qt::ShiftModifier);
-    return ctrl && !shift && event.key() == Qt::Key_Z;
-}
-
-bool HistoryShortcuts::IsRedoKey(const QKeyEvent& event) const {
-    const Qt::KeyboardModifiers mods = event.modifiers();
-    const bool ctrl = mods.testFlag(Qt::ControlModifier);
-    const bool shift = mods.testFlag(Qt::ShiftModifier);
-    const int key = event.key();
-
-    if (!ctrl) {
-        return false;
-    }
-    if (key == Qt::Key_Y) {
-        return true;
-    }
-    return shift && key == Qt::Key_Z;
 }
 
 void HistoryShortcuts::Undo() const {

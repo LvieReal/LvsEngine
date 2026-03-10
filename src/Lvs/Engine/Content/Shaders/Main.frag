@@ -112,17 +112,19 @@ int GetSurfaceType(vec3 normal) {
 }
 
 vec2 GetFaceUV(vec3 localPos, vec3 localNormal) {
-    vec3 scaledPos = localPos * GetMeshSizeFromModel();
+    vec3 size = GetMeshSizeFromModel();
+    vec3 scaledPos = localPos * size;
+    vec3 halfSize = size * 0.5;
     vec3 n = normalize(localNormal);
     vec3 a = abs(n);
     vec2 uv;
 
     if (a.x >= a.y && a.x >= a.z) {
-        uv = scaledPos.zy;
+        uv = scaledPos.zy + halfSize.zy;
     } else if (a.y >= a.x && a.y >= a.z) {
-        uv = scaledPos.xz;
+        uv = scaledPos.xz + halfSize.xz;
     } else {
-        uv = scaledPos.xy;
+        uv = scaledPos.xy + halfSize.xy;
     }
 
     return fract(uv * vec2(0.5, 0.5));
