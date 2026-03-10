@@ -28,6 +28,7 @@ public:
     std::unique_ptr<RHI::IBuffer> CreateBuffer(const RHI::BufferDesc& desc) override;
     std::unique_ptr<RHI::IResourceSet> CreateResourceSet(const RHI::ResourceSetDesc& desc) override;
     [[nodiscard]] RHI::Texture CreateTexture2D(const RHI::Texture2DDesc& desc) override;
+    [[nodiscard]] RHI::Texture CreateTexture3D(const RHI::Texture3DDesc& desc) override;
     [[nodiscard]] RHI::Texture CreateTextureCube(const RHI::CubemapDesc& desc) override;
     void DestroyTexture(RHI::Texture& texture) override;
     void BindTexture(RHI::u32 slot, const RHI::Texture& texture) override;
@@ -81,6 +82,7 @@ private:
     std::uint32_t currentSwapchainImage_{0};
     std::optional<std::uint32_t> graphicsQueueFamily_;
     std::optional<std::uint32_t> presentQueueFamily_;
+    bool depthClampEnabled_{false};
     bool ownsInstance_{false};
     bool ownsDevice_{false};
     bool ownsCommandPool_{false};
@@ -95,6 +97,7 @@ private:
     using OwnedTexture2D = OwnedCubeTexture;
     std::unordered_map<VkImageView, OwnedCubeTexture> ownedCubeTextures_{};
     std::unordered_map<VkImageView, OwnedTexture2D> owned2DTextures_{};
+    std::unordered_map<VkImageView, OwnedCubeTexture> owned3DTextures_{};
 };
 
 } // namespace Lvs::Engine::Rendering::Backends::Vulkan

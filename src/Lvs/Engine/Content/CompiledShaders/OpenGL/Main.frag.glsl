@@ -29,10 +29,12 @@ struct PushConstants
 
 uniform PushConstants pushData;
 
-layout(binding = 4) uniform sampler2D surfaceAtlas;
-layout(binding = 5) uniform sampler2D surfaceNormalAtlas;
-layout(binding = 2) uniform sampler2DShadow directionalShadowMaps[3];
-layout(binding = 3) uniform sampler3D directionalShadowJitter;
+layout(binding = 2) uniform sampler2D surfaceAtlas;
+layout(binding = 8) uniform sampler2D surfaceNormalAtlas;
+layout(binding = 4) uniform sampler2DShadow directionalShadowMap1;
+layout(binding = 5) uniform sampler2DShadow directionalShadowMap2;
+layout(binding = 3) uniform sampler2DShadow directionalShadowMap0;
+layout(binding = 7) uniform sampler3D directionalShadowJitter;
 layout(binding = 6) uniform sampler2D neonTexture;
 layout(binding = 1) uniform samplerCube skyboxTex;
 
@@ -311,7 +313,23 @@ vec3 GetSurfaceMappedNormal(vec3 localNormal, int surfaceType, vec2 uv)
 
 vec2 GetDirectionalShadowTexelSize(int cascadeIndex)
 {
-    return vec2(1.0) / vec2(textureSize(directionalShadowMaps[cascadeIndex], 0));
+    ivec2 size = ivec2(1);
+    if (cascadeIndex == 1)
+    {
+        size = max(textureSize(directionalShadowMap1, 0), ivec2(1));
+    }
+    else
+    {
+        if (cascadeIndex == 2)
+        {
+            size = max(textureSize(directionalShadowMap2, 0), ivec2(1));
+        }
+        else
+        {
+            size = max(textureSize(directionalShadowMap0, 0), ivec2(1));
+        }
+    }
+    return vec2(1.0) / vec2(size);
 }
 
 float ComputeDirectionalBias(int cascadeIndex, float pcfRadiusTexels, vec3 normal, vec3 lightDir)
@@ -331,7 +349,15 @@ float ComputeDirectionalBias(int cascadeIndex, float pcfRadiusTexels, vec3 norma
 
 float SampleDirectionalShadowMap(int cascadeIndex, vec3 shadowCoord)
 {
-    return texture(directionalShadowMaps[cascadeIndex], vec3(shadowCoord.xy, shadowCoord.z));
+    if (cascadeIndex == 1)
+    {
+        return texture(directionalShadowMap1, vec3(shadowCoord.xy, shadowCoord.z));
+    }
+    if (cascadeIndex == 2)
+    {
+        return texture(directionalShadowMap2, vec3(shadowCoord.xy, shadowCoord.z));
+    }
+    return texture(directionalShadowMap0, vec3(shadowCoord.xy, shadowCoord.z));
 }
 
 float SampleDirectionalAdaptivePCF64(int cascadeIndex, vec3 baseShadowCoord, float radiusTexels, float ndotl)
@@ -354,15 +380,15 @@ float SampleDirectionalAdaptivePCF64(int cascadeIndex, vec3 baseShadowCoord, flo
     {
         vec4 offset = (texture(directionalShadowJitter, jcoord) * 2.0) - vec4(1.0);
         jcoord.z += 0.03125;
-        vec2 _758 = (offset.xy * fsize) + baseShadowCoord.xy;
-        smCoord.x = _758.x;
-        smCoord.y = _758.y;
+        vec2 _795 = (offset.xy * fsize) + baseShadowCoord.xy;
+        smCoord.x = _795.x;
+        smCoord.y = _795.y;
         int param_3 = cascadeIndex;
         vec3 param_4 = smCoord;
         shadow += (SampleDirectionalShadowMap(param_3, param_4) * 0.125);
-        vec2 _778 = (offset.zw * fsize) + baseShadowCoord.xy;
-        smCoord.x = _778.x;
-        smCoord.y = _778.y;
+        vec2 _815 = (offset.zw * fsize) + baseShadowCoord.xy;
+        smCoord.x = _815.x;
+        smCoord.y = _815.y;
         int param_5 = cascadeIndex;
         vec3 param_6 = smCoord;
         shadow += (SampleDirectionalShadowMap(param_5, param_6) * 0.125);
@@ -374,15 +400,15 @@ float SampleDirectionalAdaptivePCF64(int cascadeIndex, vec3 baseShadowCoord, flo
         {
             vec4 offset_1 = (texture(directionalShadowJitter, jcoord) * 2.0) - vec4(1.0);
             jcoord.z += 0.03125;
-            vec2 _831 = (offset_1.xy * fsize) + baseShadowCoord.xy;
-            smCoord.x = _831.x;
-            smCoord.y = _831.y;
+            vec2 _868 = (offset_1.xy * fsize) + baseShadowCoord.xy;
+            smCoord.x = _868.x;
+            smCoord.y = _868.y;
             int param_7 = cascadeIndex;
             vec3 param_8 = smCoord;
             shadow += (SampleDirectionalShadowMap(param_7, param_8) * 0.015625);
-            vec2 _851 = (offset_1.zw * fsize) + baseShadowCoord.xy;
-            smCoord.x = _851.x;
-            smCoord.y = _851.y;
+            vec2 _888 = (offset_1.zw * fsize) + baseShadowCoord.xy;
+            smCoord.x = _888.x;
+            smCoord.y = _888.y;
             int param_9 = cascadeIndex;
             vec3 param_10 = smCoord;
             shadow += (SampleDirectionalShadowMap(param_9, param_10) * 0.015625);
@@ -400,33 +426,33 @@ float ComputeShadowFactor(vec3 normal, vec3 lightDir)
     int cascadeCount = clamp(int(camera.shadowCascadeSplits.w + 0.5), 1, 3);
     float viewDepth = max(dot(fragWorldPos - camera.cameraPosition.xyz, normalize(camera.cameraForward.xyz)), 0.0);
     int cascadeIndex = 0;
-    bool _959 = cascadeCount >= 3;
-    bool _966;
-    if (_959)
+    bool _996 = cascadeCount >= 3;
+    bool _1003;
+    if (_996)
     {
-        _966 = viewDepth > camera.shadowCascadeSplits.y;
+        _1003 = viewDepth > camera.shadowCascadeSplits.y;
     }
     else
     {
-        _966 = _959;
+        _1003 = _996;
     }
-    if (_966)
+    if (_1003)
     {
         cascadeIndex = 2;
     }
     else
     {
-        bool _971 = cascadeCount >= 2;
-        bool _978;
-        if (_971)
+        bool _1008 = cascadeCount >= 2;
+        bool _1015;
+        if (_1008)
         {
-            _978 = viewDepth > camera.shadowCascadeSplits.x;
+            _1015 = viewDepth > camera.shadowCascadeSplits.x;
         }
         else
         {
-            _978 = _971;
+            _1015 = _1008;
         }
-        if (_978)
+        if (_1015)
         {
             cascadeIndex = 1;
         }
@@ -443,35 +469,35 @@ float ComputeShadowFactor(vec3 normal, vec3 lightDir)
     {
         return 1.0;
     }
-    bool _1026 = shadowUv.x < 0.0;
-    bool _1033;
-    if (!_1026)
+    bool _1063 = shadowUv.x < 0.0;
+    bool _1070;
+    if (!_1063)
     {
-        _1033 = shadowUv.x > 1.0;
+        _1070 = shadowUv.x > 1.0;
     }
     else
     {
-        _1033 = _1026;
+        _1070 = _1063;
     }
-    bool _1040;
-    if (!_1033)
+    bool _1077;
+    if (!_1070)
     {
-        _1040 = shadowUv.y < 0.0;
+        _1077 = shadowUv.y < 0.0;
     }
     else
     {
-        _1040 = _1033;
+        _1077 = _1070;
     }
-    bool _1047;
-    if (!_1040)
+    bool _1084;
+    if (!_1077)
     {
-        _1047 = shadowUv.y > 1.0;
+        _1084 = shadowUv.y > 1.0;
     }
     else
     {
-        _1047 = _1040;
+        _1084 = _1077;
     }
-    if (_1047)
+    if (_1084)
     {
         return 1.0;
     }
@@ -586,16 +612,16 @@ void main()
     vec3 emissiveScene = (albedo * emissive) * 4.0;
     vec3 glowColor = (((glowBase * emissive) * 8.0) * blackNeonGlowBoost) * glowMask;
     vec2 neonUv = gl_FragCoord.xy / vec2(max(textureSize(neonTexture, 0), ivec2(1)));
-    vec3 _1257;
+    vec3 _1293;
     if (neonEnabled)
     {
-        _1257 = texture(neonTexture, neonUv).xyz;
+        _1293 = texture(neonTexture, neonUv).xyz;
     }
     else
     {
-        _1257 = vec3(0.0);
+        _1293 = vec3(0.0);
     }
-    vec3 neonSample = _1257;
+    vec3 neonSample = _1293;
     if (ignoreLighting > 0.5)
     {
         outSceneColor = vec4((albedo + emissiveScene) + ((neonSample * 0.100000001490116119384765625) * glowMask), alpha);
@@ -613,9 +639,9 @@ void main()
     vec2 param_7 = faceUV;
     vec3 N = GetSurfaceMappedNormal(param_5, param_6, param_7);
     vec3 V = normalize(camera.cameraPosition.xyz - fragWorldPos);
-    if (camera.renderSettings.y > 0.5)
+    if (camera.shadowState.w > 0.5)
     {
-        vec3 color = camera.ambient.xyz * albedo;
+        vec3 color = (camera.ambient.xyz * camera.ambient.w) * albedo;
         if (camera.renderSettings.x > 0.5)
         {
             vec3 L = normalize(-camera.lightDirection.xyz);
@@ -645,7 +671,7 @@ void main()
         outGlowColor = vec4(glowColor, glowMask);
         return;
     }
-    vec3 color_1 = camera.ambient.xyz * albedo;
+    vec3 color_1 = (camera.ambient.xyz * camera.ambient.w) * albedo;
     if (camera.renderSettings.x > 0.5)
     {
         vec3 L_1 = normalize(-camera.lightDirection.xyz);

@@ -21,12 +21,21 @@ struct CameraUniformData {
     std::array<float, 4> CameraForward{};
 };
 
+struct ShadowUniformData {
+    std::array<std::array<float, 16>, 3> LightViewProjection{};
+};
+
 struct DrawPushConstants {
     std::array<float, 16> Model{};
     std::array<float, 4> BaseColor{};
     std::array<float, 4> Material{};
     std::array<float, 4> SurfaceData0{};
     std::array<float, 4> SurfaceData1{};
+};
+
+struct ShadowPushConstants {
+    std::array<float, 16> Model{};
+    std::array<float, 4> Cascade{}; // x: cascade index
 };
 
 struct SkyboxPushConstants {

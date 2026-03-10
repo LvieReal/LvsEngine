@@ -72,7 +72,6 @@ vec3 FresnelSchlick(float cosTheta, vec3 F0) {
 void main() {
     vec4 worldPos = pushData.model * vec4(inPosition, 1.0);
     gl_Position = camera.projection * camera.view * worldPos;
-    gl_Position.y = -gl_Position.y;
 
     vec3 albedo = pushData.baseColor.rgb;
     float metalness = clamp(pushData.material.x, 0.0, 1.0);

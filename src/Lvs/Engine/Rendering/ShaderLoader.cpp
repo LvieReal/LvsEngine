@@ -18,8 +18,6 @@ using StagePair = std::array<std::string, 2>;
 
 const std::unordered_map<std::string, StagePair> kPipelineShaderTable{
     {"main", {"CompiledShaders/Vulkan/Main.vert.spv", "CompiledShaders/Vulkan/Main.frag.spv"}},
-    // Temporary bring-up pipeline; target is to switch to "main" once scene/material data is fully wired.
-    {"mesh", {"CompiledShaders/Vulkan/Mesh.vert.spv", "CompiledShaders/Vulkan/Mesh.frag.spv"}},
     {"shadow", {"CompiledShaders/Vulkan/Shadow.vert.spv", "CompiledShaders/Vulkan/Shadow.frag.spv"}},
     {"sky", {"CompiledShaders/Vulkan/Sky.vert.spv", "CompiledShaders/Vulkan/Sky.frag.spv"}},
     {"post_composite", {"CompiledShaders/Vulkan/PostProcess.vert.spv", "CompiledShaders/Vulkan/PostProcess.frag.spv"}},
@@ -29,8 +27,6 @@ const std::unordered_map<std::string, StagePair> kPipelineShaderTable{
 
 const std::unordered_map<std::string, StagePair> kOpenGLPipelineShaderTable{
     {"main", {"CompiledShaders/OpenGL/Main.vert.glsl", "CompiledShaders/OpenGL/Main.frag.glsl"}},
-    // Temporary bring-up pipeline; target is to switch to "main" once scene/material data is fully wired.
-    {"mesh", {"CompiledShaders/OpenGL/Mesh.vert.glsl", "CompiledShaders/OpenGL/Mesh.frag.glsl"}},
     {"shadow", {"CompiledShaders/OpenGL/Shadow.vert.glsl", "CompiledShaders/OpenGL/Shadow.frag.glsl"}},
     {"sky", {"CompiledShaders/OpenGL/Sky.vert.glsl", "CompiledShaders/OpenGL/Sky.frag.glsl"}},
     {"post_composite", {"CompiledShaders/OpenGL/PostProcess.vert.glsl", "CompiledShaders/OpenGL/PostProcess.frag.glsl"}},

@@ -22,6 +22,7 @@ public:
     std::unique_ptr<RHI::IBuffer> CreateBuffer(const RHI::BufferDesc& desc) override;
     std::unique_ptr<RHI::IResourceSet> CreateResourceSet(const RHI::ResourceSetDesc& desc) override;
     [[nodiscard]] RHI::Texture CreateTexture2D(const RHI::Texture2DDesc& desc) override;
+    [[nodiscard]] RHI::Texture CreateTexture3D(const RHI::Texture3DDesc& desc) override;
     [[nodiscard]] RHI::Texture CreateTextureCube(const RHI::CubemapDesc& desc) override;
     void DestroyTexture(RHI::Texture& texture) override;
     void BindTexture(RHI::u32 slot, const RHI::Texture& texture) override;

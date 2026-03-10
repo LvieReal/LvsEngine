@@ -21,6 +21,7 @@ public:
     virtual std::unique_ptr<IBuffer> CreateBuffer(const BufferDesc& desc) = 0;
     virtual std::unique_ptr<IResourceSet> CreateResourceSet(const ResourceSetDesc& desc) = 0;
     [[nodiscard]] virtual Texture CreateTexture2D(const Texture2DDesc& desc) = 0;
+    [[nodiscard]] virtual Texture CreateTexture3D(const Texture3DDesc& desc) = 0;
     [[nodiscard]] virtual Texture CreateTextureCube(const CubemapDesc& desc) = 0;
     virtual void DestroyTexture(Texture& texture) = 0;
     virtual void BindTexture(u32 slot, const Texture& texture) = 0;

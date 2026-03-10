@@ -40,15 +40,6 @@ void Renderer::RecordFrameCommands(
         cmd.EndRenderPass();
     }
 
-    Pipeline* shadowPipeline = scene.EnableShadows
-                                   ? GetOrCreatePipeline(
-                                         ctx,
-                                         PassKey::Shadow,
-                                         RHI::CullMode::Back,
-                                         scene.ShadowTarget.RenderPass,
-                                         scene.ShadowTarget.ColorAttachmentCount
-                                     )
-                                   : nullptr;
     Pipeline* skyboxPipeline = scene.EnableSkybox
                                    ? GetOrCreatePipeline(
                                          ctx,
@@ -97,7 +88,7 @@ void Renderer::RecordFrameCommands(
     const RHI::IResourceSet* globalResources = GetOrCreateGlobalResources(ctx, scene);
 
     geometryPass_.SetInputs(&surface_, &scene, this, geometryPipeline, globalResources);
-    shadowPass_.SetInputs(&surface_, &scene, shadowPipeline, globalResources);
+    shadowPass_.SetInputs(&surface_, &scene, this, scene.ShadowResources);
     skyboxPass_.SetInputs(&surface_, &scene, skyboxPipeline, globalResources);
     postProcessPass_.SetInputs(
         &surface_,
@@ -130,10 +121,10 @@ Pipeline* Renderer::GetOrCreatePipeline(
 
     RHI::PipelineDesc desc{};
     desc.renderPassHandle = renderPassHandle;
-    desc.colorAttachmentCount = std::max(1U, colorAttachmentCount);
+    desc.colorAttachmentCount = colorAttachmentCount;
     switch (key) {
         case PassKey::Geometry:
-            desc.pipelineId = "mesh";
+            desc.pipelineId = "main";
             desc.vertexLayout = RHI::VertexLayout::P3N3;
             desc.depthTest = true;
             desc.depthWrite = true;
@@ -146,7 +137,7 @@ Pipeline* Renderer::GetOrCreatePipeline(
             desc.vertexLayout = RHI::VertexLayout::P3N3;
             desc.depthTest = true;
             desc.depthWrite = true;
-            desc.depthCompare = RHI::DepthCompare::GreaterOrEqual;
+            desc.depthCompare = RHI::DepthCompare::LessOrEqual;
             desc.blending = false;
             desc.cullMode = cullMode;
             break;
@@ -213,7 +204,7 @@ Pipeline* Renderer::GetOrCreateGeometryPipeline(
     }
 
     RHI::PipelineDesc desc{};
-    desc.pipelineId = "mesh";
+    desc.pipelineId = "main";
     desc.vertexLayout = RHI::VertexLayout::P3N3;
     desc.renderPassHandle = sceneRenderPassHandle_;
     desc.colorAttachmentCount = sceneColorAttachmentCount_;

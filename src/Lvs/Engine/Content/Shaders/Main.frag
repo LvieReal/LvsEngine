@@ -26,11 +26,13 @@ layout(set = 0, binding = 0) uniform CameraUBO {
 } camera;
 
 layout(set = 0, binding = 1) uniform samplerCube skyboxTex;
-layout(set = 0, binding = 2) uniform sampler2DShadow directionalShadowMaps[3];
-layout(set = 0, binding = 3) uniform sampler3D directionalShadowJitter;
-layout(set = 0, binding = 4) uniform sampler2D surfaceAtlas;
-layout(set = 0, binding = 5) uniform sampler2D surfaceNormalAtlas;
+layout(set = 0, binding = 2) uniform sampler2D surfaceAtlas;
+layout(set = 0, binding = 3) uniform sampler2DShadow directionalShadowMap0;
+layout(set = 0, binding = 4) uniform sampler2DShadow directionalShadowMap1;
+layout(set = 0, binding = 5) uniform sampler2DShadow directionalShadowMap2;
 layout(set = 0, binding = 6) uniform sampler2D neonTexture;
+layout(set = 0, binding = 7) uniform sampler3D directionalShadowJitter;
+layout(set = 0, binding = 8) uniform sampler2D surfaceNormalAtlas;
 
 layout(push_constant) uniform PushConstants {
     mat4 model;
@@ -190,11 +192,25 @@ const int SHADOW_SAMPLES_HALF = SHADOW_SAMPLES_COUNT / 2;
 const float INV_SHADOW_SAMPLES = 1.0 / float(SHADOW_SAMPLES_COUNT);
 
 vec2 GetDirectionalShadowTexelSize(int cascadeIndex) {
-    return 1.0 / vec2(textureSize(directionalShadowMaps[cascadeIndex], 0));
+    ivec2 size = ivec2(1, 1);
+    if (cascadeIndex == 1) {
+        size = max(textureSize(directionalShadowMap1, 0), ivec2(1));
+    } else if (cascadeIndex == 2) {
+        size = max(textureSize(directionalShadowMap2, 0), ivec2(1));
+    } else {
+        size = max(textureSize(directionalShadowMap0, 0), ivec2(1));
+    }
+    return 1.0 / vec2(size);
 }
 
 float SampleDirectionalShadowMap(int cascadeIndex, vec3 shadowCoord) {
-    return texture(directionalShadowMaps[cascadeIndex], shadowCoord);
+    if (cascadeIndex == 1) {
+        return texture(directionalShadowMap1, shadowCoord);
+    }
+    if (cascadeIndex == 2) {
+        return texture(directionalShadowMap2, shadowCoord);
+    }
+    return texture(directionalShadowMap0, shadowCoord);
 }
 
 float SampleDirectionalAdaptivePCF64(int cascadeIndex, vec3 baseShadowCoord, float radiusTexels, float ndotl) {
@@ -313,11 +329,13 @@ void main() {
     albedo *= surfaceDetail;
 
     float ignoreLighting = fragMaterial.w;
+
     float metalness = clamp(fragMaterial.x, 0.0, 1.0);
     float roughness = clamp(fragMaterial.y, 0.0, 1.0);
     float emissive = max(fragMaterial.z, 0.0);
     bool neonEnabled = camera.renderSettings.z > 0.5;
     bool allowBlackNeon = (camera.renderSettings.w > 0.5) && neonEnabled;
+
     float albedoL2 = dot(albedo, albedo);
     float glowMask = (neonEnabled && ignoreLighting <= 0.5 && emissive > 1e-4) ? 1.0 : 0.0;
     if (!allowBlackNeon && albedoL2 < 1e-6) {
@@ -352,8 +370,8 @@ void main() {
     vec3 N = GetSurfaceMappedNormal(fragLocalNormal, surfaceType, faceUV);
     vec3 V = normalize(camera.cameraPosition.xyz - fragWorldPos);
 
-    if (camera.renderSettings.y > 0.5) {
-        vec3 color = camera.ambient.rgb * albedo;
+    if (camera.shadowState.w > 0.5) {
+        vec3 color = (camera.ambient.rgb * camera.ambient.a) * albedo;
         if (camera.renderSettings.x > 0.5) {
             vec3 L = normalize(-camera.lightDirection.xyz);
             float shadowFactor = ComputeShadowFactor(N, L);
@@ -378,7 +396,7 @@ void main() {
         return;
     }
 
-    vec3 color = camera.ambient.rgb * albedo;
+    vec3 color = (camera.ambient.rgb * camera.ambient.a) * albedo;
 
     if (camera.renderSettings.x > 0.5) {
         vec3 L = normalize(-camera.lightDirection.xyz);

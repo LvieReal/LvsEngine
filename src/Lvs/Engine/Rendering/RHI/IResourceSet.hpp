@@ -8,6 +8,7 @@ namespace Lvs::Engine::Rendering::RHI {
 
 enum class ResourceBindingKind {
     Texture2D,
+    Texture3D,
     TextureCube,
     UniformBuffer
 };

@@ -11,6 +11,7 @@ namespace Lvs::Engine::Rendering::RHI {
 
 enum class TextureType {
     Texture2D,
+    Texture3D,
     TextureCube
 };
 
@@ -30,9 +31,20 @@ struct Texture2DDesc {
     std::vector<std::uint8_t> pixels{};
 };
 
+struct Texture3DDesc {
+    u32 width{0};
+    u32 height{0};
+    u32 depth{0};
+    Format format{Format::R8G8B8A8_UNorm};
+    bool linearFiltering{false};
+    bool repeat{true};
+    std::vector<std::uint8_t> pixels{};
+};
+
 struct Texture {
     u32 width{0};
     u32 height{0};
+    u32 depth{1};
     Format format{Format::Unknown};
     TextureType type{TextureType::Texture2D};
     union {

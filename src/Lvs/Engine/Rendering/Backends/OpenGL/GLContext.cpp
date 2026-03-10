@@ -142,14 +142,18 @@ public:
         const unsigned int framebuffer,
         const std::vector<unsigned int>& colorTextures,
         const unsigned int depthRenderbuffer,
-        const RHI::Format colorFormat
+        const unsigned int depthTexture,
+        const RHI::Format colorFormat,
+        const RHI::Format depthFormat
     )
         : width_(width),
           height_(height),
           framebuffer_(framebuffer),
           colorTextures_(colorTextures),
           depthRenderbuffer_(depthRenderbuffer),
-          colorFormat_(colorFormat) {
+          depthTexture_(depthTexture),
+          colorFormat_(colorFormat),
+          depthFormat_(depthFormat) {
         colorTextureViews_.reserve(colorTextures_.size());
         for (const auto handle : colorTextures_) {
             RHI::Texture texture{};
@@ -161,10 +165,22 @@ public:
             texture.sampler_handle_ptr = nullptr;
             colorTextureViews_.push_back(texture);
         }
+
+        if (depthTexture_ != 0U) {
+            depthTextureView_.width = width_;
+            depthTextureView_.height = height_;
+            depthTextureView_.format = depthFormat_;
+            depthTextureView_.type = RHI::TextureType::Texture2D;
+            depthTextureView_.graphic_handle_i = static_cast<int>(depthTexture_);
+            depthTextureView_.sampler_handle_ptr = nullptr;
+            hasDepthTexture_ = true;
+        }
     }
 
     ~GLRenderTarget() override {
-        if (depthRenderbuffer_ != 0U) {
+        if (depthTexture_ != 0U) {
+            glDeleteTextures(1, &depthTexture_);
+        } else if (depthRenderbuffer_ != 0U) {
             glDeleteRenderbuffers(1, &depthRenderbuffer_);
         }
         if (!colorTextures_.empty()) {
@@ -202,14 +218,26 @@ public:
         return colorTextureViews_[index];
     }
 
+    [[nodiscard]] bool HasDepth() const override {
+        return depthRenderbuffer_ != 0U || depthTexture_ != 0U;
+    }
+
+    [[nodiscard]] RHI::Texture GetDepthTexture() const override {
+        return hasDepthTexture_ ? depthTextureView_ : RHI::Texture{};
+    }
+
 private:
     RHI::u32 width_{0U};
     RHI::u32 height_{0U};
     unsigned int framebuffer_{0U};
     std::vector<unsigned int> colorTextures_{};
     unsigned int depthRenderbuffer_{0U};
+    unsigned int depthTexture_{0U};
     RHI::Format colorFormat_{RHI::Format::R8G8B8A8_UNorm};
+    RHI::Format depthFormat_{RHI::Format::D32_Float};
     std::vector<RHI::Texture> colorTextureViews_{};
+    bool hasDepthTexture_{false};
+    RHI::Texture depthTextureView_{};
 };
 
 class GLBuffer final : public RHI::IBuffer {
@@ -393,7 +421,7 @@ std::unique_ptr<RHI::IPipeline> GLContext::CreatePipeline(const RHI::PipelineDes
 }
 
 std::unique_ptr<RHI::IRenderTarget> GLContext::CreateRenderTarget(const RHI::RenderTargetDesc& desc) {
-    if (!api_.GladLoaded || desc.width == 0U || desc.height == 0U || desc.colorAttachmentCount == 0U) {
+    if (!api_.GladLoaded || desc.width == 0U || desc.height == 0U || (desc.colorAttachmentCount == 0U && !desc.hasDepth)) {
         return nullptr;
     }
 
@@ -402,47 +430,91 @@ std::unique_ptr<RHI::IRenderTarget> GLContext::CreateRenderTarget(const RHI::Ren
     glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
 
     std::vector<unsigned int> colorTextures;
-    colorTextures.resize(desc.colorAttachmentCount, 0U);
-    glGenTextures(static_cast<GLsizei>(colorTextures.size()), colorTextures.data());
-    for (RHI::u32 index = 0; index < desc.colorAttachmentCount; ++index) {
-        const auto handle = colorTextures[index];
-        glBindTexture(GL_TEXTURE_2D, handle);
-        glTexImage2D(
-            GL_TEXTURE_2D,
-            0,
-            GL_RGBA16F,
-            static_cast<GLsizei>(desc.width),
-            static_cast<GLsizei>(desc.height),
-            0,
-            GL_RGBA,
-            GL_FLOAT,
-            nullptr
-        );
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + index, GL_TEXTURE_2D, handle, 0);
-    }
+    if (desc.colorAttachmentCount > 0U) {
+        colorTextures.resize(desc.colorAttachmentCount, 0U);
+        glGenTextures(static_cast<GLsizei>(colorTextures.size()), colorTextures.data());
+        for (RHI::u32 index = 0; index < desc.colorAttachmentCount; ++index) {
+            const auto handle = colorTextures[index];
+            glBindTexture(GL_TEXTURE_2D, handle);
+            glTexImage2D(
+                GL_TEXTURE_2D,
+                0,
+                GL_RGBA16F,
+                static_cast<GLsizei>(desc.width),
+                static_cast<GLsizei>(desc.height),
+                0,
+                GL_RGBA,
+                GL_FLOAT,
+                nullptr
+            );
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + index, GL_TEXTURE_2D, handle, 0);
+        }
 
-    std::vector<GLenum> drawBuffers;
-    drawBuffers.reserve(desc.colorAttachmentCount);
-    for (RHI::u32 index = 0; index < desc.colorAttachmentCount; ++index) {
-        drawBuffers.push_back(GL_COLOR_ATTACHMENT0 + index);
+        std::vector<GLenum> drawBuffers;
+        drawBuffers.reserve(desc.colorAttachmentCount);
+        for (RHI::u32 index = 0; index < desc.colorAttachmentCount; ++index) {
+            drawBuffers.push_back(GL_COLOR_ATTACHMENT0 + index);
+        }
+        glDrawBuffers(static_cast<GLsizei>(drawBuffers.size()), drawBuffers.data());
+    } else {
+        glDrawBuffer(GL_NONE);
+        glReadBuffer(GL_NONE);
     }
-    glDrawBuffers(static_cast<GLsizei>(drawBuffers.size()), drawBuffers.data());
 
     unsigned int depthRenderbuffer = 0U;
+    unsigned int depthTexture = 0U;
     if (desc.hasDepth) {
-        glGenRenderbuffers(1, &depthRenderbuffer);
-        glBindRenderbuffer(GL_RENDERBUFFER, depthRenderbuffer);
-        glRenderbufferStorage(
-            GL_RENDERBUFFER,
-            GL_DEPTH_COMPONENT24,
-            static_cast<GLsizei>(desc.width),
-            static_cast<GLsizei>(desc.height)
-        );
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthRenderbuffer);
+        if (desc.depthTexture) {
+            glGenTextures(1, &depthTexture);
+            glBindTexture(GL_TEXTURE_2D, depthTexture);
+            if (desc.depthFormat == RHI::Format::D24S8) {
+                glTexImage2D(
+                    GL_TEXTURE_2D,
+                    0,
+                    GL_DEPTH24_STENCIL8,
+                    static_cast<GLsizei>(desc.width),
+                    static_cast<GLsizei>(desc.height),
+                    0,
+                    GL_DEPTH_STENCIL,
+                    GL_UNSIGNED_INT_24_8,
+                    nullptr
+                );
+                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, depthTexture, 0);
+            } else {
+                glTexImage2D(
+                    GL_TEXTURE_2D,
+                    0,
+                    GL_DEPTH_COMPONENT32F,
+                    static_cast<GLsizei>(desc.width),
+                    static_cast<GLsizei>(desc.height),
+                    0,
+                    GL_DEPTH_COMPONENT,
+                    GL_FLOAT,
+                    nullptr
+                );
+                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthTexture, 0);
+            }
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+        } else {
+            glGenRenderbuffers(1, &depthRenderbuffer);
+            glBindRenderbuffer(GL_RENDERBUFFER, depthRenderbuffer);
+            glRenderbufferStorage(
+                GL_RENDERBUFFER,
+                GL_DEPTH_COMPONENT24,
+                static_cast<GLsizei>(desc.width),
+                static_cast<GLsizei>(desc.height)
+            );
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthRenderbuffer);
+        }
     }
 
     const auto status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
@@ -450,6 +522,9 @@ std::unique_ptr<RHI::IRenderTarget> GLContext::CreateRenderTarget(const RHI::Ren
     if (status != GL_FRAMEBUFFER_COMPLETE) {
         if (depthRenderbuffer != 0U) {
             glDeleteRenderbuffers(1, &depthRenderbuffer);
+        }
+        if (depthTexture != 0U) {
+            glDeleteTextures(1, &depthTexture);
         }
         if (!colorTextures.empty()) {
             glDeleteTextures(static_cast<GLsizei>(colorTextures.size()), colorTextures.data());
@@ -466,7 +541,9 @@ std::unique_ptr<RHI::IRenderTarget> GLContext::CreateRenderTarget(const RHI::Ren
         framebuffer,
         colorTextures,
         depthRenderbuffer,
-        RHI::Format::R16G16B16A16_Float
+        depthTexture,
+        desc.colorAttachmentCount > 0U ? RHI::Format::R16G16B16A16_Float : RHI::Format::Unknown,
+        desc.depthFormat
     );
 }
 
@@ -538,6 +615,55 @@ RHI::Texture GLContext::CreateTexture2D(const RHI::Texture2DDesc& desc) {
     texture.height = desc.height;
     texture.format = desc.format;
     texture.type = RHI::TextureType::Texture2D;
+    texture.graphic_handle_i = static_cast<int>(textureHandle);
+    texture.sampler_handle_ptr = nullptr;
+    return texture;
+}
+
+RHI::Texture GLContext::CreateTexture3D(const RHI::Texture3DDesc& desc) {
+    if (!api_.GladLoaded || desc.width == 0U || desc.height == 0U || desc.depth == 0U || desc.pixels.empty()) {
+        return {};
+    }
+    unsigned int textureHandle = 0U;
+    glGenTextures(1, &textureHandle);
+    if (textureHandle == 0U) {
+        return {};
+    }
+    glBindTexture(GL_TEXTURE_3D, textureHandle);
+    glTexImage3D(
+        GL_TEXTURE_3D,
+        0,
+        GL_RGBA8,
+        static_cast<GLsizei>(desc.width),
+        static_cast<GLsizei>(desc.height),
+        static_cast<GLsizei>(desc.depth),
+        0,
+        GL_RGBA,
+        GL_UNSIGNED_BYTE,
+        desc.pixels.data()
+    );
+    const GLint wrap = desc.repeat ? static_cast<GLint>(GL_REPEAT) : static_cast<GLint>(GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, wrap);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, wrap);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, wrap);
+    glTexParameteri(
+        GL_TEXTURE_3D,
+        GL_TEXTURE_MIN_FILTER,
+        desc.linearFiltering ? static_cast<GLint>(GL_LINEAR) : static_cast<GLint>(GL_NEAREST)
+    );
+    glTexParameteri(
+        GL_TEXTURE_3D,
+        GL_TEXTURE_MAG_FILTER,
+        desc.linearFiltering ? static_cast<GLint>(GL_LINEAR) : static_cast<GLint>(GL_NEAREST)
+    );
+    ownedTextures_[textureHandle] = RHI::TextureType::Texture3D;
+
+    RHI::Texture texture{};
+    texture.width = desc.width;
+    texture.height = desc.height;
+    texture.depth = desc.depth;
+    texture.format = desc.format;
+    texture.type = RHI::TextureType::Texture3D;
     texture.graphic_handle_i = static_cast<int>(textureHandle);
     texture.sampler_handle_ptr = nullptr;
     return texture;
@@ -615,7 +741,12 @@ void GLContext::BindTexture(const RHI::u32 slot, const RHI::Texture& texture) {
     }
     textureSlots_[slot] = texture;
     glActiveTexture(GL_TEXTURE0 + slot);
-    const auto target = texture.type == RHI::TextureType::TextureCube ? GL_TEXTURE_CUBE_MAP : GL_TEXTURE_2D;
+    GLenum target = GL_TEXTURE_2D;
+    if (texture.type == RHI::TextureType::TextureCube) {
+        target = GL_TEXTURE_CUBE_MAP;
+    } else if (texture.type == RHI::TextureType::Texture3D) {
+        target = GL_TEXTURE_3D;
+    }
     glBindTexture(target, static_cast<unsigned int>(texture.graphic_handle_i));
 }
 
@@ -807,12 +938,16 @@ void GLContext::BeginRenderPass(const RHI::RenderPassInfo& info) {
         glDrawBuffer(GL_BACK);
     } else {
         std::vector<GLenum> drawBuffers;
-        const RHI::u32 colorAttachmentCount = std::max(1U, info.colorAttachmentCount);
-        drawBuffers.reserve(colorAttachmentCount);
-        for (RHI::u32 colorIndex = 0; colorIndex < colorAttachmentCount; ++colorIndex) {
+        drawBuffers.reserve(info.colorAttachmentCount);
+        for (RHI::u32 colorIndex = 0; colorIndex < info.colorAttachmentCount; ++colorIndex) {
             drawBuffers.push_back(GL_COLOR_ATTACHMENT0 + colorIndex);
         }
-        glDrawBuffers(static_cast<GLsizei>(drawBuffers.size()), drawBuffers.data());
+        if (drawBuffers.empty()) {
+            glDrawBuffer(GL_NONE);
+            glReadBuffer(GL_NONE);
+        } else {
+            glDrawBuffers(static_cast<GLsizei>(drawBuffers.size()), drawBuffers.data());
+        }
     }
     if (defaultVao_ != 0U) {
         glBindVertexArray(defaultVao_);
@@ -820,7 +955,7 @@ void GLContext::BeginRenderPass(const RHI::RenderPassInfo& info) {
     glViewport(0, 0, static_cast<int>(info.width), static_cast<int>(info.height));
     glScissor(0, 0, static_cast<int>(info.width), static_cast<int>(info.height));
     unsigned int clearMask = 0U;
-    if (info.clearColor) {
+    if (info.clearColor && (useDefaultFramebuffer || info.colorAttachmentCount > 0U)) {
         glClearColor(info.clearColorValue[0], info.clearColorValue[1], info.clearColorValue[2], info.clearColorValue[3]);
         clearMask |= GL_COLOR_BUFFER_BIT;
     }
@@ -858,6 +993,13 @@ void GLContext::BindPipeline(const RHI::IPipeline& pipeline) {
     if (const auto* glPipeline = dynamic_cast<const GLPipeline*>(&pipeline); glPipeline != nullptr) {
         currentVertexLayout_ = glPipeline->GetDesc().vertexLayout;
         ApplyCullMode(glPipeline->GetDesc().cullMode);
+#ifdef GL_DEPTH_CLAMP
+        if (glPipeline->GetDesc().pipelineId == "shadow") {
+            glEnable(GL_DEPTH_CLAMP);
+        } else {
+            glDisable(GL_DEPTH_CLAMP);
+        }
+#endif
         if (glPipeline->GetDesc().blending) {
             glEnable(GL_BLEND);
             glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
@@ -875,6 +1017,9 @@ void GLContext::BindPipeline(const RHI::IPipeline& pipeline) {
     } else {
         currentVertexLayout_ = RHI::VertexLayout::None;
         ApplyCullMode(RHI::CullMode::Back);
+#ifdef GL_DEPTH_CLAMP
+        glDisable(GL_DEPTH_CLAMP);
+#endif
         glDisable(GL_BLEND);
         glEnable(GL_DEPTH_TEST);
         glDepthFunc(GL_GEQUAL);
@@ -943,8 +1088,9 @@ void GLContext::PushConstants(const void* data, const std::size_t size) {
         return;
     }
 
-    const std::array<const char*, 4> pushBlockNames{
+    const std::array<const char*, 5> pushBlockNames{
         "PushConstants",
+        "ShadowPush",
         "SkyPush",
         "PostSettings",
         "BlurSettings"
@@ -981,12 +1127,37 @@ void GLContext::PushConstants(const void* data, const std::size_t size) {
         const float* value;
     };
 
-    if (size >= sizeof(Common::SkyboxPushConstants)) {
+    if (size == sizeof(Common::ShadowPushConstants)) {
+        const auto& shadowPush = *static_cast<const Common::ShadowPushConstants*>(data);
+        const std::array<UniformField, 2> shadowFields{
+            UniformField{"pushData.model", true, shadowPush.Model.data()},
+            UniformField{"pushData.cascade", false, shadowPush.Cascade.data()}
+        };
+        bool updated = false;
+        for (const auto& field : shadowFields) {
+            const GLint location = glGetUniformLocation(currentProgram_, field.name);
+            if (location < 0) {
+                continue;
+            }
+            if (field.matrix4) {
+                glUniformMatrix4fv(location, 1, GL_FALSE, field.value);
+            } else {
+                glUniform4fv(location, 1, field.value);
+            }
+            updated = true;
+        }
+        if (updated) {
+            return;
+        }
+    }
+
+    if (size == sizeof(Common::SkyboxPushConstants)) {
         const auto& skyPush = *static_cast<const Common::SkyboxPushConstants*>(data);
         const std::array<UniformField, 2> skyFields{
             UniformField{"skyPush.viewProjection", true, skyPush.ViewProjection.data()},
             UniformField{"skyPush.tint", false, skyPush.Tint.data()}
         };
+        bool updated = false;
         for (const auto& field : skyFields) {
             const GLint location = glGetUniformLocation(currentProgram_, field.name);
             if (location < 0) {
@@ -997,6 +1168,10 @@ void GLContext::PushConstants(const void* data, const std::size_t size) {
             } else {
                 glUniform4fv(location, 1, field.value);
             }
+            updated = true;
+        }
+        if (updated) {
+            return;
         }
     }
 
