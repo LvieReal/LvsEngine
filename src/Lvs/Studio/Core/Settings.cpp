@@ -23,20 +23,47 @@ QMap<QString, SettingMeta> g_settings = {
     {"GizmoIgnoreDiffuseSpecular", {"Gizmo Ignore Lighting", "Ignore diffuse and specular lighting for gizmos", true}},
     {"GizmoAlignByMagnitude", {"Gizmo Align By Magnitude", "Place gizmo handles using bounds magnitude", true}},
     {"TransformSnapIncrement", {"Transform Snap Increment", "Snap amount for drag/move/size transforms (0 disables snap)", 1.0}},
-    {"DockLayoutState", {"Dock Layout State", "Serialized dock and toolbar layout", ""}}
+    {"DockLayoutState", {"Dock Layout State", "Serialized dock and toolbar layout", ""}},
+    {"Shortcut.Tool.Select", {"Select Tool", "Keyboard shortcut(s) for Select tool (separate with ';')", "1;Shift+1"}},
+    {"Shortcut.Tool.Move", {"Move Tool", "Keyboard shortcut(s) for Move tool (separate with ';')", "2;Shift+2"}},
+    {"Shortcut.Tool.Size", {"Size Tool", "Keyboard shortcut(s) for Size tool (separate with ';')", "3;Shift+3"}},
+    {"Shortcut.Edit.Duplicate", {"Duplicate", "Keyboard shortcut(s) for Duplicate (separate with ';')", "Ctrl+D"}},
+    {"Shortcut.Edit.Delete", {"Delete", "Keyboard shortcut(s) for Delete (separate with ';')", "Delete"}},
+    {"Shortcut.Edit.Copy", {"Copy", "Keyboard shortcut(s) for Copy (separate with ';')", "Ctrl+C"}},
+    {"Shortcut.Edit.Cut", {"Cut", "Keyboard shortcut(s) for Cut (separate with ';')", "Ctrl+X"}},
+    {"Shortcut.Edit.Paste", {"Paste", "Keyboard shortcut(s) for Paste (separate with ';')", "Ctrl+V"}},
+    {"Shortcut.Edit.PasteInto", {"Paste Into Selection", "Keyboard shortcut(s) for Paste Into (separate with ';')", "Ctrl+Shift+V"}}
 };
 
 QMap<QString, QStringList> g_categories = {
     {"Studio",
-        {"BaseCameraSpeed",
+        {
+         "BaseCameraSpeed",
          "ShiftCameraSpeed",
          "Theme",
          "ExplorerIconPack",
-         "RenderingApi",
          "GizmoAlwaysOnTop",
          "GizmoIgnoreDiffuseSpecular",
          "GizmoAlignByMagnitude",
          "TransformSnapIncrement"
+        }
+    },
+    {"Rendering",
+        {
+         "RenderingApi"
+        }
+    },
+    {"Shortcuts",
+        {
+         "Shortcut.Tool.Select",
+         "Shortcut.Tool.Move",
+         "Shortcut.Tool.Size",
+         "Shortcut.Edit.Duplicate",
+         "Shortcut.Edit.Delete",
+         "Shortcut.Edit.Copy",
+         "Shortcut.Edit.Cut",
+         "Shortcut.Edit.Paste",
+         "Shortcut.Edit.PasteInto"
         }
     }
 };

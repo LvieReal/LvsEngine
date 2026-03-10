@@ -10,10 +10,12 @@
 #include "Lvs/Engine/DataModel/Place.hpp"
 #include "Lvs/Engine/DataModel/PlaceManager.hpp"
 #include "Lvs/Engine/DataModel/Selection.hpp"
+#include "Lvs/Engine/DataModel/Workspace.hpp"
 #include "Lvs/Engine/Objects/BasePart.hpp"
 #include "Lvs/Engine/Utils/Command.hpp"
 #include "Lvs/Studio/Controllers/ToolbarController.hpp"
 #include "Lvs/Studio/Core/IconPackManager.hpp"
+#include "Lvs/Studio/Core/StudioShortcutManager.hpp"
 #include "Lvs/Studio/Widgets/Explorer/ExplorerWidget.hpp"
 
 #include <QAbstractSpinBox>
@@ -69,7 +71,7 @@ bool StudioQuickActions::TryShowViewportContextMenu(Engine::Core::Viewport& view
     if (!viewport.hasFocus() && !viewport.underMouse()) {
         return false;
     }
-    return ShowSelectedBasePartContextMenu(viewport, globalPos);
+    return ShowSelectionContextMenu(viewport, globalPos);
 }
 
 bool StudioQuickActions::TryShowExplorerContextMenu(
@@ -93,7 +95,7 @@ bool StudioQuickActions::TryShowExplorerContextMenu(
         }
     }
 
-    return ShowSelectedBasePartContextMenu(explorer, globalPos);
+    return ShowSelectionContextMenu(explorer, globalPos);
 }
 
 bool StudioQuickActions::eventFilter(QObject* watched, QEvent* event) {
@@ -129,14 +131,22 @@ bool StudioQuickActions::eventFilter(QObject* watched, QEvent* event) {
         return false;
     }
 
-    const bool toolShortcut =
-        IsToolShortcut(*keyEvent, Qt::Key_1) ||
-        IsToolShortcut(*keyEvent, Qt::Key_2) ||
-        IsToolShortcut(*keyEvent, Qt::Key_3);
-    const bool duplicateShortcut = IsDuplicateShortcut(*keyEvent);
-    const bool deleteShortcut = IsDeleteShortcut(*keyEvent);
+    const bool quickActionContext = IsQuickActionContext();
 
-    const bool quickActionShortcut = (duplicateShortcut || deleteShortcut) && IsQuickActionContext();
+    const bool toolShortcut =
+        StudioShortcutManager::Matches(StudioShortcutAction::ToolSelect, *keyEvent) ||
+        StudioShortcutManager::Matches(StudioShortcutAction::ToolMove, *keyEvent) ||
+        StudioShortcutManager::Matches(StudioShortcutAction::ToolSize, *keyEvent);
+
+    const bool quickActionShortcut = quickActionContext && (
+        StudioShortcutManager::Matches(StudioShortcutAction::Duplicate, *keyEvent) ||
+        StudioShortcutManager::Matches(StudioShortcutAction::Delete, *keyEvent) ||
+        StudioShortcutManager::Matches(StudioShortcutAction::Copy, *keyEvent) ||
+        StudioShortcutManager::Matches(StudioShortcutAction::Cut, *keyEvent) ||
+        StudioShortcutManager::Matches(StudioShortcutAction::PasteInto, *keyEvent) ||
+        StudioShortcutManager::Matches(StudioShortcutAction::Paste, *keyEvent)
+    );
+
     if (!toolShortcut && !quickActionShortcut) {
         return false;
     }
@@ -147,13 +157,25 @@ bool StudioQuickActions::eventFilter(QObject* watched, QEvent* event) {
     }
 
     if (toolShortcut) {
-        ActivateToolShortcut(keyEvent->key());
-    } else if (duplicateShortcut) {
+        if (StudioShortcutManager::Matches(StudioShortcutAction::ToolSelect, *keyEvent)) {
+            ActivateTool(Engine::Core::Tool::SelectTool);
+        } else if (StudioShortcutManager::Matches(StudioShortcutAction::ToolMove, *keyEvent)) {
+            ActivateTool(Engine::Core::Tool::MoveTool);
+        } else if (StudioShortcutManager::Matches(StudioShortcutAction::ToolSize, *keyEvent)) {
+            ActivateTool(Engine::Core::Tool::SizeTool);
+        }
+    } else if (StudioShortcutManager::Matches(StudioShortcutAction::Duplicate, *keyEvent)) {
         DuplicateSelection();
-    } else if (deleteShortcut) {
+    } else if (StudioShortcutManager::Matches(StudioShortcutAction::Delete, *keyEvent)) {
         DeleteSelection();
-    } else {
-        return false;
+    } else if (StudioShortcutManager::Matches(StudioShortcutAction::Copy, *keyEvent)) {
+        CopySelection();
+    } else if (StudioShortcutManager::Matches(StudioShortcutAction::Cut, *keyEvent)) {
+        CutSelection();
+    } else if (StudioShortcutManager::Matches(StudioShortcutAction::PasteInto, *keyEvent)) {
+        PasteSelectionIntoSelection();
+    } else if (StudioShortcutManager::Matches(StudioShortcutAction::Paste, *keyEvent)) {
+        PasteSelectionToTopmostService();
     }
 
     event->accept();
@@ -176,6 +198,15 @@ std::shared_ptr<Engine::DataModel::Selection> StudioQuickActions::GetSelectionSe
     return std::dynamic_pointer_cast<Engine::DataModel::Selection>(place->FindService("Selection"));
 }
 
+std::shared_ptr<Engine::Core::Instance> StudioQuickActions::GetSelectedInstance() const {
+    const auto place = GetCurrentPlace();
+    const auto selection = GetSelectionService(place);
+    if (selection == nullptr) {
+        return nullptr;
+    }
+    return selection->GetPrimary();
+}
+
 std::shared_ptr<Engine::DataModel::ChangeHistoryService> StudioQuickActions::GetHistoryService(
     const std::shared_ptr<Engine::DataModel::Place>& place
 ) const {
@@ -186,12 +217,7 @@ std::shared_ptr<Engine::DataModel::ChangeHistoryService> StudioQuickActions::Get
 }
 
 std::shared_ptr<Engine::Objects::BasePart> StudioQuickActions::GetSelectedBasePart() const {
-    const auto place = GetCurrentPlace();
-    const auto selection = GetSelectionService(place);
-    if (selection == nullptr) {
-        return nullptr;
-    }
-    return std::dynamic_pointer_cast<Engine::Objects::BasePart>(selection->GetPrimary());
+    return std::dynamic_pointer_cast<Engine::Objects::BasePart>(GetSelectedInstance());
 }
 
 bool StudioQuickActions::IsTextInputFocused() const {
@@ -236,43 +262,8 @@ bool StudioQuickActions::IsQuickActionContext() const {
     return IsViewportShortcutContext() || IsExplorerShortcutContext();
 }
 
-bool StudioQuickActions::IsToolShortcut(const QKeyEvent& event, const int key) const {
-    const Qt::KeyboardModifiers mods = event.modifiers();
-    const bool hasOnlyShift = mods.testFlag(Qt::ShiftModifier) &&
-        !mods.testFlag(Qt::ControlModifier) &&
-        !mods.testFlag(Qt::AltModifier) &&
-        !mods.testFlag(Qt::MetaModifier);
-    const bool hasNoMods = mods == Qt::NoModifier;
-    return event.key() == key && (hasNoMods || hasOnlyShift);
-}
-
-bool StudioQuickActions::IsDuplicateShortcut(const QKeyEvent& event) const {
-    const Qt::KeyboardModifiers mods = event.modifiers();
-    return mods.testFlag(Qt::ControlModifier) &&
-        !mods.testFlag(Qt::ShiftModifier) &&
-        !mods.testFlag(Qt::AltModifier) &&
-        !mods.testFlag(Qt::MetaModifier) &&
-        event.key() == Qt::Key_D;
-}
-
-bool StudioQuickActions::IsDeleteShortcut(const QKeyEvent& event) const {
-    const Qt::KeyboardModifiers mods = event.modifiers();
-    return mods == Qt::NoModifier && event.key() == Qt::Key_Delete;
-}
-
-void StudioQuickActions::ActivateToolShortcut(const int key) const {
+void StudioQuickActions::ActivateTool(const Engine::Core::Tool tool) const {
     if (context_ == nullptr) {
-        return;
-    }
-
-    Engine::Core::Tool tool = Engine::Core::Tool::SelectTool;
-    if (key == Qt::Key_1) {
-        tool = Engine::Core::Tool::SelectTool;
-    } else if (key == Qt::Key_2) {
-        tool = Engine::Core::Tool::MoveTool;
-    } else if (key == Qt::Key_3) {
-        tool = Engine::Core::Tool::SizeTool;
-    } else {
         return;
     }
 
@@ -287,8 +278,8 @@ void StudioQuickActions::ActivateToolShortcut(const int key) const {
 
 void StudioQuickActions::DeleteSelection() const {
     try {
-        const auto selected = GetSelectedBasePart();
-        if (selected == nullptr || selected->GetParent() == nullptr) {
+        const auto selected = GetSelectedInstance();
+        if (selected == nullptr || !selected->IsInsertable() || selected->GetParent() == nullptr) {
             return;
         }
 
@@ -322,8 +313,8 @@ void StudioQuickActions::DeleteSelection() const {
 
 void StudioQuickActions::DuplicateSelection() const {
     try {
-        const auto selected = GetSelectedBasePart();
-        if (selected == nullptr) {
+        const auto selected = GetSelectedInstance();
+        if (selected == nullptr || !selected->IsInsertable()) {
             return;
         }
         const auto parent = selected->GetParent();
@@ -362,6 +353,37 @@ void StudioQuickActions::DuplicateSelection() const {
     } catch (const std::exception& ex) {
         Engine::Core::RegularError::ShowErrorFromException(ex);
     }
+}
+
+void StudioQuickActions::CopySelection() const {
+    try {
+        const auto selected = GetSelectedInstance();
+        if (selected == nullptr || !selected->IsInsertable()) {
+            return;
+        }
+        clipboardPrototype_ = CloneRecursive(selected);
+    } catch (const std::exception& ex) {
+        Engine::Core::RegularError::ShowErrorFromException(ex);
+    }
+}
+
+void StudioQuickActions::CutSelection() const {
+    CopySelection();
+    DeleteSelection();
+}
+
+void StudioQuickActions::PasteSelectionToTopmostService() const {
+    const auto contextInstance = GetSelectedInstance();
+    PasteToParent(ResolveTopmostServicePasteParent(contextInstance), "Paste");
+}
+
+void StudioQuickActions::PasteSelectionIntoSelection() const {
+    const auto selected = GetSelectedInstance();
+    if (selected != nullptr) {
+        PasteToParent(selected, "Paste Into");
+        return;
+    }
+    PasteSelectionToTopmostService();
 }
 
 void StudioQuickActions::PopulateInsertMenu(
@@ -456,9 +478,9 @@ void StudioQuickActions::InsertObject(
     }
 }
 
-bool StudioQuickActions::ShowSelectedBasePartContextMenu(QWidget& owner, const QPoint& globalPos) const {
-    const auto selected = GetSelectedBasePart();
-    if (selected == nullptr || selected->GetParent() == nullptr) {
+bool StudioQuickActions::ShowSelectionContextMenu(QWidget& owner, const QPoint& globalPos) const {
+    const auto selected = GetSelectedInstance();
+    if (selected == nullptr) {
         return false;
     }
 
@@ -472,11 +494,37 @@ bool StudioQuickActions::ShowSelectedBasePartContextMenu(QWidget& owner, const Q
     }
 
     menu.addSeparator();
+
+    QAction* copyAction = menu.addAction("Copy");
+    StudioShortcutManager::ApplyToAction(*copyAction, StudioShortcutAction::Copy);
+    copyAction->setEnabled(selected->IsInsertable());
+    QObject::connect(copyAction, &QAction::triggered, &owner, [this]() { CopySelection(); });
+
+    QAction* cutAction = menu.addAction("Cut");
+    StudioShortcutManager::ApplyToAction(*cutAction, StudioShortcutAction::Cut);
+    cutAction->setEnabled(selected->IsInsertable() && selected->GetParent() != nullptr);
+    QObject::connect(cutAction, &QAction::triggered, &owner, [this]() { CutSelection(); });
+
+    QAction* pasteAction = menu.addAction("Paste");
+    StudioShortcutManager::ApplyToAction(*pasteAction, StudioShortcutAction::Paste);
+    pasteAction->setEnabled(clipboardPrototype_ != nullptr);
+    QObject::connect(pasteAction, &QAction::triggered, &owner, [this]() { PasteSelectionToTopmostService(); });
+
+    QAction* pasteIntoAction = menu.addAction("Paste Into Selection");
+    StudioShortcutManager::ApplyToAction(*pasteIntoAction, StudioShortcutAction::PasteInto);
+    pasteIntoAction->setEnabled(clipboardPrototype_ != nullptr);
+    QObject::connect(pasteIntoAction, &QAction::triggered, &owner, [this]() { PasteSelectionIntoSelection(); });
+
+    menu.addSeparator();
+
     QAction* duplicateAction = menu.addAction("Duplicate");
-    duplicateAction->setShortcut(QKeySequence("Ctrl+D"));
+    StudioShortcutManager::ApplyToAction(*duplicateAction, StudioShortcutAction::Duplicate);
+    duplicateAction->setEnabled(selected->IsInsertable() && selected->GetParent() != nullptr);
     QObject::connect(duplicateAction, &QAction::triggered, &owner, [this]() { DuplicateSelection(); });
 
     QAction* deleteAction = menu.addAction("Delete");
+    StudioShortcutManager::ApplyToAction(*deleteAction, StudioShortcutAction::Delete);
+    deleteAction->setEnabled(selected->IsInsertable() && selected->GetParent() != nullptr);
     QObject::connect(deleteAction, &QAction::triggered, &owner, [this]() { DeleteSelection(); });
 
     if (menu.actions().isEmpty()) {
@@ -485,6 +533,75 @@ bool StudioQuickActions::ShowSelectedBasePartContextMenu(QWidget& owner, const Q
 
     menu.exec(globalPos);
     return true;
+}
+
+std::shared_ptr<Engine::Core::Instance> StudioQuickActions::ResolveTopmostServicePasteParent(
+    const std::shared_ptr<Engine::Core::Instance>& contextInstance
+) const {
+    const auto place = GetCurrentPlace();
+    if (place == nullptr) {
+        return nullptr;
+    }
+
+    std::shared_ptr<Engine::Core::Instance> serviceParent;
+    auto current = contextInstance;
+    while (current != nullptr) {
+        if (current->IsService()) {
+            serviceParent = current;
+        }
+        current = current->GetParent();
+    }
+
+    if (serviceParent != nullptr) {
+        return serviceParent;
+    }
+
+    if (const auto workspace = place->FindService("Workspace"); workspace != nullptr) {
+        return workspace;
+    }
+    return place->GetDataModel();
+}
+
+void StudioQuickActions::PasteToParent(
+    const std::shared_ptr<Engine::Core::Instance>& parent,
+    const QString& historyLabel
+) const {
+    try {
+        if (clipboardPrototype_ == nullptr || parent == nullptr) {
+            return;
+        }
+
+        const auto clone = CloneRecursive(clipboardPrototype_);
+        if (clone == nullptr || !clone->CanParentTo(parent) || !parent->CanAcceptChild(clone)) {
+            return;
+        }
+
+        const auto place = GetCurrentPlace();
+        const auto historyService = GetHistoryService(place);
+        const auto selectionService = GetSelectionService(place);
+
+        auto command = std::make_shared<Engine::Utils::ReparentCommand>(clone, parent);
+        if (historyService == nullptr) {
+            command->Do();
+        } else if (historyService->IsRecording()) {
+            historyService->Record(command);
+        } else {
+            historyService->BeginRecording(historyLabel);
+            try {
+                historyService->Record(command);
+                historyService->FinishRecording();
+            } catch (...) {
+                historyService->FinishRecording();
+                throw;
+            }
+        }
+
+        if (selectionService != nullptr) {
+            selectionService->Set(clone);
+        }
+    } catch (const std::exception& ex) {
+        Engine::Core::RegularError::ShowErrorFromException(ex);
+    }
 }
 
 Widgets::Explorer::ExplorerWidget* StudioQuickActions::ResolveExplorerWidgetFromObject(QObject* object) const {

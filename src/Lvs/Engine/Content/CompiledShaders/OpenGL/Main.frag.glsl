@@ -642,29 +642,26 @@ void main()
     if (camera.shadowState.w > 0.5)
     {
         vec3 color = (camera.ambient.xyz * camera.ambient.w) * albedo;
-        if (camera.renderSettings.x > 0.5)
+        vec3 L = normalize(-camera.lightDirection.xyz);
+        vec3 param_8 = N;
+        vec3 param_9 = L;
+        float shadowFactor = ComputeShadowFactor(param_8, param_9);
+        color += ((fragVertexLighting * surfaceDetail) * shadowFactor);
+        float reflectionWeight = clamp(metalness, 0.0, 1.0);
+        if (reflectionWeight > 9.9999997473787516355514526367188e-05)
         {
-            vec3 L = normalize(-camera.lightDirection.xyz);
-            vec3 param_8 = N;
-            vec3 param_9 = L;
-            float shadowFactor = ComputeShadowFactor(param_8, param_9);
-            color += ((fragVertexLighting * surfaceDetail) * shadowFactor);
-            float reflectionWeight = clamp(metalness, 0.0, 1.0);
-            if (reflectionWeight > 9.9999997473787516355514526367188e-05)
+            vec3 R = reflect(-V, N);
+            vec3 env = texture(skyboxTex, R).xyz * camera.skyTint.xyz;
+            if (dot(env, env) < 9.9999999747524270787835121154785e-07)
             {
-                vec3 R = reflect(-V, N);
-                vec3 env = texture(skyboxTex, R).xyz * camera.skyTint.xyz;
-                if (dot(env, env) < 9.9999999747524270787835121154785e-07)
-                {
-                    env = camera.skyTint.xyz;
-                }
-                vec3 F0 = mix(vec3(0.039999999105930328369140625), albedo, vec3(metalness));
-                float param_10 = max(dot(N, V), 0.0);
-                vec3 param_11 = F0;
-                vec3 Fenv = FresnelSchlick(param_10, param_11);
-                float smoothness = 1.0 - roughness;
-                color += (((env * Fenv) * reflectionWeight) * (smoothness * smoothness));
+                env = camera.skyTint.xyz;
             }
+            vec3 F0 = mix(vec3(0.039999999105930328369140625), albedo, vec3(metalness));
+            float param_10 = max(dot(N, V), 0.0);
+            vec3 param_11 = F0;
+            vec3 Fenv = FresnelSchlick(param_10, param_11);
+            float smoothness = 1.0 - roughness;
+            color += (((env * Fenv) * reflectionWeight) * (smoothness * smoothness));
         }
         color += emissiveScene;
         outSceneColor = vec4(color + ((neonSample * 0.100000001490116119384765625) * glowMask), alpha);
@@ -672,54 +669,51 @@ void main()
         return;
     }
     vec3 color_1 = (camera.ambient.xyz * camera.ambient.w) * albedo;
-    if (camera.renderSettings.x > 0.5)
+    vec3 L_1 = normalize(-camera.lightDirection.xyz);
+    vec3 H = normalize(V + L_1);
+    vec3 param_12 = N;
+    vec3 param_13 = L_1;
+    float shadowFactor_1 = ComputeShadowFactor(param_12, param_13);
+    vec3 lightColor = camera.lightColorIntensity.xyz * camera.lightColorIntensity.w;
+    float specularStrength = max(camera.lightSpecular.x, 0.0);
+    float shininess = max(camera.lightSpecular.y, 1.0);
+    float NdotL = max(dot(N, L_1), 0.0);
+    vec3 F0_1 = mix(vec3(0.039999999105930328369140625), albedo, vec3(metalness));
+    float lightShininessToRoughness = clamp(sqrt(2.0 / (shininess + 2.0)), 0.0500000007450580596923828125, 1.0);
+    float effectiveRoughness = max(roughness * lightShininessToRoughness, 0.04500000178813934326171875);
+    vec3 param_14 = N;
+    vec3 param_15 = H;
+    float param_16 = effectiveRoughness;
+    float NDF = DistributionGGX(param_14, param_15, param_16);
+    vec3 param_17 = N;
+    vec3 param_18 = V;
+    vec3 param_19 = L_1;
+    float param_20 = effectiveRoughness;
+    float G = GeometrySmith(param_17, param_18, param_19, param_20);
+    float param_21 = max(dot(H, V), 0.0);
+    vec3 param_22 = F0_1;
+    vec3 F = FresnelSchlick(param_21, param_22);
+    vec3 numerator = F * (NDF * G);
+    float denominator = max((4.0 * max(dot(N, V), 0.0)) * NdotL, 9.9999997473787516355514526367188e-06);
+    float smoothness_1 = 1.0 - roughness;
+    vec3 specular = ((numerator / vec3(denominator)) * specularStrength) * (smoothness_1 * smoothness_1);
+    vec3 kS = F;
+    vec3 kD = (vec3(1.0) - kS) * (1.0 - metalness);
+    vec3 diffuse = (kD * albedo) / vec3(3.1415927410125732421875);
+    color_1 += ((((diffuse + specular) * lightColor) * NdotL) * shadowFactor_1);
+    float reflectionWeight_1 = clamp(metalness, 0.0, 1.0);
+    if (reflectionWeight_1 > 9.9999997473787516355514526367188e-05)
     {
-        vec3 L_1 = normalize(-camera.lightDirection.xyz);
-        vec3 H = normalize(V + L_1);
-        vec3 param_12 = N;
-        vec3 param_13 = L_1;
-        float shadowFactor_1 = ComputeShadowFactor(param_12, param_13);
-        vec3 lightColor = camera.lightColorIntensity.xyz * camera.lightColorIntensity.w;
-        float specularStrength = max(camera.lightSpecular.x, 0.0);
-        float shininess = max(camera.lightSpecular.y, 1.0);
-        float NdotL = max(dot(N, L_1), 0.0);
-        vec3 F0_1 = mix(vec3(0.039999999105930328369140625), albedo, vec3(metalness));
-        float lightShininessToRoughness = clamp(sqrt(2.0 / (shininess + 2.0)), 0.0500000007450580596923828125, 1.0);
-        float effectiveRoughness = max(roughness * lightShininessToRoughness, 0.04500000178813934326171875);
-        vec3 param_14 = N;
-        vec3 param_15 = H;
-        float param_16 = effectiveRoughness;
-        float NDF = DistributionGGX(param_14, param_15, param_16);
-        vec3 param_17 = N;
-        vec3 param_18 = V;
-        vec3 param_19 = L_1;
-        float param_20 = effectiveRoughness;
-        float G = GeometrySmith(param_17, param_18, param_19, param_20);
-        float param_21 = max(dot(H, V), 0.0);
-        vec3 param_22 = F0_1;
-        vec3 F = FresnelSchlick(param_21, param_22);
-        vec3 numerator = F * (NDF * G);
-        float denominator = max((4.0 * max(dot(N, V), 0.0)) * NdotL, 9.9999997473787516355514526367188e-06);
-        float smoothness_1 = 1.0 - roughness;
-        vec3 specular = ((numerator / vec3(denominator)) * specularStrength) * (smoothness_1 * smoothness_1);
-        vec3 kS = F;
-        vec3 kD = (vec3(1.0) - kS) * (1.0 - metalness);
-        vec3 diffuse = (kD * albedo) / vec3(3.1415927410125732421875);
-        color_1 += ((((diffuse + specular) * lightColor) * NdotL) * shadowFactor_1);
-        float reflectionWeight_1 = clamp(metalness, 0.0, 1.0);
-        if (reflectionWeight_1 > 9.9999997473787516355514526367188e-05)
+        vec3 R_1 = reflect(-V, N);
+        vec3 env_1 = texture(skyboxTex, R_1).xyz * camera.skyTint.xyz;
+        if (dot(env_1, env_1) < 9.9999999747524270787835121154785e-07)
         {
-            vec3 R_1 = reflect(-V, N);
-            vec3 env_1 = texture(skyboxTex, R_1).xyz * camera.skyTint.xyz;
-            if (dot(env_1, env_1) < 9.9999999747524270787835121154785e-07)
-            {
-                env_1 = camera.skyTint.xyz;
-            }
-            float param_23 = max(dot(N, V), 0.0);
-            vec3 param_24 = F0_1;
-            vec3 Fenv_1 = FresnelSchlick(param_23, param_24);
-            color_1 += (((env_1 * Fenv_1) * reflectionWeight_1) * (smoothness_1 * smoothness_1));
+            env_1 = camera.skyTint.xyz;
         }
+        float param_23 = max(dot(N, V), 0.0);
+        vec3 param_24 = F0_1;
+        vec3 Fenv_1 = FresnelSchlick(param_23, param_24);
+        color_1 += (((env_1 * Fenv_1) * reflectionWeight_1) * (smoothness_1 * smoothness_1));
     }
     color_1 += emissiveScene;
     outSceneColor = vec4(color_1 + ((neonSample * 0.100000001490116119384765625) * glowMask), alpha);

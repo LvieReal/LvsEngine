@@ -20,6 +20,7 @@ using EngineContextPtr = std::shared_ptr<EngineContext>;
 namespace Lvs::Engine::Core {
 class Instance;
 class Viewport;
+enum class Tool;
 }
 
 namespace Lvs::Studio::Controllers {
@@ -68,19 +69,21 @@ private:
     [[nodiscard]] std::shared_ptr<Engine::DataModel::ChangeHistoryService> GetHistoryService(
         const std::shared_ptr<Engine::DataModel::Place>& place
     ) const;
+    [[nodiscard]] std::shared_ptr<Engine::Core::Instance> GetSelectedInstance() const;
     [[nodiscard]] std::shared_ptr<Engine::Objects::BasePart> GetSelectedBasePart() const;
 
     [[nodiscard]] bool IsTextInputFocused() const;
     [[nodiscard]] bool IsViewportShortcutContext() const;
     [[nodiscard]] bool IsExplorerShortcutContext() const;
     [[nodiscard]] bool IsQuickActionContext() const;
-    [[nodiscard]] bool IsToolShortcut(const QKeyEvent& event, int key) const;
-    [[nodiscard]] bool IsDuplicateShortcut(const QKeyEvent& event) const;
-    [[nodiscard]] bool IsDeleteShortcut(const QKeyEvent& event) const;
 
-    void ActivateToolShortcut(int key) const;
+    void ActivateTool(Engine::Core::Tool tool) const;
     void DeleteSelection() const;
     void DuplicateSelection() const;
+    void CopySelection() const;
+    void CutSelection() const;
+    void PasteSelectionToTopmostService() const;
+    void PasteSelectionIntoSelection() const;
     void PopulateInsertMenu(
         QMenu& menu,
         const std::shared_ptr<Engine::Core::Instance>& parent
@@ -89,8 +92,15 @@ private:
         const std::shared_ptr<Engine::Core::Instance>& parent,
         const QString& className
     ) const;
-    bool ShowSelectedBasePartContextMenu(QWidget& owner, const QPoint& globalPos) const;
+    bool ShowSelectionContextMenu(QWidget& owner, const QPoint& globalPos) const;
     Widgets::Explorer::ExplorerWidget* ResolveExplorerWidgetFromObject(QObject* object) const;
+    [[nodiscard]] std::shared_ptr<Engine::Core::Instance> ResolveTopmostServicePasteParent(
+        const std::shared_ptr<Engine::Core::Instance>& contextInstance
+    ) const;
+    void PasteToParent(
+        const std::shared_ptr<Engine::Core::Instance>& parent,
+        const QString& historyLabel
+    ) const;
     std::shared_ptr<Engine::Core::Instance> CloneRecursive(
         const std::shared_ptr<Engine::Core::Instance>& source
     ) const;
@@ -100,6 +110,7 @@ private:
     Engine::Core::Viewport* viewport_{nullptr};
     Controllers::ToolbarController* toolbarController_{nullptr};
     QWidget* window_{nullptr};
+    mutable std::shared_ptr<Engine::Core::Instance> clipboardPrototype_;
 };
 
 } // namespace Lvs::Studio::Core

@@ -85,30 +85,28 @@ void main() {
 
     vec3 directLight = vec3(0.0);
 
-    if (camera.renderSettings.x > 0.5) {
-        vec3 lightColor = camera.lightColorIntensity.rgb * camera.lightColorIntensity.a;
-        float specularStrength = max(camera.lightSpecular.x, 0.0);
-        float shininess = max(camera.lightSpecular.y, 1.0);
+    vec3 lightColor = camera.lightColorIntensity.rgb * camera.lightColorIntensity.a;
+    float specularStrength = max(camera.lightSpecular.x, 0.0);
+    float shininess = max(camera.lightSpecular.y, 1.0);
 
-        float NdotL = max(dot(N, L), 0.0);
-        vec3 F0 = mix(vec3(0.04), albedo, metalness);
+    float NdotL = max(dot(N, L), 0.0);
+    vec3 F0 = mix(vec3(0.04), albedo, metalness);
 
-        float lightShininessToRoughness = clamp(sqrt(2.0 / (shininess + 2.0)), 0.05, 1.0);
-        float effectiveRoughness = max(roughness * lightShininessToRoughness, 0.045);
-        float NDF = DistributionGGX(N, H, effectiveRoughness);
-        float G = GeometrySmith(N, V, L, effectiveRoughness);
-        vec3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
+    float lightShininessToRoughness = clamp(sqrt(2.0 / (shininess + 2.0)), 0.05, 1.0);
+    float effectiveRoughness = max(roughness * lightShininessToRoughness, 0.045);
+    float NDF = DistributionGGX(N, H, effectiveRoughness);
+    float G = GeometrySmith(N, V, L, effectiveRoughness);
+    vec3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
 
-        vec3 numerator = NDF * G * F;
-        float denominator = max(4.0 * max(dot(N, V), 0.0) * NdotL, 1e-5);
-        float smoothness = 1.0 - roughness;
-        vec3 specular = (numerator / denominator) * specularStrength * (smoothness * smoothness);
+    vec3 numerator = NDF * G * F;
+    float denominator = max(4.0 * max(dot(N, V), 0.0) * NdotL, 1e-5);
+    float smoothness = 1.0 - roughness;
+    vec3 specular = (numerator / denominator) * specularStrength * (smoothness * smoothness);
 
-        vec3 kS = F;
-        vec3 kD = (vec3(1.0) - kS) * (1.0 - metalness);
-        vec3 diffuse = kD * albedo / PI;
-        directLight += (diffuse + specular) * lightColor * NdotL;
-    }
+    vec3 kS = F;
+    vec3 kD = (vec3(1.0) - kS) * (1.0 - metalness);
+    vec3 diffuse = kD * albedo / PI;
+    directLight += (diffuse + specular) * lightColor * NdotL;
 
     fragNormal = N;
     fragWorldPos = worldPos.xyz;
