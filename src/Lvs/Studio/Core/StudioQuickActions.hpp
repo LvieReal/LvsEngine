@@ -84,6 +84,7 @@ private:
     void CutSelection() const;
     void PasteSelectionToTopmostService() const;
     void PasteSelectionIntoSelection() const;
+    void FocusOnSelection() const;
     void PopulateInsertMenu(
         QMenu& menu,
         const std::shared_ptr<Engine::Core::Instance>& parent

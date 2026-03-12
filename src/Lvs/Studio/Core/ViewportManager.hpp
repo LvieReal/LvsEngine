@@ -21,6 +21,8 @@ class Place;
 
 namespace Lvs::Studio::Core {
 
+class StudioViewportToolLayer;
+
 class ViewportManager final {
 public:
     ViewportManager(Engine::Core::Window& window, const Engine::EngineContextPtr& context);
@@ -37,6 +39,7 @@ private:
     void BindSettings();
 
     Engine::Core::Viewport* viewport_{nullptr};
+    StudioViewportToolLayer* toolLayer_{nullptr};
     std::vector<Settings::Connection> settingsConnections_;
 };
 

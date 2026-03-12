@@ -15,12 +15,17 @@ namespace {
 Rendering::Common::OverlayPrimitive BuildEdgePrimitive(
     const Math::Vector3& a,
     const Math::Vector3& b,
-    const SelectionBoxStyle& style
+    const SelectionBoxStyle& style,
+    double distanceFromCamera
 ) {
     const Math::Vector3 center = (a + b) * 0.5;
     const Math::Vector3 delta = b - a;
     const Math::Vector3 absDelta{std::abs(delta.x), std::abs(delta.y), std::abs(delta.z)};
-    const double thickness = std::max(0.001, style.Thickness);
+
+    double thickness = std::max(0.001, style.Thickness);
+    if (style.ScaleWithDistance) {
+        thickness *= std::max(0.1, distanceFromCamera);
+    }
 
     Math::Vector3 scale{thickness, thickness, thickness};
     // Extend each edge by thickness so adjacent edges overlap at corners.
@@ -51,10 +56,14 @@ Rendering::Common::OverlayPrimitive BuildEdgePrimitive(
 void AppendSelectionBoxOutlinePrimitives(
     const Math::AABB& bounds,
     const SelectionBoxStyle& style,
-    std::vector<Rendering::Common::OverlayPrimitive>& out
+    std::vector<Rendering::Common::OverlayPrimitive>& out,
+    double distanceFromCamera
 ) {
     // Push the box slightly outside the target bounds to avoid z-fighting when depth-tested.
-    const double thickness = std::max(0.001, style.Thickness);
+    double thickness = std::max(0.001, style.Thickness);
+    if (style.ScaleWithDistance) {
+        thickness *= std::max(0.1, distanceFromCamera);
+    }
     const Math::Vector3 pad{(thickness * 0.5) + 0.001, (thickness * 0.5) + 0.001, (thickness * 0.5) + 0.001};
     const Math::Vector3 min = bounds.Min - pad;
     const Math::Vector3 max = bounds.Max + pad;
@@ -78,7 +87,7 @@ void AppendSelectionBoxOutlinePrimitives(
 
     out.reserve(out.size() + edges.size());
     for (const auto& edge : edges) {
-        out.push_back(BuildEdgePrimitive(corners[static_cast<std::size_t>(edge[0])], corners[static_cast<std::size_t>(edge[1])], style));
+        out.push_back(BuildEdgePrimitive(corners[static_cast<std::size_t>(edge[0])], corners[static_cast<std::size_t>(edge[1])], style, distanceFromCamera));
     }
 }
 

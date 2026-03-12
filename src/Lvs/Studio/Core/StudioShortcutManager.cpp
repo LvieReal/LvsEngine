@@ -50,6 +50,8 @@ QList<QKeySequence> DefaultShortcuts(const StudioShortcutAction action) {
             return ParseShortcuts("Ctrl+V");
         case StudioShortcutAction::PasteInto:
             return ParseShortcuts("Ctrl+Shift+V");
+        case StudioShortcutAction::FocusOnSelection:
+            return ParseShortcuts("F");
         default:
             return {};
     }

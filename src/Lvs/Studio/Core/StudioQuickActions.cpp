@@ -219,7 +219,8 @@ bool StudioQuickActions::eventFilter(QObject* watched, QEvent* event) {
         StudioShortcutManager::Matches(StudioShortcutAction::Copy, *keyEvent) ||
         StudioShortcutManager::Matches(StudioShortcutAction::Cut, *keyEvent) ||
         StudioShortcutManager::Matches(StudioShortcutAction::PasteInto, *keyEvent) ||
-        StudioShortcutManager::Matches(StudioShortcutAction::Paste, *keyEvent)
+        StudioShortcutManager::Matches(StudioShortcutAction::Paste, *keyEvent) ||
+        StudioShortcutManager::Matches(StudioShortcutAction::FocusOnSelection, *keyEvent)
     );
 
     if (!toolShortcut && !quickActionShortcut) {
@@ -251,6 +252,8 @@ bool StudioQuickActions::eventFilter(QObject* watched, QEvent* event) {
         PasteSelectionIntoSelection();
     } else if (StudioShortcutManager::Matches(StudioShortcutAction::Paste, *keyEvent)) {
         PasteSelectionToTopmostService();
+    } else if (StudioShortcutManager::Matches(StudioShortcutAction::FocusOnSelection, *keyEvent)) {
+        FocusOnSelection();
     }
 
     event->accept();
@@ -459,6 +462,14 @@ void StudioQuickActions::PasteSelectionIntoSelection() const {
         return;
     }
     PasteSelectionToTopmostService();
+}
+
+void StudioQuickActions::FocusOnSelection() const {
+    const auto part = GetSelectedBasePart();
+    if (part == nullptr || viewport_ == nullptr) {
+        return;
+    }
+    viewport_->FocusOnPart(part);
 }
 
 void StudioQuickActions::PopulateInsertMenu(

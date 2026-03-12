@@ -20,7 +20,8 @@ enum class StudioShortcutAction {
     Copy,
     Cut,
     Paste,
-    PasteInto
+    PasteInto,
+    FocusOnSelection
 };
 
 class StudioShortcutManager final {

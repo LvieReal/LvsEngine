@@ -1,0 +1,149 @@
+#pragma once
+
+#include "Lvs/Engine/Enums/PartShape.hpp"
+#include "Lvs/Engine/Math/Color3.hpp"
+#include "Lvs/Engine/Rendering/Backends/OpenGL/GLApi.hpp"
+#include "Lvs/Engine/Rendering/Backends/Vulkan/VulkanApi.hpp"
+#include "Lvs/Engine/Rendering/Common/ShadowCascadeUtils.hpp"
+#include "Lvs/Engine/Rendering/Common/SkyboxSettingsResolver.hpp"
+#include "Lvs/Engine/Rendering/IRenderContext.hpp"
+#include "Lvs/Engine/Rendering/Renderer.hpp"
+
+#include <array>
+#include <cstdint>
+#include <deque>
+#include <memory>
+#include <optional>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+namespace Lvs::Engine::Rendering::Backends::Vulkan {
+class VulkanContext;
+}
+
+namespace Lvs::Engine::Rendering::Backends::OpenGL {
+class GLContext;
+}
+
+namespace Lvs::Engine::Rendering::Common {
+struct MeshData;
+}
+
+namespace Lvs::Engine::Rendering {
+
+class RenderContext final : public IRenderContext {
+public:
+    explicit RenderContext(RenderApi preferredApi);
+    ~RenderContext() override;
+
+    void Initialize(RHI::u32 width, RHI::u32 height) override;
+    void AttachToNativeWindow(void* nativeWindowHandle, RHI::u32 width, RHI::u32 height) override;
+    void Resize(RHI::u32 width, RHI::u32 height) override;
+    void SetClearColor(float r, float g, float b, float a) override;
+    void BindToPlace(const std::shared_ptr<DataModel::Place>& place) override;
+    void Unbind() override;
+    void SetOverlayPrimitives(std::vector<Common::OverlayPrimitive> primitives) override;
+    void Render() override;
+
+private:
+    struct GpuMesh {
+        std::unique_ptr<RHI::IBuffer> VertexBuffer{};
+        std::unique_ptr<RHI::IBuffer> IndexBuffer{};
+        RHI::u32 IndexCount{0};
+        RHI::IndexType IndexType{RHI::IndexType::UInt32};
+    };
+
+    void WaitForBackendIdle();
+    void ReleaseGpuResources();
+    void EnsureShadowTargets(const Common::ShadowSettings& settings);
+    void EnsureFallbackShadowTarget();
+    void EnsureShadowJitterTexture();
+    void EnsurePostProcessTargets();
+    void EnsureFallbackTextures();
+    void EnsureBackend();
+    RHI::IContext& GetRhiContext();
+    [[nodiscard]] std::optional<GpuMesh> CreateGpuMeshFromData(const Common::MeshData& mesh);
+    void InitializeGeometryBuffers();
+    GpuMesh* GetOrCreatePrimitiveMesh(Enums::PartShape shape);
+    GpuMesh* GetOrCreateMeshPartMesh(const std::string& contentId, bool smoothNormals);
+    SceneData::MeshRef* PushFrameMeshRef(const GpuMesh& mesh);
+    void TrimRetiredFrameResources();
+    void UpdateSkyboxTexture();
+    void UpdateSurfaceAtlasTexture();
+    [[nodiscard]] std::vector<SceneData::DrawPacket> BuildGeometryDraws();
+    [[nodiscard]] Common::CameraUniformData BuildCameraUniforms();
+    [[nodiscard]] Common::SkyboxPushConstants BuildSkyboxPushConstants() const;
+
+    RenderApi preferredApi_{RenderApi::Auto};
+    RenderApi activeApi_{RenderApi::Auto};
+
+    Backends::Vulkan::VulkanApi vkApi_{};
+    Backends::OpenGL::GLApi glApi_{};
+
+    std::unique_ptr<Backends::Vulkan::VulkanContext> vkBackend_{};
+    std::unique_ptr<Backends::OpenGL::GLContext> glBackend_{};
+
+    void* nativeWindowHandle_{nullptr};
+
+    std::shared_ptr<DataModel::Place> place_{};
+
+    std::vector<Common::OverlayPrimitive> overlayPrimitives_{};
+    std::unordered_map<Enums::PartShape, GpuMesh> primitiveMeshCache_{};
+    std::unordered_map<std::string, GpuMesh> meshPartCache_{};
+    std::deque<SceneData::MeshRef> frameMeshRefs_{};
+
+    std::unique_ptr<RHI::IBuffer> frameUniformBuffer_{};
+    std::unique_ptr<RHI::IResourceSet> frameResourceSet_{};
+    std::unique_ptr<RHI::IBuffer> frameShadowUniformBuffer_{};
+    std::unique_ptr<RHI::IResourceSet> frameShadowResourceSet_{};
+
+    std::array<std::unique_ptr<RHI::IResourceSet>, SceneData::MaxPostBlurLevels> postBlurDownLevelResourceSets_{};
+    std::array<std::unique_ptr<RHI::IResourceSet>, SceneData::MaxPostBlurLevels> postBlurUpLevelResourceSets_{};
+    std::unique_ptr<RHI::IResourceSet> postBlurFinalResourceSet_{};
+    std::unique_ptr<RHI::IResourceSet> postCompositeResourceSet_{};
+
+    std::unique_ptr<RHI::IRenderTarget> geometryTarget_{};
+
+    std::array<std::unique_ptr<RHI::IRenderTarget>, SceneData::MaxPostBlurLevels> blurDownTargets_{};
+    std::array<std::unique_ptr<RHI::IRenderTarget>, SceneData::MaxPostBlurLevels> blurUpTargets_{};
+    std::unique_ptr<RHI::IRenderTarget> blurFinalTarget_{};
+
+    std::array<std::unique_ptr<RHI::IRenderTarget>, SceneData::MaxShadowCascades> shadowTargets_{};
+    std::unique_ptr<RHI::IRenderTarget> fallbackShadowTarget_{};
+
+    std::deque<std::unique_ptr<RHI::IBuffer>> retiredFrameUniformBuffers_{};
+    std::deque<std::unique_ptr<RHI::IResourceSet>> retiredFrameResourceSets_{};
+
+    Common::SkyboxSettingsResolver skyboxResolver_{};
+
+    Common::ShadowSettings shadowSettings_{};
+    bool shadowsEnabled_{false};
+    Common::ShadowCascadeComputation shadowCascadeComputation_{};
+    std::array<RHI::u32, Common::kMaxShadowCascades> shadowCascadeResolutions_{};
+
+    std::optional<std::size_t> skyboxSettingsKey_{};
+    Math::Color3 skyboxTint_{1.0, 1.0, 1.0};
+
+    RHI::Texture surfaceAtlas_{};
+    bool hasSurfaceAtlas_{false};
+
+    RHI::Texture shadowJitterTexture_{};
+    bool hasShadowJitterTexture_{false};
+    float shadowJitterScaleXY_{1.0F / 16.0F};
+
+    RHI::Texture skyboxCubemap_{};
+    bool hasSkyboxCubemap_{false};
+
+    RHI::Texture fallbackBlackTexture_{};
+    bool hasFallbackBlackTexture_{false};
+
+    std::uint32_t postProcessFrameSeed_{0};
+
+    RHI::u32 surfaceWidth_{0};
+    RHI::u32 surfaceHeight_{0};
+
+    float clearColor_[4]{1.0F, 1.0F, 1.0F, 1.0F};
+};
+
+} // namespace Lvs::Engine::Rendering

@@ -70,6 +70,17 @@ void CameraController::SetShiftSpeed(const double speed) {
     slowSpeed_ = speed;
 }
 
+void CameraController::SetRotation(const double yaw, const double pitch) {
+    yaw_ = yaw;
+    pitch_ = pitch;
+    if (pitch_ > 89.99) {
+        pitch_ = 89.99;
+    } else if (pitch_ < -89.99) {
+        pitch_ = -89.99;
+    }
+    ApplyRotation();
+}
+
 void CameraController::ApplyRotation() const {
     if (camera_ == nullptr) {
         return;

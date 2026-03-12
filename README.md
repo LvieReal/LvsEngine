@@ -26,7 +26,8 @@ Windows 10+ 64 Bit, and:
 Run from MSYS2 shell:
 
 ```bash
-pacman -S --needed mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja mingw-w64-x86_64-qt6-base mingw-w64-x86_64-qt6-tools
+pacman -S --needed mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja
+pacman -S --needed mingw-w64-x86_64-qt6-base mingw-w64-x86_64-qt6-tools
 pacman -S --needed mingw-w64-x86_64-assimp
 ```
 

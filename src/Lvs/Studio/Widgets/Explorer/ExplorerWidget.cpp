@@ -1,3 +1,5 @@
+// TODO: fix horizontal scrollbar
+
 #include "Lvs/Studio/Widgets/Explorer/ExplorerWidget.hpp"
 
 #include "Lvs/Engine/Core/Instance.hpp"

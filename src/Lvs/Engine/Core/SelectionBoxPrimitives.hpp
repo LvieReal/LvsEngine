@@ -17,12 +17,14 @@ struct SelectionBoxStyle {
     bool IgnoreLighting{true};
     bool AlwaysOnTop{true};
     double Thickness{0.06};
+    bool ScaleWithDistance{false};
 };
 
 void AppendSelectionBoxOutlinePrimitives(
     const Math::AABB& bounds,
     const SelectionBoxStyle& style,
-    std::vector<Rendering::Common::OverlayPrimitive>& out
+    std::vector<Rendering::Common::OverlayPrimitive>& out,
+    double distanceFromCamera = 1.0
 );
 
 } // namespace Lvs::Engine::Core

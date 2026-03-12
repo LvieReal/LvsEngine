@@ -91,4 +91,38 @@ std::pair<std::shared_ptr<Objects::BasePart>, double> RaycastParts(
     return {closestPart, closestDistance};
 }
 
+std::pair<std::shared_ptr<Objects::BasePart>, double> RaycastPartsWithFilter(
+    const Ray& ray,
+    const std::vector<std::shared_ptr<Objects::BasePart>>& parts,
+    const std::vector<std::shared_ptr<Objects::BasePart>>& descendantFilterList,
+    DescendantFilterType filterType
+) {
+    std::shared_ptr<Objects::BasePart> closestPart;
+    double closestDistance = std::numeric_limits<double>::infinity();
+
+    for (const auto& part : parts) {
+        if (part == nullptr) {
+            continue;
+        }
+
+        // Check filter
+        bool inFilter = std::find(descendantFilterList.begin(), descendantFilterList.end(), part) != descendantFilterList.end();
+        bool shouldInclude = (filterType == DescendantFilterType::Include) ? inFilter : !inFilter;
+        if (!shouldInclude) {
+            continue;
+        }
+
+        const auto distance = RaycastPartAABB(ray, part);
+        if (!distance.has_value()) {
+            continue;
+        }
+        if (distance.value() < closestDistance) {
+            closestDistance = distance.value();
+            closestPart = part;
+        }
+    }
+
+    return {closestPart, closestDistance};
+}
+
 } // namespace Lvs::Engine::Utils

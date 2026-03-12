@@ -23,6 +23,7 @@ public:
 
     void SetSpeed(double speed);
     void SetShiftSpeed(double speed);
+    void SetRotation(double yaw, double pitch);
 
 private:
     void ApplyRotation() const;

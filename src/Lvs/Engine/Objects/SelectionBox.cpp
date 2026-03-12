@@ -73,6 +73,12 @@ Core::ClassDescriptor& SelectionBox::Descriptor() {
             true,
             "Appearance"
         ));
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
+            "ScaleWithDistance",
+            false,
+            true,
+            "Appearance"
+        ));
 
         Core::ClassDescriptor::RegisterClassDescriptor(&descriptor);
         DataModel::ClassRegistry::RegisterClass<SelectionBox>("SelectionBox", "Visuals", "Instance");

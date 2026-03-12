@@ -4,11 +4,15 @@
 #include "Lvs/Engine/Core/Viewport.hpp"
 #include "Lvs/Engine/Core/Window.hpp"
 #include "Lvs/Engine/Rendering/IRenderContext.hpp"
+#include "Lvs/Studio/Core/StudioViewportToolLayer.hpp"
 
 namespace Lvs::Studio::Core {
 
 ViewportManager::ViewportManager(Engine::Core::Window& window, const Engine::EngineContextPtr& context) {
     viewport_ = new Engine::Core::Viewport(context, &window);
+    auto toolLayer = std::make_unique<StudioViewportToolLayer>(*viewport_, context);
+    toolLayer_ = toolLayer.get();
+    viewport_->SetToolLayer(std::move(toolLayer));
     BindSettings();
     viewport_->hide();
     window.AddWidget(viewport_);
@@ -64,23 +68,23 @@ void ViewportManager::BindSettings() {
         }
     }, true));
     settingsConnections_.push_back(Settings::Changed("GizmoAlwaysOnTop", [this](const QVariant& value) {
-        if (viewport_ != nullptr) {
-            viewport_->SetGizmoAlwaysOnTop(value.toBool());
+        if (toolLayer_ != nullptr) {
+            toolLayer_->SetGizmoAlwaysOnTop(value.toBool());
         }
     }, true));
     settingsConnections_.push_back(Settings::Changed("GizmoIgnoreDiffuseSpecular", [this](const QVariant& value) {
-        if (viewport_ != nullptr) {
-            viewport_->SetGizmoIgnoreDiffuseSpecular(value.toBool());
+        if (toolLayer_ != nullptr) {
+            toolLayer_->SetGizmoIgnoreDiffuseSpecular(value.toBool());
         }
     }, true));
     settingsConnections_.push_back(Settings::Changed("GizmoAlignByMagnitude", [this](const QVariant& value) {
-        if (viewport_ != nullptr) {
-            viewport_->SetGizmoAlignByMagnitude(value.toBool());
+        if (toolLayer_ != nullptr) {
+            toolLayer_->SetGizmoAlignByMagnitude(value.toBool());
         }
     }, true));
     settingsConnections_.push_back(Settings::Changed("TransformSnapIncrement", [this](const QVariant& value) {
-        if (viewport_ != nullptr) {
-            viewport_->SetSnapIncrement(value.toDouble());
+        if (toolLayer_ != nullptr) {
+            toolLayer_->SetSnapIncrement(value.toDouble());
         }
     }, true));
     settingsConnections_.push_back(Settings::Changed("RenderingApi", [this](const QVariant& value) {
