@@ -4,6 +4,7 @@
 #include "Lvs/Engine/DataModel/ClassRegistry.hpp"
 #include "Lvs/Engine/DataModel/ServiceRegistry.hpp"
 #include "Lvs/Engine/Enums/MSAA.hpp"
+#include "Lvs/Engine/Enums/SurfaceMipmapping.hpp"
 
 namespace Lvs::Engine::DataModel {
 
@@ -16,6 +17,13 @@ Core::ClassDescriptor& QualitySettings::Descriptor() {
             true,
             "Quality",
             "Multisample anti-aliasing sample count (0, 2, 4, 8)."
+        ));
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Enums::SurfaceMipmapping>(
+            "SurfaceMipmapping",
+            Enums::SurfaceMipmapping::On,
+            true,
+            "Quality",
+            "Mipmapped filtering for surface atlas textures (reduces shimmer; small memory cost)."
         ));
 
         Core::ClassDescriptor::RegisterClassDescriptor(&descriptor);

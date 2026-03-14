@@ -38,6 +38,7 @@ public:
 private:
     void BindSettings();
     void ApplyMsaaSetting(const QVariant& value) const;
+    void ApplySurfaceMipmappingSetting(const QVariant& value) const;
 
     Engine::Core::Viewport* viewport_{nullptr};
     StudioViewportToolLayer* toolLayer_{nullptr};

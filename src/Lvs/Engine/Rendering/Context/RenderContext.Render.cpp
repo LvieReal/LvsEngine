@@ -21,6 +21,7 @@ void RenderContext::Render() {
     }
     EnsureBackend();
     RHI::u32 desiredMsaaSamples = 1U;
+    bool desiredSurfaceMipmaps = true;
     if (place_ != nullptr) {
         if (const auto qualitySettings = std::dynamic_pointer_cast<DataModel::QualitySettings>(place_->FindService("QualitySettings"));
             qualitySettings != nullptr) {
@@ -39,6 +40,8 @@ void RenderContext::Render() {
                     desiredMsaaSamples = 1U;
                     break;
             }
+            const int mipValue = Enums::Metadata::IntFromVariant(qualitySettings->GetProperty("SurfaceMipmapping"));
+            desiredSurfaceMipmaps = mipValue != 0;
         }
     }
     if (desiredMsaaSamples != requestedMsaaSampleCount_) {
@@ -46,6 +49,15 @@ void RenderContext::Render() {
         effectiveMsaaSampleCount_ = desiredMsaaSamples;
         WaitForBackendIdle();
         geometryTarget_.reset();
+    }
+    if (desiredSurfaceMipmaps != requestedSurfaceMipmaps_) {
+        requestedSurfaceMipmaps_ = desiredSurfaceMipmaps;
+        WaitForBackendIdle();
+        if (hasSurfaceAtlas_) {
+            GetRhiContext().DestroyTexture(surfaceAtlas_);
+            surfaceAtlas_ = {};
+            hasSurfaceAtlas_ = false;
+        }
     }
     EnsurePostProcessTargets();
     EnsureFallbackTextures();

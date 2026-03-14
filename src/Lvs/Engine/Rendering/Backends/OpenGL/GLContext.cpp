@@ -730,16 +730,23 @@ RHI::Texture GLContext::CreateTexture2D(const RHI::Texture2DDesc& desc) {
     );
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    const GLint minFilter = desc.generateMipmaps
+                                ? (desc.linearFiltering ? static_cast<GLint>(GL_LINEAR_MIPMAP_LINEAR)
+                                                        : static_cast<GLint>(GL_NEAREST_MIPMAP_NEAREST))
+                                : (desc.linearFiltering ? static_cast<GLint>(GL_LINEAR) : static_cast<GLint>(GL_NEAREST));
     glTexParameteri(
         GL_TEXTURE_2D,
         GL_TEXTURE_MIN_FILTER,
-        desc.linearFiltering ? static_cast<GLint>(GL_LINEAR) : static_cast<GLint>(GL_NEAREST)
+        minFilter
     );
     glTexParameteri(
         GL_TEXTURE_2D,
         GL_TEXTURE_MAG_FILTER,
         desc.linearFiltering ? static_cast<GLint>(GL_LINEAR) : static_cast<GLint>(GL_NEAREST)
     );
+    if (desc.generateMipmaps) {
+        glGenerateMipmap(GL_TEXTURE_2D);
+    }
     ownedTextures_[textureHandle] = RHI::TextureType::Texture2D;
 
     RHI::Texture texture{};

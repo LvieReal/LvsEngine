@@ -2542,6 +2542,30 @@ RHI::Texture VulkanContext::CreateTexture2D(const RHI::Texture2DDesc& desc) {
         api_.CommandPool == VK_NULL_HANDLE || desc.width == 0U || desc.height == 0U || desc.pixels.empty()) {
         return {};
     }
+    if (desc.format != RHI::Format::R8G8B8A8_UNorm) {
+        return {};
+    }
+
+    std::uint32_t mipLevels = 1U;
+    if (desc.generateMipmaps) {
+        std::uint32_t w = desc.width;
+        std::uint32_t h = desc.height;
+        while (w > 1U || h > 1U) {
+            w = std::max(1U, w / 2U);
+            h = std::max(1U, h / 2U);
+            ++mipLevels;
+        }
+    }
+    if (mipLevels > 1U) {
+        VkFormatProperties formatProps{};
+        vkGetPhysicalDeviceFormatProperties(api_.PhysicalDevice, VK_FORMAT_R8G8B8A8_UNORM, &formatProps);
+        const bool supportsBlit =
+            (formatProps.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_SRC_BIT) != 0 &&
+            (formatProps.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_DST_BIT) != 0;
+        if (!supportsBlit) {
+            mipLevels = 1U;
+        }
+    }
 
     const VkDeviceSize totalSize = static_cast<VkDeviceSize>(desc.width) * static_cast<VkDeviceSize>(desc.height) * 4U;
     VkBuffer stagingBuffer = VK_NULL_HANDLE;
@@ -2592,7 +2616,12 @@ RHI::Texture VulkanContext::CreateTexture2D(const RHI::Texture2DDesc& desc) {
     }
 
     OwnedTexture2D owned{};
+    owned.MipLevels = mipLevels;
     {
+        VkImageUsageFlags usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        if (mipLevels > 1U) {
+            usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+        }
         const VkImageCreateInfo imageInfo{
             .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
             .pNext = nullptr,
@@ -2600,11 +2629,11 @@ RHI::Texture VulkanContext::CreateTexture2D(const RHI::Texture2DDesc& desc) {
             .imageType = VK_IMAGE_TYPE_2D,
             .format = VK_FORMAT_R8G8B8A8_UNORM,
             .extent = {desc.width, desc.height, 1},
-            .mipLevels = 1,
+            .mipLevels = mipLevels,
             .arrayLayers = 1,
             .samples = VK_SAMPLE_COUNT_1_BIT,
             .tiling = VK_IMAGE_TILING_OPTIMAL,
-            .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+            .usage = usage,
             .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
             .queueFamilyIndexCount = 0,
             .pQueueFamilyIndices = nullptr,
@@ -2673,7 +2702,7 @@ RHI::Texture VulkanContext::CreateTexture2D(const RHI::Texture2DDesc& desc) {
             .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
             .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
             .image = owned.Image,
-            .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}
+            .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, mipLevels, 0, 1}
         };
         vkCmdPipelineBarrier(
             commandBuffer,
@@ -2698,30 +2727,139 @@ RHI::Texture VulkanContext::CreateTexture2D(const RHI::Texture2DDesc& desc) {
         };
         vkCmdCopyBufferToImage(commandBuffer, stagingBuffer, owned.Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
-        const VkImageMemoryBarrier toShader{
-            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-            .pNext = nullptr,
-            .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-            .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-            .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .image = owned.Image,
-            .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}
-        };
-        vkCmdPipelineBarrier(
-            commandBuffer,
-            VK_PIPELINE_STAGE_TRANSFER_BIT,
-            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-            0,
-            0,
-            nullptr,
-            0,
-            nullptr,
-            1,
-            &toShader
-        );
+        if (mipLevels > 1U) {
+            VkFormatProperties formatProps{};
+            vkGetPhysicalDeviceFormatProperties(api_.PhysicalDevice, VK_FORMAT_R8G8B8A8_UNORM, &formatProps);
+            const bool supportsLinearBlit =
+                (formatProps.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) != 0;
+            const VkFilter blitFilter = (desc.linearFiltering && supportsLinearBlit) ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
+
+            std::int32_t mipWidth = static_cast<std::int32_t>(desc.width);
+            std::int32_t mipHeight = static_cast<std::int32_t>(desc.height);
+            for (std::uint32_t level = 1; level < mipLevels; ++level) {
+                const VkImageMemoryBarrier barrierToSrc{
+                    .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                    .pNext = nullptr,
+                    .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+                    .dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
+                    .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    .newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .image = owned.Image,
+                    .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, level - 1, 1, 0, 1}
+                };
+                vkCmdPipelineBarrier(
+                    commandBuffer,
+                    VK_PIPELINE_STAGE_TRANSFER_BIT,
+                    VK_PIPELINE_STAGE_TRANSFER_BIT,
+                    0,
+                    0,
+                    nullptr,
+                    0,
+                    nullptr,
+                    1,
+                    &barrierToSrc
+                );
+
+                const VkImageBlit blit{
+                    .srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, level - 1, 0, 1},
+                    .srcOffsets = {{0, 0, 0}, {mipWidth, mipHeight, 1}},
+                    .dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, level, 0, 1},
+                    .dstOffsets = {
+                        {0, 0, 0},
+                        {std::max(1, mipWidth / 2), std::max(1, mipHeight / 2), 1}}
+                };
+                vkCmdBlitImage(
+                    commandBuffer,
+                    owned.Image,
+                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    owned.Image,
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    1,
+                    &blit,
+                    blitFilter
+                );
+
+                const VkImageMemoryBarrier barrierToShader{
+                    .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                    .pNext = nullptr,
+                    .srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
+                    .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+                    .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .image = owned.Image,
+                    .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, level - 1, 1, 0, 1}
+                };
+                vkCmdPipelineBarrier(
+                    commandBuffer,
+                    VK_PIPELINE_STAGE_TRANSFER_BIT,
+                    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                    0,
+                    0,
+                    nullptr,
+                    0,
+                    nullptr,
+                    1,
+                    &barrierToShader
+                );
+
+                mipWidth = std::max(1, mipWidth / 2);
+                mipHeight = std::max(1, mipHeight / 2);
+            }
+
+            const VkImageMemoryBarrier lastLevelToShader{
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                .pNext = nullptr,
+                .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+                .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+                .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .image = owned.Image,
+                .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, mipLevels - 1, 1, 0, 1}
+            };
+            vkCmdPipelineBarrier(
+                commandBuffer,
+                VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                0,
+                0,
+                nullptr,
+                0,
+                nullptr,
+                1,
+                &lastLevelToShader
+            );
+        } else {
+            const VkImageMemoryBarrier toShader{
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                .pNext = nullptr,
+                .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+                .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+                .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .image = owned.Image,
+                .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}
+            };
+            vkCmdPipelineBarrier(
+                commandBuffer,
+                VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                0,
+                0,
+                nullptr,
+                0,
+                nullptr,
+                1,
+                &toShader
+            );
+        }
 
         vkEndCommandBuffer(commandBuffer);
         const VkSubmitInfo submitInfo{
@@ -2755,7 +2893,7 @@ RHI::Texture VulkanContext::CreateTexture2D(const RHI::Texture2DDesc& desc) {
             VK_COMPONENT_SWIZZLE_IDENTITY,
             VK_COMPONENT_SWIZZLE_IDENTITY,
             VK_COMPONENT_SWIZZLE_IDENTITY},
-        .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}
+        .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, mipLevels, 0, 1}
     };
     if (vkCreateImageView(api_.Device, &viewInfo, nullptr, &owned.View) != VK_SUCCESS) {
         vkDestroyImage(api_.Device, owned.Image, nullptr);
@@ -2769,7 +2907,7 @@ RHI::Texture VulkanContext::CreateTexture2D(const RHI::Texture2DDesc& desc) {
         .flags = 0,
         .magFilter = desc.linearFiltering ? VK_FILTER_LINEAR : VK_FILTER_NEAREST,
         .minFilter = desc.linearFiltering ? VK_FILTER_LINEAR : VK_FILTER_NEAREST,
-        .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+        .mipmapMode = desc.linearFiltering ? VK_SAMPLER_MIPMAP_MODE_LINEAR : VK_SAMPLER_MIPMAP_MODE_NEAREST,
         .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
         .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
         .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
@@ -2779,7 +2917,7 @@ RHI::Texture VulkanContext::CreateTexture2D(const RHI::Texture2DDesc& desc) {
         .compareEnable = VK_FALSE,
         .compareOp = VK_COMPARE_OP_ALWAYS,
         .minLod = 0.0F,
-        .maxLod = 0.0F,
+        .maxLod = mipLevels > 1U ? static_cast<float>(mipLevels - 1U) : 0.0F,
         .borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
         .unnormalizedCoordinates = VK_FALSE
     };

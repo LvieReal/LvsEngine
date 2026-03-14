@@ -94,6 +94,7 @@ private:
         VkDeviceMemory Memory{VK_NULL_HANDLE};
         VkImageView View{VK_NULL_HANDLE};
         VkSampler Sampler{VK_NULL_HANDLE};
+        std::uint32_t MipLevels{1};
     };
     using OwnedTexture2D = OwnedCubeTexture;
     std::unordered_map<VkImageView, OwnedCubeTexture> ownedCubeTextures_{};

@@ -6,6 +6,7 @@
 #include "Lvs/Engine/Enums/MeshCullMode.hpp"
 #include "Lvs/Engine/Enums/PartShape.hpp"
 #include "Lvs/Engine/Enums/PartSurfaceType.hpp"
+#include "Lvs/Engine/Enums/SurfaceMipmapping.hpp"
 #include "Lvs/Engine/Enums/SkyboxTextureLayout.hpp"
 #include "Lvs/Engine/Enums/TextureFiltering.hpp"
 
@@ -34,6 +35,12 @@ QList<EnumOption> OptionsForType(const int typeId) {
             {"2x", static_cast<int>(MSAA::X2)},
             {"4x", static_cast<int>(MSAA::X4)},
             {"8x", static_cast<int>(MSAA::X8)}
+        };
+    }
+    if (typeId == QMetaType::fromType<SurfaceMipmapping>().id()) {
+        return {
+            {"Off", static_cast<int>(SurfaceMipmapping::Off)},
+            {"On", static_cast<int>(SurfaceMipmapping::On)}
         };
     }
     if (typeId == QMetaType::fromType<SkyboxTextureLayout>().id()) {
@@ -82,6 +89,9 @@ QVariant VariantFromInt(const int typeId, const int value) {
     if (typeId == QMetaType::fromType<MSAA>().id()) {
         return QVariant::fromValue(static_cast<MSAA>(value));
     }
+    if (typeId == QMetaType::fromType<SurfaceMipmapping>().id()) {
+        return QVariant::fromValue(static_cast<SurfaceMipmapping>(value));
+    }
     if (typeId == QMetaType::fromType<SkyboxTextureLayout>().id()) {
         return QVariant::fromValue(static_cast<SkyboxTextureLayout>(value));
     }
@@ -111,6 +121,9 @@ int IntFromVariant(const QVariant& value) {
     }
     if (value.typeId() == QMetaType::fromType<MSAA>().id()) {
         return static_cast<int>(value.value<MSAA>());
+    }
+    if (value.typeId() == QMetaType::fromType<SurfaceMipmapping>().id()) {
+        return static_cast<int>(value.value<SurfaceMipmapping>());
     }
     if (value.typeId() == QMetaType::fromType<SkyboxTextureLayout>().id()) {
         return static_cast<int>(value.value<SkyboxTextureLayout>());

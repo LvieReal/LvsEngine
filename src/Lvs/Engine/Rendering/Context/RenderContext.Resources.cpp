@@ -391,6 +391,7 @@ void RenderContext::UpdateSurfaceAtlasTexture() {
         atlasDesc.height = image.Height;
         atlasDesc.format = RHI::Format::R8G8B8A8_UNorm;
         atlasDesc.linearFiltering = true;
+        atlasDesc.generateMipmaps = requestedSurfaceMipmaps_;
         atlasDesc.pixels = image.Pixels;
         auto texture = GetRhiContext().CreateTexture2D(atlasDesc);
         if (texture.graphic_handle_ptr == nullptr) {

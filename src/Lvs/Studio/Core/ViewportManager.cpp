@@ -5,6 +5,7 @@
 #include "Lvs/Engine/Core/Window.hpp"
 #include "Lvs/Engine/DataModel/QualitySettings.hpp"
 #include "Lvs/Engine/Enums/MSAA.hpp"
+#include "Lvs/Engine/Enums/SurfaceMipmapping.hpp"
 #include "Lvs/Engine/Rendering/IRenderContext.hpp"
 #include "Lvs/Studio/Core/StudioViewportToolLayer.hpp"
 
@@ -33,6 +34,7 @@ void ViewportManager::BindToPlace(const std::shared_ptr<Engine::DataModel::Place
     }
     viewport_->BindToPlace(place);
     ApplyMsaaSetting(Settings::Get("MSAA"));
+    ApplySurfaceMipmappingSetting(Settings::Get("SurfaceMipmapping"));
 }
 
 void ViewportManager::Unbind() {
@@ -102,6 +104,9 @@ void ViewportManager::BindSettings() {
     settingsConnections_.push_back(Settings::Changed("MSAA", [this](const QVariant& value) {
         ApplyMsaaSetting(value);
     }, true));
+    settingsConnections_.push_back(Settings::Changed("SurfaceMipmapping", [this](const QVariant& value) {
+        ApplySurfaceMipmappingSetting(value);
+    }, true));
 }
 
 void ViewportManager::ApplyMsaaSetting(const QVariant& value) const {
@@ -126,6 +131,26 @@ void ViewportManager::ApplyMsaaSetting(const QVariant& value) const {
         msaa = Engine::Enums::MSAA::X8;
     }
     qualitySettings->SetProperty("MSAA", QVariant::fromValue(msaa));
+}
+
+void ViewportManager::ApplySurfaceMipmappingSetting(const QVariant& value) const {
+    const auto place = place_.lock();
+    if (place == nullptr) {
+        return;
+    }
+    const auto qualitySettings = std::dynamic_pointer_cast<Engine::DataModel::QualitySettings>(
+        place->FindService("QualitySettings")
+    );
+    if (qualitySettings == nullptr) {
+        return;
+    }
+
+    Engine::Enums::SurfaceMipmapping mipmapping = Engine::Enums::SurfaceMipmapping::On;
+    const QString text = value.toString().trimmed().toLower();
+    if (text == "off" || text == "0" || text == "false") {
+        mipmapping = Engine::Enums::SurfaceMipmapping::Off;
+    }
+    qualitySettings->SetProperty("SurfaceMipmapping", QVariant::fromValue(mipmapping));
 }
 
 } // namespace Lvs::Studio::Core
