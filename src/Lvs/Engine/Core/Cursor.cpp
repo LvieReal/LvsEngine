@@ -14,7 +14,7 @@ void SetCustomCursor(QWidget* widget) {
         return;
     }
 
-    const QString cursorPath = Utils::SourcePath::GetResourcePath("Cursor/cursor2.png");
+    const QString cursorPath = Utils::SourcePath::GetResourcePath("Cursor/cursor.png");
     const QPixmap cursorPixmap(cursorPath);
     if (cursorPixmap.isNull()) {
         widget->setCursor(Qt::ArrowCursor);

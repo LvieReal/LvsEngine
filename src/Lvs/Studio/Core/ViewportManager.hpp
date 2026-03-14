@@ -30,16 +30,18 @@ public:
 
     Engine::Core::Viewport* GetViewport() const;
 
-    void BindToPlace(const std::shared_ptr<Engine::DataModel::Place>& place) const;
-    void Unbind() const;
+    void BindToPlace(const std::shared_ptr<Engine::DataModel::Place>& place);
+    void Unbind();
     void Show() const;
     void Hide() const;
 
 private:
     void BindSettings();
+    void ApplyMsaaSetting(const QVariant& value) const;
 
     Engine::Core::Viewport* viewport_{nullptr};
     StudioViewportToolLayer* toolLayer_{nullptr};
+    std::weak_ptr<Engine::DataModel::Place> place_{};
     std::vector<Settings::Connection> settingsConnections_;
 };
 

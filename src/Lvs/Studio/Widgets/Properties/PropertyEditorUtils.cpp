@@ -13,6 +13,8 @@
 #include <QColorDialog>
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QGridLayout>
+#include <QLabel>
 #include <QLineEdit>
 #include <QPointer>
 #include <QPushButton>
@@ -26,6 +28,77 @@
 namespace Lvs::Studio::Widgets::Properties::EditorUtils {
 
 namespace {
+
+class CFrameEditor final : public QWidget {
+public:
+    CFrameEditor(
+        const QString& propertyName,
+        const Engine::Core::PropertyDefinition& definition,
+        const std::function<void(const QString&, const QVariant&)>& onEdited,
+        QWidget* parent
+    )
+        : QWidget(parent),
+          propertyName_(propertyName),
+          onEdited_(onEdited) {
+        auto* layout = new QGridLayout(this);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->setHorizontalSpacing(6);
+        layout->setVerticalSpacing(4);
+        layout->setColumnStretch(1, 1);
+
+        auto* positionLabel = new QLabel("Position", this);
+        positionEdit_ = new QLineEdit(this);
+        positionEdit_->setPlaceholderText("x, y, z");
+        auto* rotationLabel = new QLabel("Rotation", this);
+        rotationEdit_ = new QLineEdit(this);
+        rotationEdit_->setPlaceholderText("x, y, z");
+
+        layout->addWidget(positionLabel, 0, 0);
+        layout->addWidget(positionEdit_, 0, 1);
+        layout->addWidget(rotationLabel, 1, 0);
+        layout->addWidget(rotationEdit_, 1, 1);
+
+        if (definition.ReadOnly) {
+            positionEdit_->setReadOnly(true);
+            rotationEdit_->setReadOnly(true);
+        }
+
+        const QPointer<CFrameEditor> safeEditor(this);
+        auto commit = [safeEditor]() {
+            if (safeEditor.isNull()) {
+                return;
+            }
+            safeEditor->CommitIfValid();
+        };
+        QObject::connect(positionEdit_, &QLineEdit::editingFinished, this, commit);
+        QObject::connect(rotationEdit_, &QLineEdit::editingFinished, this, commit);
+    }
+
+    void SetValue(const Lvs::Engine::Math::CFrame& value) {
+        const QSignalBlocker blockerPos(positionEdit_);
+        const QSignalBlocker blockerRot(rotationEdit_);
+        positionEdit_->setText(ValueUtils::FormatVector3(value.Position));
+        rotationEdit_->setText(ValueUtils::FormatVector3(value.ToEulerXYZ()));
+    }
+
+private:
+    void CommitIfValid() {
+        Lvs::Engine::Math::Vector3 position;
+        Lvs::Engine::Math::Vector3 rotation;
+        if (!ValueUtils::TryParseVector3(positionEdit_->text(), position)) {
+            return;
+        }
+        if (!ValueUtils::TryParseVector3(rotationEdit_->text(), rotation)) {
+            return;
+        }
+        onEdited_(propertyName_, QVariant::fromValue(Lvs::Engine::Math::CFrame::FromPositionRotation(position, rotation)));
+    }
+
+    QString propertyName_;
+    std::function<void(const QString&, const QVariant&)> onEdited_;
+    QLineEdit* positionEdit_{nullptr};
+    QLineEdit* rotationEdit_{nullptr};
+};
 
 void SetColorButtonPreview(QPushButton* button, const Lvs::Engine::Math::Color3& value) {
     if (button == nullptr) {
@@ -167,6 +240,12 @@ QWidget* CreateEditor(
         );
     }
 
+    if (typeId == QMetaType::fromType<Lvs::Engine::Math::CFrame>().id()) {
+        auto* cframeEditor = new CFrameEditor(propertyName, definition, onEdited, parent);
+        cframeEditor->SetValue(value.value<Lvs::Engine::Math::CFrame>());
+        return cframeEditor;
+    }
+
     auto* editor = new QLineEdit(parent);
     if (typeId == QMetaType::fromType<Lvs::Engine::Math::Vector3>().id()) {
         editor->setText(ValueUtils::FormatVector3(value.value<Lvs::Engine::Math::Vector3>()));
@@ -183,22 +262,6 @@ QWidget* CreateEditor(
         });
         return editor;
     }
-    if (typeId == QMetaType::fromType<Lvs::Engine::Math::CFrame>().id()) {
-        editor->setText(ValueUtils::FormatCFrame(value.value<Lvs::Engine::Math::CFrame>()));
-        const QPointer<QLineEdit> safeEditor(editor);
-        QObject::connect(editor, &QLineEdit::editingFinished, editor, [propertyName, onEdited, safeEditor]() {
-            if (safeEditor.isNull()) {
-                return;
-            }
-            Lvs::Engine::Math::CFrame parsed;
-            if (!ValueUtils::TryParseCFrame(safeEditor->text(), parsed)) {
-                return;
-            }
-            onEdited(propertyName, QVariant::fromValue(parsed));
-        });
-        return editor;
-    }
-
     if (definition.IsInstanceReference) {
         if (const auto target = TryGetInstanceReference(value, definition); target != nullptr) {
             editor->setText(target->GetFullPath());
@@ -253,6 +316,10 @@ void SetEditorValue(
     }
     if (auto* pathEditor = dynamic_cast<PathEditor*>(editor); pathEditor != nullptr) {
         pathEditor->setPath(value.toString());
+        return;
+    }
+    if (auto* cframeEditor = dynamic_cast<CFrameEditor*>(editor); cframeEditor != nullptr) {
+        cframeEditor->SetValue(value.value<Lvs::Engine::Math::CFrame>());
         return;
     }
     if (auto* line = qobject_cast<QLineEdit*>(editor); line != nullptr) {

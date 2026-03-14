@@ -206,7 +206,7 @@ void GizmoSystem::RefreshTransforms() {
 
         const double offset = (handleLength_ * 0.5 + tipRadius_ * 0.5) * scale;
         axis.MoveTipModel = base.ToMatrix4() * Math::Matrix4::Translation({0.0, offset, 0.0}) *
-                            Math::Matrix4::Scale({tipRadius_ * scale, tipRadius_ * scale, tipRadius_ * scale});
+                            Math::Matrix4::Scale({tipRadius_ * scale, tipRadius_ * scale  * 1.5, tipRadius_ * scale});
 
         axis.SizeTipModel = base.ToMatrix4() * Math::Matrix4::Scale({tipRadius_ * scale, tipRadius_ * scale, tipRadius_ * scale});
     }

@@ -47,6 +47,14 @@ private:
     bool EnsureNativeContext();
     void DestroyNativeContext();
 
+    struct MsaaResolveInfo {
+        unsigned int drawFramebuffer{0U};
+        unsigned int resolveFramebuffer{0U};
+        RHI::u32 width{0U};
+        RHI::u32 height{0U};
+        RHI::u32 colorAttachmentCount{0U};
+    };
+
     GLApi api_;
     std::unique_ptr<::Lvs::Engine::Rendering::Renderer> renderer_;
     std::unique_ptr<GLCommandBuffer> cmdBuffer_;
@@ -57,9 +65,11 @@ private:
     void* deviceContext_{nullptr};
     RHI::IndexType currentIndexType_{RHI::IndexType::UInt32};
     RHI::VertexLayout currentVertexLayout_{RHI::VertexLayout::None};
+    MsaaResolveInfo* currentMsaaResolve_{nullptr};
     std::unordered_map<RHI::u32, RHI::Texture> textureSlots_;
     std::unordered_map<RHI::u32, std::vector<RHI::ResourceBinding>> resourceSetTextures_;
     std::unordered_map<unsigned int, RHI::TextureType> ownedTextures_;
+    std::unordered_map<unsigned int, MsaaResolveInfo> msaaResolveTargets_;
 };
 
 } // namespace Lvs::Engine::Rendering::Backends::OpenGL

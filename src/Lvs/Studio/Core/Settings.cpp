@@ -19,6 +19,7 @@ QMap<QString, SettingMeta> g_settings = {
     {"Theme", {"Theme", "Main studio theme", "Light", QStringList{"Light", "Dark"}}},
     {"ExplorerIconPack", {"Explorer Icon Pack", "Explorer icon pack folder name", "famfamfam-silk"}},
     {"RenderingApi", {"Rendering API", "Preferred rendering backend", "Auto", QStringList{"Auto", "Vulkan", "OpenGL"}}},
+    {"MSAA", {"MSAA", "Multisample anti-aliasing sample count", "Off", QStringList{"Off", "2x", "4x", "8x"}}},
     {"GizmoAlwaysOnTop", {"Gizmo Always On Top", "Render gizmos on top of scene geometry", true}},
     {"GizmoIgnoreDiffuseSpecular", {"Gizmo Ignore Lighting", "Ignore diffuse and specular lighting for gizmos", true}},
     {"GizmoAlignByMagnitude", {"Gizmo Align By Magnitude", "Place gizmo handles using bounds magnitude", true}},
@@ -44,7 +45,8 @@ QMap<QString, QStringList> g_categories = {
     },
     {"Rendering",
         {
-         "RenderingApi"
+         "RenderingApi",
+         "MSAA"
         }
     },
     {"Shortcuts",

@@ -4,6 +4,8 @@
 #include "Lvs/Engine/Rendering/Backends/Vulkan/VulkanContext.hpp"
 #include "Lvs/Engine/DataModel/Place.hpp"
 #include "Lvs/Engine/DataModel/Lighting.hpp"
+#include "Lvs/Engine/DataModel/QualitySettings.hpp"
+#include "Lvs/Engine/Enums/EnumMetadata.hpp"
 #include "Lvs/Engine/Objects/DirectionalLight.hpp"
 #include "Lvs/Engine/Rendering/Context/RenderContextUtils.hpp"
 
@@ -18,6 +20,33 @@ void RenderContext::Render() {
         return;
     }
     EnsureBackend();
+    RHI::u32 desiredMsaaSamples = 1U;
+    if (place_ != nullptr) {
+        if (const auto qualitySettings = std::dynamic_pointer_cast<DataModel::QualitySettings>(place_->FindService("QualitySettings"));
+            qualitySettings != nullptr) {
+            const int msaaValue = Enums::Metadata::IntFromVariant(qualitySettings->GetProperty("MSAA"));
+            switch (msaaValue) {
+                case 2:
+                    desiredMsaaSamples = 2U;
+                    break;
+                case 4:
+                    desiredMsaaSamples = 4U;
+                    break;
+                case 8:
+                    desiredMsaaSamples = 8U;
+                    break;
+                default:
+                    desiredMsaaSamples = 1U;
+                    break;
+            }
+        }
+    }
+    if (desiredMsaaSamples != requestedMsaaSampleCount_) {
+        requestedMsaaSampleCount_ = desiredMsaaSamples;
+        effectiveMsaaSampleCount_ = desiredMsaaSamples;
+        WaitForBackendIdle();
+        geometryTarget_.reset();
+    }
     EnsurePostProcessTargets();
     EnsureFallbackTextures();
     EnsureFallbackShadowTarget();
@@ -82,6 +111,7 @@ void RenderContext::Render() {
         .RenderPass = nullptr,
         .Framebuffer = nullptr,
         .ColorAttachmentCount = 1,
+        .SampleCount = 1,
         .Width = surfaceWidth_,
         .Height = surfaceHeight_
     };
@@ -94,6 +124,7 @@ void RenderContext::Render() {
         .RenderPass = GetRhiContext().GetDefaultRenderPassHandle(),
         .Framebuffer = GetRhiContext().GetDefaultFramebufferHandle(),
         .ColorAttachmentCount = 1,
+        .SampleCount = 1,
         .Width = surfaceWidth_,
         .Height = surfaceHeight_
     };
@@ -102,6 +133,7 @@ void RenderContext::Render() {
             .RenderPass = geometryTarget_->GetRenderPassHandle(),
             .Framebuffer = geometryTarget_->GetFramebufferHandle(),
             .ColorAttachmentCount = geometryTarget_->GetColorAttachmentCount(),
+            .SampleCount = geometryTarget_->GetSampleCount(),
             .Width = geometryTarget_->GetWidth(),
             .Height = geometryTarget_->GetHeight()
         };
@@ -118,6 +150,7 @@ void RenderContext::Render() {
                 .RenderPass = shadowTargets_[cascade]->GetRenderPassHandle(),
                 .Framebuffer = shadowTargets_[cascade]->GetFramebufferHandle(),
                 .ColorAttachmentCount = shadowTargets_[cascade]->GetColorAttachmentCount(),
+                .SampleCount = shadowTargets_[cascade]->GetSampleCount(),
                 .Width = shadowTargets_[cascade]->GetWidth(),
                 .Height = shadowTargets_[cascade]->GetHeight()
             };
@@ -141,6 +174,7 @@ void RenderContext::Render() {
                 .RenderPass = blurDownTargets_[level]->GetRenderPassHandle(),
                 .Framebuffer = blurDownTargets_[level]->GetFramebufferHandle(),
                 .ColorAttachmentCount = blurDownTargets_[level]->GetColorAttachmentCount(),
+                .SampleCount = blurDownTargets_[level]->GetSampleCount(),
                 .Width = blurDownTargets_[level]->GetWidth(),
                 .Height = blurDownTargets_[level]->GetHeight()
             };
@@ -148,6 +182,7 @@ void RenderContext::Render() {
                 .RenderPass = blurUpTargets_[level]->GetRenderPassHandle(),
                 .Framebuffer = blurUpTargets_[level]->GetFramebufferHandle(),
                 .ColorAttachmentCount = blurUpTargets_[level]->GetColorAttachmentCount(),
+                .SampleCount = blurUpTargets_[level]->GetSampleCount(),
                 .Width = blurUpTargets_[level]->GetWidth(),
                 .Height = blurUpTargets_[level]->GetHeight()
             };
@@ -165,6 +200,7 @@ void RenderContext::Render() {
             .RenderPass = blurFinalTarget_->GetRenderPassHandle(),
             .Framebuffer = blurFinalTarget_->GetFramebufferHandle(),
             .ColorAttachmentCount = blurFinalTarget_->GetColorAttachmentCount(),
+            .SampleCount = blurFinalTarget_->GetSampleCount(),
             .Width = blurFinalTarget_->GetWidth(),
             .Height = blurFinalTarget_->GetHeight()
         };

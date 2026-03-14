@@ -46,6 +46,11 @@ PropertiesWidget::PropertiesWidget(const std::shared_ptr<Engine::DataModel::Plac
     scroll_->setWidgetResizable(true);
     scroll_->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     scroll_->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    scroll_->setBackgroundRole(QPalette::Base);
+    if (scroll_->viewport() != nullptr) {
+        scroll_->viewport()->setAutoFillBackground(true);
+        scroll_->viewport()->setBackgroundRole(QPalette::Base);
+    }
 
     auto* mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 0);
@@ -135,8 +140,6 @@ void PropertiesWidget::BindInstance(const std::shared_ptr<Engine::Core::Instance
     }
     instance_ = instance;
 
-    AddInstanceHeader(instance_);
-
     struct OrderedProperty {
         QString Name;
         QString Category;
@@ -189,8 +192,19 @@ void PropertiesWidget::BindInstance(const std::shared_ptr<Engine::Core::Instance
 
     for (const auto& category : categoryOrder) {
         auto* contentWidget = new QWidget();
-        auto* grid = new QGridLayout(contentWidget);
-        grid->setContentsMargins(5, 5, 5, 5);
+        QGridLayout* grid = nullptr;
+        if (category == "Data") {
+            auto* contentLayout = new QVBoxLayout(contentWidget);
+            contentLayout->setContentsMargins(5, 5, 5, 5);
+            contentLayout->setSpacing(6);
+            contentLayout->addWidget(CreateInstanceHeader(instance_, contentWidget));
+            grid = new QGridLayout();
+            grid->setContentsMargins(0, 0, 0, 0);
+            contentLayout->addLayout(grid);
+        } else {
+            grid = new QGridLayout(contentWidget);
+            grid->setContentsMargins(5, 5, 5, 5);
+        }
         grid->setColumnMinimumWidth(0, COLUMN_WIDTH);
         grid->setColumnMinimumWidth(1, COLUMN_WIDTH);
         grid->setColumnStretch(0, 1);
@@ -263,8 +277,11 @@ void PropertiesWidget::BindInstance(const std::shared_ptr<Engine::Core::Instance
     ProcessQueuedBinding();
 }
 
-void PropertiesWidget::AddInstanceHeader(const std::shared_ptr<Engine::Core::Instance>& instance) {
-    auto* header = new QWidget(contentRoot_);
+QWidget* PropertiesWidget::CreateInstanceHeader(
+    const std::shared_ptr<Engine::Core::Instance>& instance,
+    QWidget* parent
+) {
+    auto* header = new QWidget(parent);
     auto* headerLayout = new QHBoxLayout(header);
     headerLayout->setContentsMargins(8, 6, 8, 6);
     headerLayout->setSpacing(6);
@@ -283,8 +300,7 @@ void PropertiesWidget::AddInstanceHeader(const std::shared_ptr<Engine::Core::Ins
     );
     headerLayout->addWidget(headerTitleLabel_);
     headerLayout->addStretch(1);
-
-    layout_->insertWidget(0, header);
+    return header;
 }
 
 bool PropertiesWidget::ShouldShowProperty(
@@ -427,6 +443,8 @@ void PropertiesWidget::ResetContentRoot() {
         }
 
         contentRoot_ = new QWidget(scroll_);
+        contentRoot_->setAutoFillBackground(true);
+        contentRoot_->setBackgroundRole(QPalette::Base);
         layout_ = new QVBoxLayout(contentRoot_);
         layout_->setContentsMargins(0, 0, 0, 0);
         layout_->setSpacing(4);

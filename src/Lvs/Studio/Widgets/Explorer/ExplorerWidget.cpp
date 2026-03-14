@@ -1,5 +1,3 @@
-// TODO: fix horizontal scrollbar
-
 #include "Lvs/Studio/Widgets/Explorer/ExplorerWidget.hpp"
 
 #include "Lvs/Engine/Core/Instance.hpp"
@@ -26,7 +24,9 @@
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QSize>
+#include <QTimer>
 #include <QTreeWidgetItem>
+#include <QTreeWidgetItemIterator>
 #include <QWidget>
 
 #include <exception>
@@ -98,6 +98,7 @@ void ExplorerWidget::Unbind() {
     instanceToPlusButton_.clear();
     instanceConnections_.clear();
     rootInstance_.reset();
+    columnWidthUpdateQueued_ = false;
     isUnbinding_ = false;
 }
 
@@ -250,6 +251,7 @@ void ExplorerWidget::AddInstanceRecursive(
             existing->parent()->removeChild(existing);
             addTopLevelItem(existing);
         }
+        UpdateColumnWidthForItem(existing);
         return;
     }
 
@@ -300,6 +302,8 @@ void ExplorerWidget::AddInstanceRecursive(
 
     setItemWidget(item, 0, rowWidget);
 
+    UpdateColumnWidthForItem(item);
+
     instanceToNameLabel_.insert(instanceId, nameLabel);
     instanceToIconLabel_.insert(instanceId, iconLabel);
     instanceToPlusButton_.insert(instanceId, plusButton);
@@ -323,6 +327,9 @@ void ExplorerWidget::AddInstanceRecursive(
             }
             if (QLabel* label = instanceToNameLabel_.value(id, nullptr); label != nullptr) {
                 label->setText(value.toString());
+                if (QTreeWidgetItem* item = instanceToItem_.value(id, nullptr); item != nullptr) {
+                    UpdateColumnWidthForItem(item);
+                }
             }
         }
     );
@@ -383,6 +390,61 @@ void ExplorerWidget::RemoveInstanceRecursive(const std::shared_ptr<Engine::Core:
         }
     }
     delete item;
+    QueueRecomputeColumnWidth();
+}
+
+void ExplorerWidget::UpdateColumnWidthForItem(QTreeWidgetItem* item) {
+    if (item == nullptr) {
+        return;
+    }
+
+    QWidget* rowWidget = itemWidget(item, 0);
+    if (rowWidget == nullptr) {
+        return;
+    }
+
+    const int indent = ComputeIndentForItem(item);
+    const int neededWidth = indent + rowWidget->sizeHint().width() + 8;
+    if (neededWidth > columnWidth(0)) {
+        setColumnWidth(0, neededWidth);
+    }
+}
+
+int ExplorerWidget::ComputeIndentForItem(const QTreeWidgetItem* item) const {
+    int depth = 0;
+    for (auto* parent = item != nullptr ? item->parent() : nullptr; parent != nullptr; parent = parent->parent()) {
+        ++depth;
+    }
+    return depth * indentation();
+}
+
+void ExplorerWidget::QueueRecomputeColumnWidth() {
+    if (columnWidthUpdateQueued_) {
+        return;
+    }
+    columnWidthUpdateQueued_ = true;
+
+    QTimer::singleShot(0, this, [this]() {
+        columnWidthUpdateQueued_ = false;
+        RecomputeColumnWidth();
+    });
+}
+
+void ExplorerWidget::RecomputeColumnWidth() {
+    int maxNeededWidth = 0;
+    for (QTreeWidgetItemIterator it(this); *it != nullptr; ++it) {
+        QTreeWidgetItem* item = *it;
+        QWidget* rowWidget = itemWidget(item, 0);
+        if (rowWidget == nullptr) {
+            continue;
+        }
+        const int indent = ComputeIndentForItem(item);
+        const int neededWidth = indent + rowWidget->sizeHint().width() + 8;
+        maxNeededWidth = std::max(maxNeededWidth, neededWidth);
+    }
+
+    const int minWidth = viewport() != nullptr ? viewport()->width() : 0;
+    setColumnWidth(0, std::max(maxNeededWidth, minWidth));
 }
 
 void ExplorerWidget::DisconnectInstanceConnections(const QString& instanceId) {

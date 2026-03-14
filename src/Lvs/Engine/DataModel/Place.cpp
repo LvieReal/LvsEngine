@@ -3,6 +3,7 @@
 #include "Lvs/Engine/DataModel/ChangeHistoryService.hpp"
 #include "Lvs/Engine/DataModel/ClassRegistry.hpp"
 #include "Lvs/Engine/DataModel/Lighting.hpp"
+#include "Lvs/Engine/DataModel/QualitySettings.hpp"
 #include "Lvs/Engine/DataModel/Selection.hpp"
 #include "Lvs/Engine/DataModel/ServiceRegistry.hpp"
 #include "Lvs/Engine/DataModel/Workspace.hpp"
@@ -46,6 +47,7 @@ void EnsureBuiltinRegistrations() {
         (void)Service::Descriptor();
         (void)Workspace::Descriptor();
         (void)Lighting::Descriptor();
+        (void)QualitySettings::Descriptor();
         (void)Selection::Descriptor();
         (void)ChangeHistoryService::Descriptor();
         (void)Objects::BasePart::Descriptor();

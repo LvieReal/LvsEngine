@@ -86,6 +86,7 @@ private:
     bool ownsInstance_{false};
     bool ownsDevice_{false};
     bool ownsCommandPool_{false};
+    bool pendingSwapchainRebuild_{false};
     VkDebugUtilsMessengerEXT debugMessenger_{VK_NULL_HANDLE};
     bool validationLayersEnabled_{false};
     struct OwnedCubeTexture {

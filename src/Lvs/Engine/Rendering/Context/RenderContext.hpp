@@ -142,6 +142,8 @@ private:
 
     RHI::u32 surfaceWidth_{0};
     RHI::u32 surfaceHeight_{0};
+    RHI::u32 requestedMsaaSampleCount_{1};
+    RHI::u32 effectiveMsaaSampleCount_{1};
 
     float clearColor_[4]{1.0F, 1.0F, 1.0F, 1.0F};
 };

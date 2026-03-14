@@ -57,6 +57,10 @@ private:
     void AddInstanceRecursive(QTreeWidgetItem* parentItem, const std::shared_ptr<Engine::Core::Instance>& instance);
     void AddInstanceRecursiveByParentId(const QString& parentId, const std::shared_ptr<Engine::Core::Instance>& instance);
     void RemoveInstanceRecursive(const std::shared_ptr<Engine::Core::Instance>& instance);
+    void UpdateColumnWidthForItem(QTreeWidgetItem* item);
+    int ComputeIndentForItem(const QTreeWidgetItem* item) const;
+    void QueueRecomputeColumnWidth();
+    void RecomputeColumnWidth();
     std::shared_ptr<Engine::Core::Instance> ResolveItemInstance(const QTreeWidgetItem* item) const;
     std::shared_ptr<Engine::Core::Instance> ResolveMimeInstance(const QMimeData* mimeData) const;
     std::shared_ptr<Engine::Core::Instance> DropTargetFromEvent(const QDropEvent* event) const;
@@ -91,6 +95,7 @@ private:
     QTreeWidgetItem* lastHoveredItem_{nullptr};
     bool suppressSelectionSignal_{false};
     bool isUnbinding_{false};
+    bool columnWidthUpdateQueued_{false};
     QHash<QString, InstanceConnections> instanceConnections_;
     std::vector<std::function<void()>> disconnectors_;
 };

@@ -40,6 +40,7 @@ class ViewportToolLayer;
 class Viewport final : public QWidget {
 public:
     Viewport(const EngineContextPtr& context, QWidget* parent = nullptr);
+    ~Viewport() override;
 
     void BindToPlace(const std::shared_ptr<DataModel::Place>& place);
     void Unbind();

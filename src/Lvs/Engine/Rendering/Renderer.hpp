@@ -25,6 +25,7 @@ struct SceneData {
         void* RenderPass{nullptr};
         void* Framebuffer{nullptr};
         RHI::u32 ColorAttachmentCount{1};
+        RHI::u32 SampleCount{1};
         RHI::u32 Width{0};
         RHI::u32 Height{0};
     };
@@ -198,7 +199,8 @@ private:
         PassKey key,
         RHI::CullMode cullMode,
         void* renderPassHandle,
-        RHI::u32 colorAttachmentCount
+        RHI::u32 colorAttachmentCount,
+        RHI::u32 sampleCount
     );
     [[nodiscard]] Pipeline* GetOrCreateGeometryPipeline(
         RHI::IContext& ctx,
@@ -215,6 +217,7 @@ private:
     GeometryPassRenderer geometryPass_{};
     void* sceneRenderPassHandle_{nullptr};
     RHI::u32 sceneColorAttachmentCount_{1};
+    RHI::u32 sceneSampleCount_{1};
     std::unordered_map<std::size_t, std::unique_ptr<Pipeline>> pipelineCache_{};
     std::unordered_map<std::size_t, std::unique_ptr<RHI::IResourceSet>> resourceSetCache_{};
 };

@@ -11,6 +11,7 @@ struct PipelineDesc {
     VertexLayout vertexLayout{VertexLayout::None};
     void* renderPassHandle{nullptr};
     u32 colorAttachmentCount{1};
+    u32 sampleCount{1};
     bool depthTest{true};
     bool depthWrite{true};
     DepthCompare depthCompare{DepthCompare::GreaterOrEqual};

@@ -3,6 +3,8 @@
 #include "Lvs/Engine/Context.hpp"
 #include "Lvs/Engine/Core/Viewport.hpp"
 #include "Lvs/Engine/Core/Window.hpp"
+#include "Lvs/Engine/DataModel/QualitySettings.hpp"
+#include "Lvs/Engine/Enums/MSAA.hpp"
 #include "Lvs/Engine/Rendering/IRenderContext.hpp"
 #include "Lvs/Studio/Core/StudioViewportToolLayer.hpp"
 
@@ -24,14 +26,17 @@ Engine::Core::Viewport* ViewportManager::GetViewport() const {
     return viewport_;
 }
 
-void ViewportManager::BindToPlace(const std::shared_ptr<Engine::DataModel::Place>& place) const {
+void ViewportManager::BindToPlace(const std::shared_ptr<Engine::DataModel::Place>& place) {
+    place_ = place;
     if (viewport_ == nullptr) {
         return;
     }
     viewport_->BindToPlace(place);
+    ApplyMsaaSetting(Settings::Get("MSAA"));
 }
 
-void ViewportManager::Unbind() const {
+void ViewportManager::Unbind() {
+    place_.reset();
     if (viewport_ == nullptr) {
         return;
     }
@@ -94,6 +99,33 @@ void ViewportManager::BindSettings() {
             );
         }
     }, true));
+    settingsConnections_.push_back(Settings::Changed("MSAA", [this](const QVariant& value) {
+        ApplyMsaaSetting(value);
+    }, true));
+}
+
+void ViewportManager::ApplyMsaaSetting(const QVariant& value) const {
+    const auto place = place_.lock();
+    if (place == nullptr) {
+        return;
+    }
+    const auto qualitySettings = std::dynamic_pointer_cast<Engine::DataModel::QualitySettings>(
+        place->FindService("QualitySettings")
+    );
+    if (qualitySettings == nullptr) {
+        return;
+    }
+
+    Engine::Enums::MSAA msaa = Engine::Enums::MSAA::Off;
+    const QString text = value.toString().trimmed().toLower();
+    if (text == "2x" || text == "2") {
+        msaa = Engine::Enums::MSAA::X2;
+    } else if (text == "4x" || text == "4") {
+        msaa = Engine::Enums::MSAA::X4;
+    } else if (text == "8x" || text == "8") {
+        msaa = Engine::Enums::MSAA::X8;
+    }
+    qualitySettings->SetProperty("MSAA", QVariant::fromValue(msaa));
 }
 
 } // namespace Lvs::Studio::Core

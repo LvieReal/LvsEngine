@@ -105,12 +105,14 @@ public:
         const VkFormat colorFormat,
         const VkRenderPass renderPass,
         const VkFramebuffer framebuffer,
-        const std::vector<ColorAttachment>& colors,
+        const std::vector<ColorAttachment>& resolveColors,
+        const std::vector<ColorAttachment>& msaaColors,
         const VkImage depthImage,
         const VkDeviceMemory depthMemory,
         const VkImageView depthView,
         const VkSampler depthSampler,
-        const RHI::Format depthFormat
+        const RHI::Format depthFormat,
+        const RHI::u32 sampleCount
     )
         : device_(device),
           width_(width),
@@ -118,12 +120,14 @@ public:
           colorFormat_(colorFormat),
           renderPass_(renderPass),
           framebuffer_(framebuffer),
-          colorAttachments_(colors),
+          colorAttachments_(resolveColors),
+          msaaColorAttachments_(msaaColors),
           depthImage_(depthImage),
           depthMemory_(depthMemory),
           depthView_(depthView),
           depthSampler_(depthSampler),
-          depthFormat_(depthFormat) {
+          depthFormat_(depthFormat),
+          sampleCount_(sampleCount) {
         colorTextures_.reserve(colorAttachments_.size());
         for (const auto& color : colorAttachments_) {
             RHI::Texture texture{};
@@ -165,6 +169,17 @@ public:
         }
         if (renderPass_ != VK_NULL_HANDLE) {
             vkDestroyRenderPass(device_, renderPass_, nullptr);
+        }
+        for (const auto& color : msaaColorAttachments_) {
+            if (color.view != VK_NULL_HANDLE) {
+                vkDestroyImageView(device_, color.view, nullptr);
+            }
+            if (color.image != VK_NULL_HANDLE) {
+                vkDestroyImage(device_, color.image, nullptr);
+            }
+            if (color.memory != VK_NULL_HANDLE) {
+                vkFreeMemory(device_, color.memory, nullptr);
+            }
         }
         for (const auto& color : colorAttachments_) {
             if (color.sampler != VK_NULL_HANDLE) {
@@ -214,6 +229,10 @@ public:
         return static_cast<RHI::u32>(colorTextures_.size());
     }
 
+    [[nodiscard]] RHI::u32 GetSampleCount() const override {
+        return sampleCount_;
+    }
+
     [[nodiscard]] RHI::Texture GetColorTexture(const RHI::u32 index) const override {
         if (index >= colorTextures_.size()) {
             return {};
@@ -237,6 +256,7 @@ private:
     VkRenderPass renderPass_{VK_NULL_HANDLE};
     VkFramebuffer framebuffer_{VK_NULL_HANDLE};
     std::vector<ColorAttachment> colorAttachments_{};
+    std::vector<ColorAttachment> msaaColorAttachments_{};
     VkImage depthImage_{VK_NULL_HANDLE};
     VkDeviceMemory depthMemory_{VK_NULL_HANDLE};
     VkImageView depthView_{VK_NULL_HANDLE};
@@ -244,6 +264,7 @@ private:
     RHI::Format depthFormat_{RHI::Format::D32_Float};
     std::vector<RHI::Texture> colorTextures_{};
     RHI::Texture depthTexture_{};
+    RHI::u32 sampleCount_{1U};
 };
 
 VkCullModeFlags ResolveCullMode(const RHI::PipelineDesc& desc) {
@@ -256,6 +277,27 @@ VkCullModeFlags ResolveCullMode(const RHI::PipelineDesc& desc) {
         default:
             return VK_CULL_MODE_BACK_BIT;
     }
+}
+
+VkSampleCountFlagBits ResolveSampleCount(const VkPhysicalDevice physicalDevice, const RHI::u32 sampleCount) {
+    if (sampleCount <= 1U || physicalDevice == VK_NULL_HANDLE) {
+        return VK_SAMPLE_COUNT_1_BIT;
+    }
+    VkPhysicalDeviceProperties properties{};
+    vkGetPhysicalDeviceProperties(physicalDevice, &properties);
+    const VkSampleCountFlags counts =
+        properties.limits.framebufferColorSampleCounts & properties.limits.framebufferDepthSampleCounts;
+    const auto supports = [&](const VkSampleCountFlagBits bit) { return (counts & bit) == bit; };
+    if (sampleCount >= 8U && supports(VK_SAMPLE_COUNT_8_BIT)) {
+        return VK_SAMPLE_COUNT_8_BIT;
+    }
+    if (sampleCount >= 4U && supports(VK_SAMPLE_COUNT_4_BIT)) {
+        return VK_SAMPLE_COUNT_4_BIT;
+    }
+    if (sampleCount >= 2U && supports(VK_SAMPLE_COUNT_2_BIT)) {
+        return VK_SAMPLE_COUNT_2_BIT;
+    }
+    return VK_SAMPLE_COUNT_1_BIT;
 }
 
 VkCompareOp ResolveDepthCompare(const RHI::DepthCompare compare) {
@@ -824,7 +866,9 @@ bool VulkanContext::RecreateSurfaceAndSwapchain() {
         return false;
     }
 
-    RecreateSwapchain();
+    if (api_.Swapchain == VK_NULL_HANDLE || api_.SwapchainImages.empty()) {
+        RecreateSwapchain();
+    }
     RecreateDepthAttachment();
     RecreateFramebuffer();
     RecreateRenderFinishedSemaphores();
@@ -1724,11 +1768,12 @@ std::unique_ptr<RHI::IPipeline> VulkanContext::CreatePipeline(const RHI::Pipelin
         .depthBiasSlopeFactor = 0.0F,
         .lineWidth = 1.0F
     };
+    const VkSampleCountFlagBits sampleCount = ResolveSampleCount(api_.PhysicalDevice, desc.sampleCount);
     const VkPipelineMultisampleStateCreateInfo multisample{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
         .pNext = nullptr,
         .flags = 0,
-        .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
+        .rasterizationSamples = sampleCount,
         .sampleShadingEnable = VK_FALSE,
         .minSampleShading = 1.0F,
         .pSampleMask = nullptr,
@@ -1840,15 +1885,30 @@ std::unique_ptr<RHI::IRenderTarget> VulkanContext::CreateRenderTarget(const RHI:
         }
     }
 
+    VkSampleCountFlagBits sampleCount = ResolveSampleCount(api_.PhysicalDevice, desc.sampleCount);
+    if (desc.depthTexture && sampleCount != VK_SAMPLE_COUNT_1_BIT) {
+        sampleCount = VK_SAMPLE_COUNT_1_BIT;
+    }
+    const bool useMsaa = sampleCount != VK_SAMPLE_COUNT_1_BIT;
+
     std::vector<VulkanRenderTarget::ColorAttachment> colors(desc.colorAttachmentCount);
+    std::vector<VulkanRenderTarget::ColorAttachment> msaaColors(useMsaa ? desc.colorAttachmentCount : 0U);
     std::vector<VkAttachmentDescription> attachments{};
-    attachments.reserve(desc.colorAttachmentCount + (desc.hasDepth ? 1U : 0U));
+    const std::uint32_t colorAttachmentSlots =
+        useMsaa ? (desc.colorAttachmentCount * 2U) : desc.colorAttachmentCount;
+    attachments.reserve(colorAttachmentSlots + (desc.hasDepth ? 1U : 0U));
     std::vector<VkAttachmentReference> colorRefs{};
     colorRefs.reserve(desc.colorAttachmentCount);
+    std::vector<VkAttachmentReference> resolveRefs{};
+    resolveRefs.reserve(desc.colorAttachmentCount);
     std::vector<VkImageView> framebufferAttachments{};
-    framebufferAttachments.reserve(desc.colorAttachmentCount + (desc.hasDepth ? 1U : 0U));
+    framebufferAttachments.reserve(colorAttachmentSlots + (desc.hasDepth ? 1U : 0U));
 
-    const auto createColorAttachment = [&](VulkanRenderTarget::ColorAttachment& outColor) -> bool {
+    const auto createColorAttachment = [&](VulkanRenderTarget::ColorAttachment& outColor,
+                                           const VkSampleCountFlagBits samples,
+                                           const bool sampled) -> bool {
+        const VkImageUsageFlags usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                                        (sampled ? VkImageUsageFlags{VK_IMAGE_USAGE_SAMPLED_BIT} : VkImageUsageFlags{0});
         const VkImageCreateInfo imageInfo{
             .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
             .pNext = nullptr,
@@ -1858,9 +1918,9 @@ std::unique_ptr<RHI::IRenderTarget> VulkanContext::CreateRenderTarget(const RHI:
             .extent = {desc.width, desc.height, 1},
             .mipLevels = 1,
             .arrayLayers = 1,
-            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .samples = samples,
             .tiling = VK_IMAGE_TILING_OPTIMAL,
-            .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+            .usage = usage,
             .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
             .queueFamilyIndexCount = 0,
             .pQueueFamilyIndices = nullptr,
@@ -1903,51 +1963,99 @@ std::unique_ptr<RHI::IRenderTarget> VulkanContext::CreateRenderTarget(const RHI:
                 0,
                 1
             }
-        };
-        if (vkCreateImageView(api_.Device, &viewInfo, nullptr, &outColor.view) != VK_SUCCESS) {
-            return false;
-        }
-        const VkSamplerCreateInfo samplerInfo{
-            .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-            .pNext = nullptr,
-            .flags = 0,
-            .magFilter = VK_FILTER_LINEAR,
-            .minFilter = VK_FILTER_LINEAR,
-            .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
-            .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-            .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-            .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-            .mipLodBias = 0.0F,
-            .anisotropyEnable = VK_FALSE,
-            .maxAnisotropy = 1.0F,
-            .compareEnable = VK_FALSE,
-            .compareOp = VK_COMPARE_OP_ALWAYS,
-            .minLod = 0.0F,
-            .maxLod = 1.0F,
-            .borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK,
-            .unnormalizedCoordinates = VK_FALSE
-        };
-        return vkCreateSampler(api_.Device, &samplerInfo, nullptr, &outColor.sampler) == VK_SUCCESS;
-    };
+          };
+          if (vkCreateImageView(api_.Device, &viewInfo, nullptr, &outColor.view) != VK_SUCCESS) {
+              return false;
+          }
+          if (!sampled) {
+              outColor.sampler = VK_NULL_HANDLE;
+              return true;
+          }
+          const VkSamplerCreateInfo samplerInfo{
+              .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+              .pNext = nullptr,
+              .flags = 0,
+              .magFilter = VK_FILTER_LINEAR,
+              .minFilter = VK_FILTER_LINEAR,
+              .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+              .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+              .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+              .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+              .mipLodBias = 0.0F,
+              .anisotropyEnable = VK_FALSE,
+              .maxAnisotropy = 1.0F,
+              .compareEnable = VK_FALSE,
+              .compareOp = VK_COMPARE_OP_ALWAYS,
+              .minLod = 0.0F,
+              .maxLod = 1.0F,
+              .borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK,
+              .unnormalizedCoordinates = VK_FALSE
+          };
+          return vkCreateSampler(api_.Device, &samplerInfo, nullptr, &outColor.sampler) == VK_SUCCESS;
+      };
 
     if (desc.colorAttachmentCount > 0U) {
         for (RHI::u32 i = 0; i < desc.colorAttachmentCount; ++i) {
-            if (!createColorAttachment(colors[i])) {
-                return nullptr;
+            if (useMsaa) {
+                if (!createColorAttachment(msaaColors[i], sampleCount, false)) {
+                    return nullptr;
+                }
+                if (!createColorAttachment(colors[i], VK_SAMPLE_COUNT_1_BIT, true)) {
+                    return nullptr;
+                }
+                attachments.push_back(VkAttachmentDescription{
+                    .flags = 0,
+                    .format = offscreenColorFormat,
+                    .samples = sampleCount,
+                    .loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
+                    .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+                    .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+                    .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+                    .initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                    .finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+                });
+                attachments.push_back(VkAttachmentDescription{
+                    .flags = 0,
+                    .format = offscreenColorFormat,
+                    .samples = VK_SAMPLE_COUNT_1_BIT,
+                    .loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
+                    .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+                    .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+                    .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+                    .initialLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    .finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                });
+                colorRefs.push_back(VkAttachmentReference{
+                    .attachment = i * 2U,
+                    .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+                });
+                resolveRefs.push_back(VkAttachmentReference{
+                    .attachment = (i * 2U) + 1U,
+                    .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+                });
+                framebufferAttachments.push_back(msaaColors[i].view);
+                framebufferAttachments.push_back(colors[i].view);
+            } else {
+                if (!createColorAttachment(colors[i], VK_SAMPLE_COUNT_1_BIT, true)) {
+                    return nullptr;
+                }
+                attachments.push_back(VkAttachmentDescription{
+                    .flags = 0,
+                    .format = offscreenColorFormat,
+                    .samples = VK_SAMPLE_COUNT_1_BIT,
+                    .loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
+                    .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+                    .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+                    .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+                    .initialLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    .finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                });
+                colorRefs.push_back(VkAttachmentReference{
+                    .attachment = i,
+                    .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+                });
+                framebufferAttachments.push_back(colors[i].view);
             }
-            attachments.push_back(VkAttachmentDescription{
-                .flags = 0,
-                .format = offscreenColorFormat,
-                .samples = VK_SAMPLE_COUNT_1_BIT,
-                .loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
-                .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-                .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-                .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-                .initialLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                .finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-            });
-            colorRefs.push_back(VkAttachmentReference{.attachment = i, .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL});
-            framebufferAttachments.push_back(colors[i].view);
         }
     }
 
@@ -1971,7 +2079,7 @@ std::unique_ptr<RHI::IRenderTarget> VulkanContext::CreateRenderTarget(const RHI:
             .extent = {desc.width, desc.height, 1},
             .mipLevels = 1,
             .arrayLayers = 1,
-            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .samples = sampleCount,
             .tiling = VK_IMAGE_TILING_OPTIMAL,
             .usage = depthUsage,
             .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
@@ -2024,7 +2132,7 @@ std::unique_ptr<RHI::IRenderTarget> VulkanContext::CreateRenderTarget(const RHI:
         attachments.push_back(VkAttachmentDescription{
             .flags = 0,
             .format = api_.DepthFormat,
-            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .samples = sampleCount,
             .loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
             .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
             .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
@@ -2032,8 +2140,11 @@ std::unique_ptr<RHI::IRenderTarget> VulkanContext::CreateRenderTarget(const RHI:
             .initialLayout = depthSamplingLayout,
             .finalLayout = depthSamplingLayout
         });
+        const std::uint32_t depthAttachmentIndex =
+            useMsaa ? static_cast<std::uint32_t>(desc.colorAttachmentCount * 2U)
+                    : static_cast<std::uint32_t>(desc.colorAttachmentCount);
         depthRef = VkAttachmentReference{
-            .attachment = static_cast<std::uint32_t>(desc.colorAttachmentCount),
+            .attachment = depthAttachmentIndex,
             .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
         };
         framebufferAttachments.push_back(depthView);
@@ -2072,19 +2183,34 @@ std::unique_ptr<RHI::IRenderTarget> VulkanContext::CreateRenderTarget(const RHI:
         .pInputAttachments = nullptr,
         .colorAttachmentCount = static_cast<std::uint32_t>(colorRefs.size()),
         .pColorAttachments = colorRefs.empty() ? nullptr : colorRefs.data(),
-        .pResolveAttachments = nullptr,
+        .pResolveAttachments = resolveRefs.empty() ? nullptr : resolveRefs.data(),
         .pDepthStencilAttachment = desc.hasDepth ? &depthRef : nullptr,
         .preserveAttachmentCount = 0,
         .pPreserveAttachments = nullptr
     };
-    const VkSubpassDependency dependency{
-        .srcSubpass = VK_SUBPASS_EXTERNAL,
-        .dstSubpass = 0,
-        .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
-        .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
-        .srcAccessMask = 0,
-        .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-        .dependencyFlags = 0
+    const std::array<VkSubpassDependency, 2> dependencies{
+        VkSubpassDependency{
+            .srcSubpass = VK_SUBPASS_EXTERNAL,
+            .dstSubpass = 0,
+            .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+                            VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+                            VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+            .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT,
+            .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                             VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            .dependencyFlags = 0,
+        },
+        VkSubpassDependency{
+            .srcSubpass = 0,
+            .dstSubpass = VK_SUBPASS_EXTERNAL,
+            .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                            VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+            .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+            .dependencyFlags = 0,
+        },
     };
     const VkRenderPassCreateInfo renderPassInfo{
         .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
@@ -2094,8 +2220,8 @@ std::unique_ptr<RHI::IRenderTarget> VulkanContext::CreateRenderTarget(const RHI:
         .pAttachments = attachments.data(),
         .subpassCount = 1,
         .pSubpasses = &subpass,
-        .dependencyCount = 1,
-        .pDependencies = &dependency
+        .dependencyCount = static_cast<std::uint32_t>(dependencies.size()),
+        .pDependencies = dependencies.data()
     };
     VkRenderPass renderPass = VK_NULL_HANDLE;
     if (vkCreateRenderPass(api_.Device, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS) {
@@ -2128,20 +2254,49 @@ std::unique_ptr<RHI::IRenderTarget> VulkanContext::CreateRenderTarget(const RHI:
         .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
         .commandBufferCount = 1
     };
-    if (vkAllocateCommandBuffers(api_.Device, &allocateInfo, &commandBuffer) == VK_SUCCESS) {
-        const VkCommandBufferBeginInfo beginInfo{
-            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-            .pNext = nullptr,
-            .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-            .pInheritanceInfo = nullptr
-        };
-        vkBeginCommandBuffer(commandBuffer, &beginInfo);
+      if (vkAllocateCommandBuffers(api_.Device, &allocateInfo, &commandBuffer) == VK_SUCCESS) {
+          const VkCommandBufferBeginInfo beginInfo{
+              .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+              .pNext = nullptr,
+              .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+              .pInheritanceInfo = nullptr
+          };
+          vkBeginCommandBuffer(commandBuffer, &beginInfo);
 
-        for (const auto& color : colors) {
-            const VkImageMemoryBarrier toShaderRead{
-                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-                .pNext = nullptr,
-                .srcAccessMask = 0,
+          if (useMsaa) {
+              for (const auto& color : msaaColors) {
+                  const VkImageMemoryBarrier toColorAttachment{
+                      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                      .pNext = nullptr,
+                      .srcAccessMask = 0,
+                      .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                      .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+                      .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                      .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                      .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                      .image = color.image,
+                      .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}
+                  };
+                  vkCmdPipelineBarrier(
+                      commandBuffer,
+                      VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                      0,
+                      0,
+                      nullptr,
+                      0,
+                      nullptr,
+                      1,
+                      &toColorAttachment
+                  );
+              }
+          }
+
+          for (const auto& color : colors) {
+              const VkImageMemoryBarrier toShaderRead{
+                  .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                  .pNext = nullptr,
+                  .srcAccessMask = 0,
                 .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
                 .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
                 .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -2220,11 +2375,13 @@ std::unique_ptr<RHI::IRenderTarget> VulkanContext::CreateRenderTarget(const RHI:
         renderPass,
         framebuffer,
         colors,
+        msaaColors,
         depthImage,
         depthMemory,
         depthView,
         depthSampler,
-        rhiDepthFormat
+        rhiDepthFormat,
+        static_cast<RHI::u32>(sampleCount)
     );
 }
 
@@ -3217,6 +3374,11 @@ void VulkanContext::DestroyTexture(RHI::Texture& texture) {
         texture = {};
         return;
     }
+
+    // Textures/samplers can be referenced by in-flight descriptor sets/command buffers.
+    // Waiting here keeps higher-level resource teardown simple and avoids use-after-free validation errors.
+    vkDeviceWaitIdle(api_.Device);
+
     const auto view = reinterpret_cast<VkImageView>(texture.graphic_handle_ptr);
     if (const auto it2D = owned2DTextures_.find(view); it2D != owned2DTextures_.end()) {
         if (it2D->second.Sampler != VK_NULL_HANDLE) {
@@ -3285,13 +3447,11 @@ void VulkanContext::Initialize(const RHI::u32 width, const RHI::u32 height) {
         static_cast<void>(RecreateSurfaceAndSwapchain());
     }
     if (sizeChanged) {
-        vkDeviceWaitIdle(api_.Device);
-        RecreateSwapchain();
-        RecreateDepthAttachment();
-        RecreateFramebuffer();
-        RecreateRenderFinishedSemaphores();
+        pendingSwapchainRebuild_ = true;
     }
-    renderer_ = std::make_unique<::Lvs::Engine::Rendering::Renderer>();
+    if (renderer_ == nullptr) {
+        renderer_ = std::make_unique<::Lvs::Engine::Rendering::Renderer>();
+    }
     renderer_->Initialize(*this, ::Lvs::Engine::Rendering::RenderSurface{width, height});
     frameIndex_ = 0;
 }
@@ -3313,6 +3473,23 @@ void VulkanContext::Render(const ::Lvs::Engine::Rendering::SceneData& sceneData)
     if (api_.Swapchain == VK_NULL_HANDLE || api_.SwapchainFramebuffers.empty()) {
         if (!RecreateSurfaceAndSwapchain()) {
             return;
+        }
+    }
+    if (pendingSwapchainRebuild_) {
+        if (api_.SurfaceExtent.width == 0U || api_.SurfaceExtent.height == 0U) {
+            return;
+        }
+        vkDeviceWaitIdle(api_.Device);
+        RecreateSwapchain();
+        RecreateDepthAttachment();
+        RecreateFramebuffer();
+        RecreateRenderFinishedSemaphores();
+        pendingSwapchainRebuild_ = false;
+        if (api_.Swapchain == VK_NULL_HANDLE || api_.SwapchainFramebuffers.empty()) {
+            static_cast<void>(RecreateSurfaceAndSwapchain());
+            if (api_.Swapchain == VK_NULL_HANDLE || api_.SwapchainFramebuffers.empty()) {
+                return;
+            }
         }
     }
 

@@ -18,6 +18,7 @@ void Renderer::RecordFrameCommands(
     static_cast<void>(frameIndex);
     sceneRenderPassHandle_ = scene.GeometryTarget.RenderPass;
     sceneColorAttachmentCount_ = std::max(1U, scene.GeometryTarget.ColorAttachmentCount);
+    sceneSampleCount_ = std::max(1U, scene.GeometryTarget.SampleCount);
 
     if (scene.ClearColor) {
         const RHI::RenderPassInfo clearPass{
@@ -46,7 +47,8 @@ void Renderer::RecordFrameCommands(
                                          PassKey::Skybox,
                                          RHI::CullMode::Front,
                                          scene.SkyboxTarget.RenderPass,
-                                         scene.SkyboxTarget.ColorAttachmentCount
+                                         scene.SkyboxTarget.ColorAttachmentCount,
+                                         scene.SkyboxTarget.SampleCount
                                      )
                                    : nullptr;
     Pipeline* postProcessPipeline = scene.EnablePostProcess
@@ -55,7 +57,8 @@ void Renderer::RecordFrameCommands(
                                               PassKey::PostProcess,
                                               RHI::CullMode::None,
                                               scene.PostProcessTarget.RenderPass,
-                                              scene.PostProcessTarget.ColorAttachmentCount
+                                              scene.PostProcessTarget.ColorAttachmentCount,
+                                              scene.PostProcessTarget.SampleCount
                                           )
                                         : nullptr;
     Pipeline* blurDownPipeline = scene.EnablePostProcess
@@ -64,7 +67,8 @@ void Renderer::RecordFrameCommands(
                                            PassKey::PostBlurDown,
                                            RHI::CullMode::None,
                                            scene.PostBlurDownTarget.RenderPass,
-                                           scene.PostBlurDownTarget.ColorAttachmentCount
+                                           scene.PostBlurDownTarget.ColorAttachmentCount,
+                                           scene.PostBlurDownTarget.SampleCount
                                        )
                                      : nullptr;
     Pipeline* blurUpPipeline = scene.EnablePostProcess
@@ -73,7 +77,8 @@ void Renderer::RecordFrameCommands(
                                          PassKey::PostBlurUp,
                                          RHI::CullMode::None,
                                          scene.PostBlurUpTarget.RenderPass,
-                                         scene.PostBlurUpTarget.ColorAttachmentCount
+                                         scene.PostBlurUpTarget.ColorAttachmentCount,
+                                         scene.PostBlurUpTarget.SampleCount
                                      )
                                    : nullptr;
     Pipeline* geometryPipeline = scene.EnableGeometry
@@ -82,7 +87,8 @@ void Renderer::RecordFrameCommands(
                                            PassKey::Geometry,
                                            RHI::CullMode::Back,
                                            scene.GeometryTarget.RenderPass,
-                                           scene.GeometryTarget.ColorAttachmentCount
+                                           scene.GeometryTarget.ColorAttachmentCount,
+                                           scene.GeometryTarget.SampleCount
                                        )
                                      : nullptr;
     const RHI::IResourceSet* globalResources = GetOrCreateGlobalResources(ctx, scene);
@@ -109,11 +115,13 @@ Pipeline* Renderer::GetOrCreatePipeline(
     const PassKey key,
     const RHI::CullMode cullMode,
     void* renderPassHandle,
-    const RHI::u32 colorAttachmentCount
+    const RHI::u32 colorAttachmentCount,
+    const RHI::u32 sampleCount
 ) {
     const std::size_t renderPassBits = reinterpret_cast<std::size_t>(renderPassHandle) >> 3U;
     const std::size_t cacheKey = (static_cast<std::size_t>(key) << 8U) | static_cast<std::size_t>(cullMode) |
-                                 (renderPassBits << 16U) | (static_cast<std::size_t>(colorAttachmentCount) << 4U);
+                                 (renderPassBits << 16U) | (static_cast<std::size_t>(colorAttachmentCount) << 4U) |
+                                 (static_cast<std::size_t>(sampleCount) << 12U);
     const auto it = pipelineCache_.find(cacheKey);
     if (it != pipelineCache_.end()) {
         return it->second.get();
@@ -122,6 +130,7 @@ Pipeline* Renderer::GetOrCreatePipeline(
     RHI::PipelineDesc desc{};
     desc.renderPassHandle = renderPassHandle;
     desc.colorAttachmentCount = colorAttachmentCount;
+    desc.sampleCount = sampleCount;
     switch (key) {
         case PassKey::Geometry:
             desc.pipelineId = "main";
@@ -197,7 +206,8 @@ Pipeline* Renderer::GetOrCreateGeometryPipeline(
     const std::size_t renderPassBits = reinterpret_cast<std::size_t>(sceneRenderPassHandle_) >> 3U;
     const std::size_t cacheKey = (static_cast<std::size_t>(PassKey::Geometry) << 8U) | static_cast<std::size_t>(cullMode) |
                                  (modeBits << 16U) | (renderPassBits << 24U) |
-                                 (static_cast<std::size_t>(sceneColorAttachmentCount_) << 4U);
+                                 (static_cast<std::size_t>(sceneColorAttachmentCount_) << 4U) |
+                                 (static_cast<std::size_t>(sceneSampleCount_) << 12U);
     const auto it = pipelineCache_.find(cacheKey);
     if (it != pipelineCache_.end()) {
         return it->second.get();
@@ -208,6 +218,7 @@ Pipeline* Renderer::GetOrCreateGeometryPipeline(
     desc.vertexLayout = RHI::VertexLayout::P3N3;
     desc.renderPassHandle = sceneRenderPassHandle_;
     desc.colorAttachmentCount = sceneColorAttachmentCount_;
+    desc.sampleCount = sceneSampleCount_;
     desc.cullMode = cullMode;
 
     if (alwaysOnTop) {

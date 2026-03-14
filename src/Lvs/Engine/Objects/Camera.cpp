@@ -10,7 +10,7 @@ Core::ClassDescriptor& Camera::Descriptor() {
     static Core::ClassDescriptor descriptor("Camera", &Core::Instance::Descriptor());
     static const bool initialized = []() {
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Math::CFrame>(
-            "CFrame", Math::CFrame::Identity(), true, "Transform"
+            "CFrame", Math::CFrame::Identity(), true, "Transform", {}, false, {"IsSeparateBox"}
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
             "FieldOfView", 70.0, true, "Camera"

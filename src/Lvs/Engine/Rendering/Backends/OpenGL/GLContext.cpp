@@ -139,21 +139,31 @@ public:
     GLRenderTarget(
         const RHI::u32 width,
         const RHI::u32 height,
-        const unsigned int framebuffer,
+        const unsigned int drawFramebuffer,
+        const unsigned int resolveFramebuffer,
         const std::vector<unsigned int>& colorTextures,
+        const std::vector<unsigned int>& msaaColorRenderbuffers,
         const unsigned int depthRenderbuffer,
         const unsigned int depthTexture,
+        const unsigned int msaaDepthRenderbuffer,
         const RHI::Format colorFormat,
-        const RHI::Format depthFormat
+        const RHI::Format depthFormat,
+        const RHI::u32 sampleCount,
+        std::function<void(unsigned int)> unregisterMsaa
     )
         : width_(width),
           height_(height),
-          framebuffer_(framebuffer),
+          drawFramebuffer_(drawFramebuffer),
+          resolveFramebuffer_(resolveFramebuffer),
           colorTextures_(colorTextures),
+          msaaColorRenderbuffers_(msaaColorRenderbuffers),
           depthRenderbuffer_(depthRenderbuffer),
           depthTexture_(depthTexture),
+          msaaDepthRenderbuffer_(msaaDepthRenderbuffer),
           colorFormat_(colorFormat),
-          depthFormat_(depthFormat) {
+          depthFormat_(depthFormat),
+          sampleCount_(sampleCount),
+          unregisterMsaa_(std::move(unregisterMsaa)) {
         colorTextureViews_.reserve(colorTextures_.size());
         for (const auto handle : colorTextures_) {
             RHI::Texture texture{};
@@ -180,14 +190,27 @@ public:
     ~GLRenderTarget() override {
         if (depthTexture_ != 0U) {
             glDeleteTextures(1, &depthTexture_);
-        } else if (depthRenderbuffer_ != 0U) {
+        }
+        if (depthRenderbuffer_ != 0U) {
             glDeleteRenderbuffers(1, &depthRenderbuffer_);
+        }
+        if (msaaDepthRenderbuffer_ != 0U) {
+            glDeleteRenderbuffers(1, &msaaDepthRenderbuffer_);
+        }
+        if (!msaaColorRenderbuffers_.empty()) {
+            glDeleteRenderbuffers(static_cast<GLsizei>(msaaColorRenderbuffers_.size()), msaaColorRenderbuffers_.data());
         }
         if (!colorTextures_.empty()) {
             glDeleteTextures(static_cast<GLsizei>(colorTextures_.size()), colorTextures_.data());
         }
-        if (framebuffer_ != 0U) {
-            glDeleteFramebuffers(1, &framebuffer_);
+        if (resolveFramebuffer_ != 0U) {
+            glDeleteFramebuffers(1, &resolveFramebuffer_);
+        }
+        if (drawFramebuffer_ != 0U && drawFramebuffer_ != resolveFramebuffer_) {
+            glDeleteFramebuffers(1, &drawFramebuffer_);
+        }
+        if (unregisterMsaa_ != nullptr && drawFramebuffer_ != resolveFramebuffer_) {
+            unregisterMsaa_(drawFramebuffer_);
         }
     }
 
@@ -196,7 +219,7 @@ public:
     }
 
     [[nodiscard]] void* GetFramebufferHandle() const override {
-        return reinterpret_cast<void*>(static_cast<std::uintptr_t>(framebuffer_));
+        return reinterpret_cast<void*>(static_cast<std::uintptr_t>(drawFramebuffer_));
     }
 
     [[nodiscard]] RHI::u32 GetWidth() const override {
@@ -211,6 +234,10 @@ public:
         return static_cast<RHI::u32>(colorTextureViews_.size());
     }
 
+    [[nodiscard]] RHI::u32 GetSampleCount() const override {
+        return sampleCount_;
+    }
+
     [[nodiscard]] RHI::Texture GetColorTexture(const RHI::u32 index) const override {
         if (index >= colorTextureViews_.size()) {
             return {};
@@ -219,7 +246,7 @@ public:
     }
 
     [[nodiscard]] bool HasDepth() const override {
-        return depthRenderbuffer_ != 0U || depthTexture_ != 0U;
+        return depthRenderbuffer_ != 0U || depthTexture_ != 0U || msaaDepthRenderbuffer_ != 0U;
     }
 
     [[nodiscard]] RHI::Texture GetDepthTexture() const override {
@@ -229,15 +256,20 @@ public:
 private:
     RHI::u32 width_{0U};
     RHI::u32 height_{0U};
-    unsigned int framebuffer_{0U};
+    unsigned int drawFramebuffer_{0U};
+    unsigned int resolveFramebuffer_{0U};
     std::vector<unsigned int> colorTextures_{};
+    std::vector<unsigned int> msaaColorRenderbuffers_{};
     unsigned int depthRenderbuffer_{0U};
     unsigned int depthTexture_{0U};
+    unsigned int msaaDepthRenderbuffer_{0U};
     RHI::Format colorFormat_{RHI::Format::R8G8B8A8_UNorm};
     RHI::Format depthFormat_{RHI::Format::D32_Float};
     std::vector<RHI::Texture> colorTextureViews_{};
     bool hasDepthTexture_{false};
     RHI::Texture depthTextureView_{};
+    RHI::u32 sampleCount_{1U};
+    std::function<void(unsigned int)> unregisterMsaa_{};
 };
 
 class GLBuffer final : public RHI::IBuffer {
@@ -425,14 +457,34 @@ std::unique_ptr<RHI::IRenderTarget> GLContext::CreateRenderTarget(const RHI::Ren
         return nullptr;
     }
 
-    unsigned int framebuffer = 0U;
-    glGenFramebuffers(1, &framebuffer);
-    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+    RHI::u32 sampleCount = std::max<RHI::u32>(1U, desc.sampleCount);
+    if (desc.depthTexture && sampleCount > 1U) {
+        sampleCount = 1U;
+    }
+    if (sampleCount > 1U) {
+        GLint maxSamples = 0;
+        glGetIntegerv(GL_MAX_SAMPLES, &maxSamples);
+        if (maxSamples > 0) {
+            sampleCount = std::min(sampleCount, static_cast<RHI::u32>(maxSamples));
+        }
+    }
 
-    std::vector<unsigned int> colorTextures;
+    const bool useMsaa = sampleCount > 1U;
+    unsigned int drawFramebuffer = 0U;
+    unsigned int resolveFramebuffer = 0U;
+    glGenFramebuffers(1, &drawFramebuffer);
+    resolveFramebuffer = drawFramebuffer;
+    if (useMsaa) {
+        glGenFramebuffers(1, &resolveFramebuffer);
+    }
+
+    std::vector<unsigned int> colorTextures{};
+    std::vector<unsigned int> msaaColorRenderbuffers{};
     if (desc.colorAttachmentCount > 0U) {
         colorTextures.resize(desc.colorAttachmentCount, 0U);
         glGenTextures(static_cast<GLsizei>(colorTextures.size()), colorTextures.data());
+
+        glBindFramebuffer(GL_FRAMEBUFFER, resolveFramebuffer);
         for (RHI::u32 index = 0; index < desc.colorAttachmentCount; ++index) {
             const auto handle = colorTextures[index];
             glBindTexture(GL_TEXTURE_2D, handle);
@@ -460,15 +512,46 @@ std::unique_ptr<RHI::IRenderTarget> GLContext::CreateRenderTarget(const RHI::Ren
             drawBuffers.push_back(GL_COLOR_ATTACHMENT0 + index);
         }
         glDrawBuffers(static_cast<GLsizei>(drawBuffers.size()), drawBuffers.data());
+
+        if (useMsaa) {
+            msaaColorRenderbuffers.resize(desc.colorAttachmentCount, 0U);
+            glGenRenderbuffers(static_cast<GLsizei>(msaaColorRenderbuffers.size()), msaaColorRenderbuffers.data());
+            glBindFramebuffer(GL_FRAMEBUFFER, drawFramebuffer);
+            for (RHI::u32 index = 0; index < desc.colorAttachmentCount; ++index) {
+                glBindRenderbuffer(GL_RENDERBUFFER, msaaColorRenderbuffers[index]);
+                glRenderbufferStorageMultisample(
+                    GL_RENDERBUFFER,
+                    static_cast<GLsizei>(sampleCount),
+                    GL_RGBA16F,
+                    static_cast<GLsizei>(desc.width),
+                    static_cast<GLsizei>(desc.height)
+                );
+                glFramebufferRenderbuffer(
+                    GL_FRAMEBUFFER,
+                    GL_COLOR_ATTACHMENT0 + index,
+                    GL_RENDERBUFFER,
+                    msaaColorRenderbuffers[index]
+                );
+            }
+            glDrawBuffers(static_cast<GLsizei>(drawBuffers.size()), drawBuffers.data());
+        }
     } else {
+        glBindFramebuffer(GL_FRAMEBUFFER, resolveFramebuffer);
         glDrawBuffer(GL_NONE);
         glReadBuffer(GL_NONE);
+        if (useMsaa) {
+            glBindFramebuffer(GL_FRAMEBUFFER, drawFramebuffer);
+            glDrawBuffer(GL_NONE);
+            glReadBuffer(GL_NONE);
+        }
     }
 
     unsigned int depthRenderbuffer = 0U;
     unsigned int depthTexture = 0U;
+    unsigned int msaaDepthRenderbuffer = 0U;
     if (desc.hasDepth) {
         if (desc.depthTexture) {
+            glBindFramebuffer(GL_FRAMEBUFFER, resolveFramebuffer);
             glGenTextures(1, &depthTexture);
             glBindTexture(GL_TEXTURE_2D, depthTexture);
             if (desc.depthFormat == RHI::Format::D24S8) {
@@ -505,45 +588,94 @@ std::unique_ptr<RHI::IRenderTarget> GLContext::CreateRenderTarget(const RHI::Ren
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
         } else {
+            const GLenum depthAttachment = (desc.depthFormat == RHI::Format::D24S8) ? GL_DEPTH_STENCIL_ATTACHMENT
+                                                                                    : GL_DEPTH_ATTACHMENT;
+            const GLenum depthInternal = (desc.depthFormat == RHI::Format::D24S8) ? GL_DEPTH24_STENCIL8
+                                                                                  : GL_DEPTH_COMPONENT24;
+            glBindFramebuffer(GL_FRAMEBUFFER, useMsaa ? drawFramebuffer : resolveFramebuffer);
             glGenRenderbuffers(1, &depthRenderbuffer);
             glBindRenderbuffer(GL_RENDERBUFFER, depthRenderbuffer);
-            glRenderbufferStorage(
-                GL_RENDERBUFFER,
-                GL_DEPTH_COMPONENT24,
-                static_cast<GLsizei>(desc.width),
-                static_cast<GLsizei>(desc.height)
-            );
-            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthRenderbuffer);
+            if (useMsaa) {
+                glRenderbufferStorageMultisample(
+                    GL_RENDERBUFFER,
+                    static_cast<GLsizei>(sampleCount),
+                    depthInternal,
+                    static_cast<GLsizei>(desc.width),
+                    static_cast<GLsizei>(desc.height)
+                );
+                msaaDepthRenderbuffer = depthRenderbuffer;
+                depthRenderbuffer = 0U;
+            } else {
+                glRenderbufferStorage(
+                    GL_RENDERBUFFER,
+                    depthInternal,
+                    static_cast<GLsizei>(desc.width),
+                    static_cast<GLsizei>(desc.height)
+                );
+            }
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, depthAttachment, GL_RENDERBUFFER, useMsaa ? msaaDepthRenderbuffer : depthRenderbuffer);
         }
     }
 
-    const auto status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    const auto checkFramebuffer = [this](const unsigned int framebuffer) -> bool {
+        glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+        return glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    };
+
+    const bool drawComplete = checkFramebuffer(drawFramebuffer);
+    const bool resolveComplete = (resolveFramebuffer == drawFramebuffer) ? drawComplete : checkFramebuffer(resolveFramebuffer);
     glBindFramebuffer(GL_FRAMEBUFFER, api_.DefaultFramebuffer);
-    if (status != GL_FRAMEBUFFER_COMPLETE) {
+    if (!drawComplete || !resolveComplete) {
         if (depthRenderbuffer != 0U) {
             glDeleteRenderbuffers(1, &depthRenderbuffer);
+        }
+        if (msaaDepthRenderbuffer != 0U) {
+            glDeleteRenderbuffers(1, &msaaDepthRenderbuffer);
         }
         if (depthTexture != 0U) {
             glDeleteTextures(1, &depthTexture);
         }
+        if (!msaaColorRenderbuffers.empty()) {
+            glDeleteRenderbuffers(static_cast<GLsizei>(msaaColorRenderbuffers.size()), msaaColorRenderbuffers.data());
+        }
         if (!colorTextures.empty()) {
             glDeleteTextures(static_cast<GLsizei>(colorTextures.size()), colorTextures.data());
         }
-        if (framebuffer != 0U) {
-            glDeleteFramebuffers(1, &framebuffer);
+        if (resolveFramebuffer != 0U) {
+            glDeleteFramebuffers(1, &resolveFramebuffer);
+        }
+        if (drawFramebuffer != 0U && drawFramebuffer != resolveFramebuffer) {
+            glDeleteFramebuffers(1, &drawFramebuffer);
         }
         return nullptr;
+    }
+
+    if (useMsaa) {
+        msaaResolveTargets_[drawFramebuffer] = MsaaResolveInfo{
+            .drawFramebuffer = drawFramebuffer,
+            .resolveFramebuffer = resolveFramebuffer,
+            .width = desc.width,
+            .height = desc.height,
+            .colorAttachmentCount = desc.colorAttachmentCount
+        };
     }
 
     return std::make_unique<GLRenderTarget>(
         desc.width,
         desc.height,
-        framebuffer,
+        drawFramebuffer,
+        resolveFramebuffer,
         colorTextures,
+        msaaColorRenderbuffers,
         depthRenderbuffer,
         depthTexture,
+        msaaDepthRenderbuffer,
         desc.colorAttachmentCount > 0U ? RHI::Format::R16G16B16A16_Float : RHI::Format::Unknown,
-        desc.depthFormat
+        desc.depthFormat,
+        sampleCount,
+        [this](const unsigned int framebufferId) {
+            msaaResolveTargets_.erase(framebufferId);
+        }
     );
 }
 
@@ -934,6 +1066,13 @@ void GLContext::BeginRenderPass(const RHI::RenderPassInfo& info) {
     const unsigned int framebuffer = static_cast<unsigned int>(reinterpret_cast<std::uintptr_t>(info.framebufferHandle));
     const bool useDefaultFramebuffer = framebuffer == 0U || framebuffer == api_.DefaultFramebuffer;
     glBindFramebuffer(GL_FRAMEBUFFER, useDefaultFramebuffer ? api_.DefaultFramebuffer : framebuffer);
+    currentMsaaResolve_ = nullptr;
+    if (!useDefaultFramebuffer) {
+        const auto it = msaaResolveTargets_.find(framebuffer);
+        if (it != msaaResolveTargets_.end()) {
+            currentMsaaResolve_ = &it->second;
+        }
+    }
     if (useDefaultFramebuffer) {
         glDrawBuffer(GL_BACK);
     } else {
@@ -982,6 +1121,19 @@ void GLContext::EndRenderPass() {
     if (!api_.GladLoaded) {
         return;
     }
+    if (currentMsaaResolve_ != nullptr) {
+        const MsaaResolveInfo resolve = *currentMsaaResolve_;
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(resolve.drawFramebuffer));
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(resolve.resolveFramebuffer));
+        const GLint width = static_cast<GLint>(resolve.width);
+        const GLint height = static_cast<GLint>(resolve.height);
+        for (RHI::u32 index = 0; index < resolve.colorAttachmentCount; ++index) {
+            glReadBuffer(GL_COLOR_ATTACHMENT0 + index);
+            glDrawBuffer(GL_COLOR_ATTACHMENT0 + index);
+            glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        }
+        currentMsaaResolve_ = nullptr;
+    }
     glBindFramebuffer(GL_FRAMEBUFFER, api_.DefaultFramebuffer);
     glDrawBuffer(GL_BACK);
 }
@@ -992,6 +1144,11 @@ void GLContext::BindPipeline(const RHI::IPipeline& pipeline) {
     }
     if (const auto* glPipeline = dynamic_cast<const GLPipeline*>(&pipeline); glPipeline != nullptr) {
         currentVertexLayout_ = glPipeline->GetDesc().vertexLayout;
+        if (glPipeline->GetDesc().sampleCount > 1U) {
+            glEnable(GL_MULTISAMPLE);
+        } else {
+            glDisable(GL_MULTISAMPLE);
+        }
         ApplyCullMode(glPipeline->GetDesc().cullMode);
 #ifdef GL_DEPTH_CLAMP
         if (glPipeline->GetDesc().pipelineId == "shadow") {
@@ -1017,6 +1174,7 @@ void GLContext::BindPipeline(const RHI::IPipeline& pipeline) {
     } else {
         currentVertexLayout_ = RHI::VertexLayout::None;
         ApplyCullMode(RHI::CullMode::Back);
+        glDisable(GL_MULTISAMPLE);
 #ifdef GL_DEPTH_CLAMP
         glDisable(GL_DEPTH_CLAMP);
 #endif

@@ -145,20 +145,41 @@ void RenderContext::EnsurePostProcessTargets() {
     const auto needsRecreate = [this](const std::unique_ptr<RHI::IRenderTarget>& target,
                                       const RHI::u32 width,
                                       const RHI::u32 height,
-                                      const RHI::u32 colors) {
+                                      const RHI::u32 colors,
+                                      const RHI::u32 sampleCount) {
         return target == nullptr || target->GetWidth() != width || target->GetHeight() != height ||
-               target->GetColorAttachmentCount() != colors;
+               target->GetColorAttachmentCount() != colors || target->GetSampleCount() != sampleCount;
     };
-    if (needsRecreate(geometryTarget_, surfaceWidth_, surfaceHeight_, 2U)) {
+
+    bool waitedForIdle = false;
+    const auto waitForIdleOnce = [this, &waitedForIdle]() {
+        if (waitedForIdle) {
+            return;
+        }
+        WaitForBackendIdle();
+        waitedForIdle = true;
+    };
+    if (needsRecreate(geometryTarget_, surfaceWidth_, surfaceHeight_, 2U, effectiveMsaaSampleCount_)) {
+        waitForIdleOnce();
         geometryTarget_ = GetRhiContext().CreateRenderTarget(
-            RHI::RenderTargetDesc{.width = surfaceWidth_, .height = surfaceHeight_, .colorAttachmentCount = 2, .hasDepth = true}
+            RHI::RenderTargetDesc{
+                .width = surfaceWidth_,
+                .height = surfaceHeight_,
+                .colorAttachmentCount = 2,
+                .sampleCount = requestedMsaaSampleCount_,
+                .hasDepth = true
+            }
         );
+        if (geometryTarget_ != nullptr) {
+            effectiveMsaaSampleCount_ = geometryTarget_->GetSampleCount();
+        }
     }
 
     RHI::u32 levelWidth = std::max<RHI::u32>(1U, surfaceWidth_ / 2U);
     RHI::u32 levelHeight = std::max<RHI::u32>(1U, surfaceHeight_ / 2U);
     for (RHI::u32 level = 0; level < SceneData::MaxPostBlurLevels; ++level) {
-        if (needsRecreate(blurDownTargets_[level], levelWidth, levelHeight, 1U)) {
+        if (needsRecreate(blurDownTargets_[level], levelWidth, levelHeight, 1U, 1U)) {
+            waitForIdleOnce();
             blurDownTargets_[level] = GetRhiContext().CreateRenderTarget(
                 RHI::RenderTargetDesc{
                     .width = levelWidth,
@@ -168,7 +189,8 @@ void RenderContext::EnsurePostProcessTargets() {
                 }
             );
         }
-        if (needsRecreate(blurUpTargets_[level], levelWidth, levelHeight, 1U)) {
+        if (needsRecreate(blurUpTargets_[level], levelWidth, levelHeight, 1U, 1U)) {
+            waitForIdleOnce();
             blurUpTargets_[level] = GetRhiContext().CreateRenderTarget(
                 RHI::RenderTargetDesc{
                     .width = levelWidth,
@@ -181,7 +203,8 @@ void RenderContext::EnsurePostProcessTargets() {
         levelWidth = std::max<RHI::u32>(1U, levelWidth / 2U);
         levelHeight = std::max<RHI::u32>(1U, levelHeight / 2U);
     }
-    if (needsRecreate(blurFinalTarget_, surfaceWidth_, surfaceHeight_, 1U)) {
+    if (needsRecreate(blurFinalTarget_, surfaceWidth_, surfaceHeight_, 1U, 1U)) {
+        waitForIdleOnce();
         blurFinalTarget_ = GetRhiContext().CreateRenderTarget(
             RHI::RenderTargetDesc{
                 .width = surfaceWidth_,
@@ -383,4 +406,3 @@ void RenderContext::UpdateSurfaceAtlasTexture() {
 }
 
 } // namespace Lvs::Engine::Rendering
-

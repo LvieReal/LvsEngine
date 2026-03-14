@@ -46,7 +46,7 @@ Core::ClassDescriptor& BasePart::Descriptor() {
             "Rotation", {}, true, "Transform"
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Math::CFrame>(
-            "CFrame", Math::CFrame::Identity(), true, "Transform", {}, false, {"IsSeparateBox"}
+            "CFrame", Math::CFrame::Identity(), true, "Transform", {}, true, {"IsSeparateBox"}
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Math::Vector3>(
             "Size", {4.0, 1.0, 2.0}, true, "Transform"

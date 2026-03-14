@@ -40,7 +40,7 @@ private:
     void ClearInternal(bool resetContentRoot = true);
     void ProcessQueuedBinding();
     void ResetContentRoot();
-    void AddInstanceHeader(const std::shared_ptr<Engine::Core::Instance>& instance);
+    QWidget* CreateInstanceHeader(const std::shared_ptr<Engine::Core::Instance>& instance, QWidget* parent);
     bool ShouldShowProperty(
         const std::shared_ptr<Engine::Core::Instance>& instance,
         const Engine::Core::PropertyDefinition& definition

@@ -2,6 +2,7 @@
 
 #include "Lvs/Engine/Enums/LightingComputationMode.hpp"
 #include "Lvs/Engine/Enums/LightingTechnology.hpp"
+#include "Lvs/Engine/Enums/MSAA.hpp"
 #include "Lvs/Engine/Enums/MeshCullMode.hpp"
 #include "Lvs/Engine/Enums/PartShape.hpp"
 #include "Lvs/Engine/Enums/PartSurfaceType.hpp"
@@ -26,6 +27,14 @@ QList<EnumOption> OptionsForType(const int typeId) {
     }
     if (typeId == QMetaType::fromType<TextureFiltering>().id()) {
         return {{"Linear", static_cast<int>(TextureFiltering::Linear)}, {"Nearest", static_cast<int>(TextureFiltering::Nearest)}};
+    }
+    if (typeId == QMetaType::fromType<MSAA>().id()) {
+        return {
+            {"Off", static_cast<int>(MSAA::Off)},
+            {"2x", static_cast<int>(MSAA::X2)},
+            {"4x", static_cast<int>(MSAA::X4)},
+            {"8x", static_cast<int>(MSAA::X8)}
+        };
     }
     if (typeId == QMetaType::fromType<SkyboxTextureLayout>().id()) {
         return {
@@ -70,6 +79,9 @@ QVariant VariantFromInt(const int typeId, const int value) {
     if (typeId == QMetaType::fromType<TextureFiltering>().id()) {
         return QVariant::fromValue(static_cast<TextureFiltering>(value));
     }
+    if (typeId == QMetaType::fromType<MSAA>().id()) {
+        return QVariant::fromValue(static_cast<MSAA>(value));
+    }
     if (typeId == QMetaType::fromType<SkyboxTextureLayout>().id()) {
         return QVariant::fromValue(static_cast<SkyboxTextureLayout>(value));
     }
@@ -96,6 +108,9 @@ int IntFromVariant(const QVariant& value) {
     }
     if (value.typeId() == QMetaType::fromType<TextureFiltering>().id()) {
         return static_cast<int>(value.value<TextureFiltering>());
+    }
+    if (value.typeId() == QMetaType::fromType<MSAA>().id()) {
+        return static_cast<int>(value.value<MSAA>());
     }
     if (value.typeId() == QMetaType::fromType<SkyboxTextureLayout>().id()) {
         return static_cast<int>(value.value<SkyboxTextureLayout>());

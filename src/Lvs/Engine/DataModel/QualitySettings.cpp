@@ -1,0 +1,35 @@
+#include "Lvs/Engine/DataModel/QualitySettings.hpp"
+
+#include "Lvs/Engine/Core/ObjectBase.hpp"
+#include "Lvs/Engine/DataModel/ClassRegistry.hpp"
+#include "Lvs/Engine/DataModel/ServiceRegistry.hpp"
+#include "Lvs/Engine/Enums/MSAA.hpp"
+
+namespace Lvs::Engine::DataModel {
+
+Core::ClassDescriptor& QualitySettings::Descriptor() {
+    static Core::ClassDescriptor descriptor("QualitySettings", &Service::Descriptor());
+    static const bool initialized = []() {
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Enums::MSAA>(
+            "MSAA",
+            Enums::MSAA::Off,
+            true,
+            "Quality",
+            "Multisample anti-aliasing sample count (0, 2, 4, 8)."
+        ));
+
+        Core::ClassDescriptor::RegisterClassDescriptor(&descriptor);
+        ClassRegistry::RegisterClass<QualitySettings>("QualitySettings", "Services", "Service");
+        ServiceRegistry::RegisterService<QualitySettings>();
+        return true;
+    }();
+    static_cast<void>(initialized);
+    return descriptor;
+}
+
+QualitySettings::QualitySettings()
+    : Service(Descriptor()) {
+    SetInsertable(false);
+}
+
+} // namespace Lvs::Engine::DataModel

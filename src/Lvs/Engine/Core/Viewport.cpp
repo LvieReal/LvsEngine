@@ -24,6 +24,8 @@ Viewport::Viewport(const EngineContextPtr& context, QWidget* parent)
     setAttribute(Qt::WA_OpaquePaintEvent, true);
 }
 
+Viewport::~Viewport() = default;
+
 void Viewport::BindToPlace(const std::shared_ptr<DataModel::Place>& place) {
     place_ = place;
     workspace_ = place != nullptr

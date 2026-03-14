@@ -55,7 +55,8 @@ void ShadowPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBuffer&
                     Renderer::PassKey::Shadow,
                     shadowCullMode,
                     target.RenderPass,
-                    target.ColorAttachmentCount
+                    target.ColorAttachmentCount,
+                    target.SampleCount
                 );
                 if (pipeline == nullptr) {
                     continue;
