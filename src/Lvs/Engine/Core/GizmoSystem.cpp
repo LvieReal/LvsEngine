@@ -51,9 +51,14 @@ void GizmoSystem::Unbind() {
     axisByName_.clear();
     renderPrimitives_.clear();
     targetPart_.reset();
+    selectedParts_.clear();
     hoveredAxis_.clear();
     activeAxis_.clear();
     dragStartPoint_.reset();
+    hasDragCenter_ = false;
+    dragCenter_ = {};
+    dragSnapshots_.clear();
+    hasDragStartBounds_ = false;
     startPosition_.reset();
     startSize_.reset();
 }
@@ -61,12 +66,50 @@ void GizmoSystem::Unbind() {
 void GizmoSystem::Update(const std::shared_ptr<DataModel::Selection>& selection, const Tool activeTool) {
     activeTool_ = activeTool;
 
-    std::shared_ptr<Objects::BasePart> selectedPart;
+    hasSelectionBounds_ = false;
+    selectionBounds_ = {};
+    selectionCenter_ = {};
+    selectedParts_.clear();
+
+    std::shared_ptr<Objects::BasePart> primaryPart;
     if (selection != nullptr) {
-        selectedPart = std::dynamic_pointer_cast<Objects::BasePart>(selection->GetPrimary());
+        primaryPart = std::dynamic_pointer_cast<Objects::BasePart>(selection->GetPrimary());
+        const auto instances = selection->Get();
+        for (const auto& instance : instances) {
+            const auto part = std::dynamic_pointer_cast<Objects::BasePart>(instance);
+            if (part == nullptr || part->GetParent() == nullptr) {
+                continue;
+            }
+            selectedParts_.push_back(part);
+            const auto aabb = Utils::BuildPartWorldAABB(part);
+            if (!hasSelectionBounds_) {
+                selectionBounds_ = aabb;
+                hasSelectionBounds_ = true;
+            } else {
+                selectionBounds_.Min.x = std::min(selectionBounds_.Min.x, aabb.Min.x);
+                selectionBounds_.Min.y = std::min(selectionBounds_.Min.y, aabb.Min.y);
+                selectionBounds_.Min.z = std::min(selectionBounds_.Min.z, aabb.Min.z);
+                selectionBounds_.Max.x = std::max(selectionBounds_.Max.x, aabb.Max.x);
+                selectionBounds_.Max.y = std::max(selectionBounds_.Max.y, aabb.Max.y);
+                selectionBounds_.Max.z = std::max(selectionBounds_.Max.z, aabb.Max.z);
+            }
+        }
     }
 
-    targetPart_ = selectedPart;
+    if (hasSelectionBounds_) {
+        selectionCenter_ = selectionBounds_.Centroid();
+    }
+
+    targetPart_ = primaryPart;
+    if (targetPart_ == nullptr && selection != nullptr) {
+        for (const auto& instance : selection->Get()) {
+            const auto part = std::dynamic_pointer_cast<Objects::BasePart>(instance);
+            if (part != nullptr && part->GetParent() != nullptr) {
+                targetPart_ = part;
+                break;
+            }
+        }
+    }
     visible_ = targetPart_ != nullptr && (activeTool_ == Tool::MoveTool || activeTool_ == Tool::SizeTool);
 
     if (!visible_) {
@@ -101,20 +144,40 @@ bool GizmoSystem::TryBeginDrag(const Utils::Ray& ray) {
     }
 
     activeAxis_ = axis.value();
-    activeAxisDirection_ = axisByName_.value(activeAxis_).Direction;
+    activeAxisDirection_ = AxisDirection(axisByName_.value(activeAxis_));
     startPosition_ = targetPart_->GetProperty("Position").value<Math::Vector3>();
     startSize_ = targetPart_->GetProperty("Size").value<Math::Vector3>();
-    dragStartPoint_ = ClosestPointOnLineToRay(ray, Center(), activeAxisDirection_);
+
+    dragSnapshots_.clear();
+    dragSnapshots_.reserve(selectedParts_.size());
+    for (const auto& part : selectedParts_) {
+        if (part == nullptr || part->GetParent() == nullptr) {
+            continue;
+        }
+        DragSnapshot snap{
+            .Part = part,
+            .StartWorldCFrame = part->GetWorldCFrame(),
+            .StartSize = part->GetProperty("Size").value<Math::Vector3>()
+        };
+        dragSnapshots_.push_back(snap);
+    }
+
+    hasDragStartBounds_ = hasSelectionBounds_;
+    dragStartBounds_ = hasSelectionBounds_ ? selectionBounds_ : Math::AABB{};
+    hasDragCenter_ = true;
+    dragCenter_ = Center();
+
+    dragStartPoint_ = ClosestPointOnLineToRay(ray, dragCenter_, activeAxisDirection_);
     RefreshRenderPrimitives();
     return dragStartPoint_.has_value();
 }
 
 void GizmoSystem::UpdateDrag(const Utils::Ray& ray) {
-    if (targetPart_ == nullptr || activeAxis_.isEmpty() || !dragStartPoint_.has_value() || !startPosition_.has_value()) {
+    if (targetPart_ == nullptr || activeAxis_.isEmpty() || !dragStartPoint_.has_value() || !hasDragCenter_) {
         return;
     }
 
-    const auto currentPoint = ClosestPointOnLineToRay(ray, Center(), activeAxisDirection_);
+    const auto currentPoint = ClosestPointOnLineToRay(ray, dragCenter_, activeAxisDirection_);
     if (!currentPoint.has_value()) {
         return;
     }
@@ -124,47 +187,127 @@ void GizmoSystem::UpdateDrag(const Utils::Ray& ray) {
     amount = SnapToStep(amount, snapIncrement_);
 
     if (activeTool_ == Tool::MoveTool) {
-        targetPart_->SetProperty("Position", QVariant::fromValue(startPosition_.value() + activeAxisDirection_ * amount));
+        const Math::Vector3 translation = activeAxisDirection_ * amount;
+        for (const auto& snap : dragSnapshots_) {
+            if (snap.Part == nullptr || snap.Part->GetParent() == nullptr) {
+                continue;
+            }
+            auto next = snap.StartWorldCFrame;
+            next.Position = next.Position + translation;
+
+            const auto parent = snap.Part->GetParent();
+            if (const auto parentPart = std::dynamic_pointer_cast<Objects::BasePart>(parent); parentPart != nullptr) {
+                const auto local = parentPart->GetWorldCFrame().Inverse() * next;
+                snap.Part->SetProperty("CFrame", QVariant::fromValue(local));
+            } else {
+                snap.Part->SetProperty("CFrame", QVariant::fromValue(next));
+            }
+        }
         return;
     }
 
-    if (activeTool_ == Tool::SizeTool && startSize_.has_value()) {
-        const auto& startSize = startSize_.value();
-        Math::Vector3 newSize{
-            std::max(0.05, startSize.x + std::abs(activeAxisDirection_.x) * amount),
-            std::max(0.05, startSize.y + std::abs(activeAxisDirection_.y) * amount),
-            std::max(0.05, startSize.z + std::abs(activeAxisDirection_.z) * amount)
-        };
-        if (snapIncrement_ > 0.0) {
-            if (std::abs(activeAxisDirection_.x) > 0.0) {
-                newSize.x = std::max(0.05, SnapToStep(newSize.x, snapIncrement_));
-            } else if (std::abs(activeAxisDirection_.y) > 0.0) {
-                newSize.y = std::max(0.05, SnapToStep(newSize.y, snapIncrement_));
-            } else if (std::abs(activeAxisDirection_.z) > 0.0) {
-                newSize.z = std::max(0.05, SnapToStep(newSize.z, snapIncrement_));
-            }
-        }
-
-        double appliedAmount = 0.0;
-        if (std::abs(activeAxisDirection_.x) > 0.0) {
-            appliedAmount = newSize.x - startSize.x;
-        } else if (std::abs(activeAxisDirection_.y) > 0.0) {
-            appliedAmount = newSize.y - startSize.y;
-        } else if (std::abs(activeAxisDirection_.z) > 0.0) {
-            appliedAmount = newSize.z - startSize.z;
-        }
-
-        targetPart_->SetProperty("Size", QVariant::fromValue(newSize));
-        targetPart_->SetProperty(
-            "Position",
-            QVariant::fromValue(startPosition_.value() + activeAxisDirection_ * (appliedAmount * 0.5))
-        );
+    if (activeTool_ != Tool::SizeTool) {
+        return;
     }
+
+    if (dragSnapshots_.size() > 1) {
+        if (!hasDragStartBounds_) {
+            return;
+        }
+        const Math::Vector3 halfExtents = (dragStartBounds_.Max - dragStartBounds_.Min) * 0.5;
+        const Math::Vector3 dir = activeAxisDirection_.Unit();
+        const Math::Vector3 absDir{std::abs(dir.x), std::abs(dir.y), std::abs(dir.z)};
+        const double extentAlongAxis = std::max(0.001, 2.0 * (absDir.x * halfExtents.x + absDir.y * halfExtents.y + absDir.z * halfExtents.z));
+
+        const double nextExtent = std::max(0.05, extentAlongAxis + amount * 2.0);
+        const double factor = nextExtent / extentAlongAxis;
+
+        for (const auto& snap : dragSnapshots_) {
+            if (snap.Part == nullptr || snap.Part->GetParent() == nullptr) {
+                continue;
+            }
+
+            Math::Vector3 newSize{
+                std::max(0.05, snap.StartSize.x * factor),
+                std::max(0.05, snap.StartSize.y * factor),
+                std::max(0.05, snap.StartSize.z * factor)
+            };
+
+            auto next = snap.StartWorldCFrame;
+            const Math::Vector3 offset = snap.StartWorldCFrame.Position - dragCenter_;
+            next.Position = dragCenter_ + offset * factor;
+
+            const auto parent = snap.Part->GetParent();
+            if (const auto parentPart = std::dynamic_pointer_cast<Objects::BasePart>(parent); parentPart != nullptr) {
+                const auto local = parentPart->GetWorldCFrame().Inverse() * next;
+                snap.Part->SetProperty("CFrame", QVariant::fromValue(local));
+            } else {
+                snap.Part->SetProperty("CFrame", QVariant::fromValue(next));
+            }
+            snap.Part->SetProperty("Size", QVariant::fromValue(newSize));
+        }
+        return;
+    }
+
+    if (dragSnapshots_.empty()) {
+        return;
+    }
+
+    auto snap = dragSnapshots_.front();
+    if (snap.Part == nullptr || snap.Part->GetParent() == nullptr) {
+        return;
+    }
+
+    Math::Vector3 newSize = snap.StartSize;
+    const bool axisX = activeAxis_.contains("X");
+    const bool axisY = activeAxis_.contains("Y");
+    const bool axisZ = activeAxis_.contains("Z");
+    if (axisX) {
+        newSize.x = std::max(0.05, snap.StartSize.x + amount);
+        if (snapIncrement_ > 0.0) {
+            newSize.x = std::max(0.05, SnapToStep(newSize.x, snapIncrement_));
+        }
+    } else if (axisY) {
+        newSize.y = std::max(0.05, snap.StartSize.y + amount);
+        if (snapIncrement_ > 0.0) {
+            newSize.y = std::max(0.05, SnapToStep(newSize.y, snapIncrement_));
+        }
+    } else if (axisZ) {
+        newSize.z = std::max(0.05, snap.StartSize.z + amount);
+        if (snapIncrement_ > 0.0) {
+            newSize.z = std::max(0.05, SnapToStep(newSize.z, snapIncrement_));
+        }
+    }
+
+    double appliedAmount = 0.0;
+    if (axisX) {
+        appliedAmount = newSize.x - snap.StartSize.x;
+    } else if (axisY) {
+        appliedAmount = newSize.y - snap.StartSize.y;
+    } else if (axisZ) {
+        appliedAmount = newSize.z - snap.StartSize.z;
+    }
+
+    auto next = snap.StartWorldCFrame;
+    next.Position = next.Position + activeAxisDirection_.Unit() * (appliedAmount * 0.5);
+
+    const auto parent = snap.Part->GetParent();
+    if (const auto parentPart = std::dynamic_pointer_cast<Objects::BasePart>(parent); parentPart != nullptr) {
+        const auto local = parentPart->GetWorldCFrame().Inverse() * next;
+        snap.Part->SetProperty("CFrame", QVariant::fromValue(local));
+    } else {
+        snap.Part->SetProperty("CFrame", QVariant::fromValue(next));
+    }
+    snap.Part->SetProperty("Size", QVariant::fromValue(newSize));
 }
 
 void GizmoSystem::EndDrag() {
     activeAxis_.clear();
     dragStartPoint_.reset();
+    hasDragCenter_ = false;
+    dragCenter_ = {};
+    dragSnapshots_.clear();
+    hasDragStartBounds_ = false;
     startPosition_.reset();
     startSize_.reset();
     RefreshRenderPrimitives();
@@ -177,6 +320,19 @@ void GizmoSystem::Configure(const bool alwaysOnTop, const bool ignoreDiffuseSpec
     snapIncrement_ = std::max(0.0, snapIncrement);
     RefreshTransforms();
     RefreshRenderPrimitives();
+}
+
+void GizmoSystem::SetLocalSpace(const bool enabled) {
+    if (localSpace_ == enabled) {
+        return;
+    }
+    localSpace_ = enabled;
+    RefreshTransforms();
+    RefreshRenderPrimitives();
+}
+
+bool GizmoSystem::GetLocalSpace() const {
+    return localSpace_;
 }
 
 std::shared_ptr<Objects::BasePart> GizmoSystem::GetTargetPart() const {
@@ -196,7 +352,7 @@ void GizmoSystem::RefreshTransforms() {
         const double scale = 1.0 + DistanceScale();
         const Math::Vector3 axisCenter = AxisCenter(axis.Axis);
 
-        const Math::Vector3 up = axis.Axis.Direction.Unit();
+        const Math::Vector3 up = AxisDirection(axis.Axis).Unit();
         const Math::Vector3 helper = std::abs(up.z) < 0.99 ? Math::Vector3{0.0, 0.0, 1.0} : Math::Vector3{0.0, 1.0, 0.0};
         const Math::Vector3 right = helper.Cross(up).Unit();
         const Math::Vector3 back = right.Cross(up).Unit();
@@ -282,15 +438,19 @@ void GizmoSystem::RefreshRenderPrimitives() {
 }
 
 double GizmoSystem::DistanceScale() const {
-    if (targetPart_ == nullptr || camera_ == nullptr) {
+    if (camera_ == nullptr) {
         return 1.0;
     }
-    const Math::Vector3 targetPos = targetPart_->GetWorldCFrame().Position;
+    const Math::Vector3 targetPos = hasSelectionBounds_ ? selectionCenter_
+                                                        : (targetPart_ != nullptr ? targetPart_->GetWorldCFrame().Position : Math::Vector3{});
     const Math::Vector3 cameraPos = camera_->GetProperty("CFrame").value<Math::CFrame>().Position;
     return std::max(0.1, (cameraPos - targetPos).Magnitude() / 10.0);
 }
 
 Math::Vector3 GizmoSystem::Center() const {
+    if (hasSelectionBounds_) {
+        return selectionCenter_;
+    }
     if (targetPart_ == nullptr) {
         return {};
     }
@@ -298,35 +458,39 @@ Math::Vector3 GizmoSystem::Center() const {
 }
 
 Math::Vector3 GizmoSystem::AxisCenter(const AxisDef& axis) const {
-    if (targetPart_ == nullptr) {
+    if (targetPart_ == nullptr && !hasSelectionBounds_) {
         return {};
     }
 
-    const auto aabb = Utils::BuildPartWorldAABB(targetPart_);
-    const Math::Vector3 pos = aabb.Centroid();
+    const auto aabb = hasSelectionBounds_ ? selectionBounds_ : Utils::BuildPartWorldAABB(targetPart_);
+    const Math::Vector3 pos = hasSelectionBounds_ ? selectionCenter_ : aabb.Centroid();
     const double halfLength = (handleLength_ * 0.5 + tipRadius_ * 0.5) * (1.0 + DistanceScale());
 
+    const Math::Vector3 dir = AxisDirection(axis).Unit();
+    const Math::Vector3 size = aabb.Max - aabb.Min;
+
+    double radius = 0.0;
     if (alignByMagnitude_) {
-        const Math::Vector3 size = aabb.Max - aabb.Min;
-        const double radius = std::max(0.05, size.Magnitude() * 0.1);
-        return pos + axis.Direction * (radius + halfLength);
+        radius = std::max(0.05, size.Magnitude() * 0.1);
+    } else {
+        const Math::Vector3 halfExtents = size * 0.5;
+        const Math::Vector3 absDir{std::abs(dir.x), std::abs(dir.y), std::abs(dir.z)};
+        radius = std::max(0.05, absDir.x * halfExtents.x + absDir.y * halfExtents.y + absDir.z * halfExtents.z);
+    }
+    return pos + dir * (radius + halfLength);
+}
+
+Math::Vector3 GizmoSystem::AxisDirection(const AxisDef& axis) const {
+    const Math::Vector3 base = axis.Direction.Unit();
+    if (!localSpace_ || targetPart_ == nullptr) {
+        return base;
     }
 
-    Math::Vector3 axisPos = pos;
-    if (axis.Name == "X") {
-        axisPos.x = aabb.Max.x + halfLength;
-    } else if (axis.Name == "-X") {
-        axisPos.x = aabb.Min.x - halfLength;
-    } else if (axis.Name == "Y") {
-        axisPos.y = aabb.Max.y + halfLength;
-    } else if (axis.Name == "-Y") {
-        axisPos.y = aabb.Min.y - halfLength;
-    } else if (axis.Name == "Z") {
-        axisPos.z = aabb.Max.z + halfLength;
-    } else if (axis.Name == "-Z") {
-        axisPos.z = aabb.Min.z - halfLength;
-    }
-    return axisPos;
+    const Math::CFrame world = targetPart_->GetWorldCFrame().RotationOnly();
+    const Math::Vector3 x = world.RightVector().Unit();
+    const Math::Vector3 y = world.UpVector().Unit();
+    const Math::Vector3 z = world.LookVector().Unit();
+    return (x * base.x + y * base.y + z * base.z).Unit();
 }
 
 std::optional<Math::Vector3> GizmoSystem::ClosestPointOnLineToRay(

@@ -18,6 +18,7 @@ public:
     void Set(const std::vector<std::shared_ptr<Core::Instance>>& objects);
     void Set(const std::shared_ptr<Core::Instance>& object);
     void Clear();
+    void PruneInvalid();
 
     [[nodiscard]] std::vector<std::shared_ptr<Core::Instance>> Get() const;
     [[nodiscard]] std::shared_ptr<Core::Instance> GetPrimary() const;

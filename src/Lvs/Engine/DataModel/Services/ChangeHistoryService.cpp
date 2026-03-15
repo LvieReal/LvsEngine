@@ -4,6 +4,7 @@
 #include "Lvs/Engine/DataModel/DataModel.hpp"
 #include "Lvs/Engine/DataModel/Place.hpp"
 #include "Lvs/Engine/DataModel/Services/ServiceRegistry.hpp"
+#include "Lvs/Engine/DataModel/Services/Selection.hpp"
 
 #include <stdexcept>
 
@@ -77,6 +78,15 @@ void ChangeHistoryService::Undo() {
     group->Undo();
     MarkPlaceDirty();
 
+    const auto dataModel = GetDataModel();
+    if (dataModel != nullptr) {
+        if (Place* ownerPlace = dataModel->GetOwnerPlace(); ownerPlace != nullptr) {
+            if (const auto selection = std::dynamic_pointer_cast<Selection>(ownerPlace->FindService("Selection")); selection != nullptr) {
+                selection->PruneInvalid();
+            }
+        }
+    }
+
     redoStack_.push_back(group);
     OnUndo.Fire(group->Name());
 }
@@ -90,6 +100,15 @@ void ChangeHistoryService::Redo() {
     redoStack_.pop_back();
     group->Do();
     MarkPlaceDirty();
+
+    const auto dataModel = GetDataModel();
+    if (dataModel != nullptr) {
+        if (Place* ownerPlace = dataModel->GetOwnerPlace(); ownerPlace != nullptr) {
+            if (const auto selection = std::dynamic_pointer_cast<Selection>(ownerPlace->FindService("Selection")); selection != nullptr) {
+                selection->PruneInvalid();
+            }
+        }
+    }
 
     undoStack_.push_back(group);
     OnRedo.Fire(group->Name());

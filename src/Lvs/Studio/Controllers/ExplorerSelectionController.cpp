@@ -22,12 +22,12 @@ ExplorerSelectionController::ExplorerSelectionController(
 
     const std::weak_ptr<bool> aliveWeak = alive_;
     std::weak_ptr<Engine::DataModel::Selection> selectionWeak = selection_;
-    explorerConnection_ = explorer_->InstanceActivated.Connect([aliveWeak, selectionWeak](const auto& instance) {
+    explorerConnection_ = explorer_->SelectionChanged.Connect([aliveWeak, selectionWeak](const auto& instances) {
         if (aliveWeak.expired()) {
             return;
         }
         if (const auto selection = selectionWeak.lock(); selection != nullptr) {
-            selection->Set(instance);
+            selection->Set(instances);
         }
     });
     QPointer<Widgets::Explorer::ExplorerWidget> safeExplorer = explorer_;
@@ -59,13 +59,6 @@ void ExplorerSelectionController::Destroy() {
     alive_.reset();
     explorerConnection_.Disconnect();
     selectionConnection_.Disconnect();
-}
-
-void ExplorerSelectionController::OnExplorerActivated(const std::shared_ptr<Engine::Core::Instance>& instance) const {
-    if (selection_ == nullptr) {
-        return;
-    }
-    selection_->Set(instance);
 }
 
 void ExplorerSelectionController::OnSelectionChanged(

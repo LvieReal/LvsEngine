@@ -13,6 +13,7 @@ enum class StudioShortcutAction {
     ToolSelect,
     ToolMove,
     ToolSize,
+    ToggleLocalSpace,
     Undo,
     Redo,
     Duplicate,

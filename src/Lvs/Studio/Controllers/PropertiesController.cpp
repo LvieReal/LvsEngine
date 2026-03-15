@@ -36,7 +36,7 @@ PropertiesController::PropertiesController(
                     safeWidget->Clear();
                     return;
                 }
-                safeWidget->BindInstance(instances.front());
+                safeWidget->BindInstances(instances);
             },
             Qt::QueuedConnection
         );
@@ -65,7 +65,7 @@ void PropertiesController::OnSelectionChanged(
         widget_->Clear();
         return;
     }
-    widget_->BindInstance(instances.front());
+    widget_->BindInstances(instances);
 }
 
 } // namespace Lvs::Studio::Controllers

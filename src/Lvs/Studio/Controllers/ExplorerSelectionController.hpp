@@ -33,13 +33,12 @@ public:
     void Destroy();
 
 private:
-    void OnExplorerActivated(const std::shared_ptr<Engine::Core::Instance>& instance) const;
     void OnSelectionChanged(const std::vector<std::shared_ptr<Engine::Core::Instance>>& instances) const;
 
     std::shared_ptr<Engine::DataModel::Selection> selection_;
     QPointer<Widgets::Explorer::ExplorerWidget> explorer_;
     std::shared_ptr<bool> alive_;
-    Engine::Utils::Signal<const std::shared_ptr<Engine::Core::Instance>&>::Connection explorerConnection_;
+    Engine::Utils::Signal<const std::vector<std::shared_ptr<Engine::Core::Instance>>&>::Connection explorerConnection_;
     Engine::Utils::Signal<const std::vector<std::shared_ptr<Engine::Core::Instance>>&>::Connection selectionConnection_;
 };
 

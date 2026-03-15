@@ -2,6 +2,7 @@
 
 #include "Lvs/Engine/Core/EditorToolState.hpp"
 #include "Lvs/Engine/Enums/PartShape.hpp"
+#include "Lvs/Engine/Math/CFrame.hpp"
 #include "Lvs/Engine/Math/Color3.hpp"
 #include "Lvs/Engine/Math/Matrix4.hpp"
 #include "Lvs/Engine/Math/Vector3.hpp"
@@ -43,6 +44,8 @@ public:
     void EndDrag();
 
     void Configure(bool alwaysOnTop, bool ignoreDiffuseSpecular, bool alignByMagnitude, double snapIncrement);
+    void SetLocalSpace(bool enabled);
+    [[nodiscard]] bool GetLocalSpace() const;
     [[nodiscard]] std::shared_ptr<Objects::BasePart> GetTargetPart() const;
     [[nodiscard]] const std::vector<RenderPrimitive>& GetRenderPrimitives() const;
 
@@ -66,6 +69,7 @@ private:
     [[nodiscard]] double DistanceScale() const;
     [[nodiscard]] Math::Vector3 Center() const;
     [[nodiscard]] Math::Vector3 AxisCenter(const AxisDef& axis) const;
+    [[nodiscard]] Math::Vector3 AxisDirection(const AxisDef& axis) const;
     [[nodiscard]] std::optional<Math::Vector3> ClosestPointOnLineToRay(
         const Utils::Ray& ray,
         const Math::Vector3& linePoint,
@@ -79,22 +83,39 @@ private:
     QHash<QString, AxisDef> axisByName_;
     std::vector<RenderPrimitive> renderPrimitives_;
 
+    struct DragSnapshot {
+        std::shared_ptr<Objects::BasePart> Part;
+        Math::CFrame StartWorldCFrame;
+        Math::Vector3 StartSize;
+    };
+
     Tool activeTool_{Tool::SelectTool};
     bool visible_{false};
     bool alwaysOnTop_{true};
     bool ignoreDiffuseSpecular_{true};
     bool alignByMagnitude_{true};
+    bool localSpace_{false};
     double snapIncrement_{1.0};
     std::shared_ptr<Objects::BasePart> targetPart_;
+    std::vector<std::shared_ptr<Objects::BasePart>> selectedParts_;
     QString hoveredAxis_;
     QString activeAxis_;
     Math::Vector3 activeAxisDirection_{};
     std::optional<Math::Vector3> dragStartPoint_;
+    Math::Vector3 dragCenter_{};
+    bool hasDragCenter_{false};
+    std::vector<DragSnapshot> dragSnapshots_;
+    Math::AABB dragStartBounds_{};
+    bool hasDragStartBounds_{false};
     std::optional<Math::Vector3> startPosition_;
     std::optional<Math::Vector3> startSize_;
     double handleLength_{1.0};
     double handleRadius_{0.08};
     double tipRadius_{0.2};
+
+    bool hasSelectionBounds_{false};
+    Math::AABB selectionBounds_{};
+    Math::Vector3 selectionCenter_{};
 };
 
 } // namespace Lvs::Engine::Core

@@ -34,6 +34,8 @@ QList<QKeySequence> DefaultShortcuts(const StudioShortcutAction action) {
             return ParseShortcuts("2;Shift+2");
         case StudioShortcutAction::ToolSize:
             return ParseShortcuts("3;Shift+3");
+        case StudioShortcutAction::ToggleLocalSpace:
+            return ParseShortcuts("Ctrl+L");
         case StudioShortcutAction::Undo:
             return {QKeySequence(QKeySequence::Undo), QKeySequence("Ctrl+Z")};
         case StudioShortcutAction::Redo:

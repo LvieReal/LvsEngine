@@ -107,16 +107,25 @@ void Viewport::FocusOnPart(const std::shared_ptr<Objects::BasePart>& part) {
     }
 
     const auto aabb = Utils::BuildPartWorldAABB(part);
-    const Math::Vector3 center = (aabb.Min + aabb.Max) * 0.5;
-    const Math::Vector3 extents = aabb.Max - aabb.Min;
+    FocusOnBounds(aabb);
+}
+
+void Viewport::FocusOnBounds(const Math::AABB& bounds) {
+    if (cameraController_ == nullptr || workspace_ == nullptr) {
+        return;
+    }
+
+    const auto camera = GetCurrentCamera();
+    if (camera == nullptr) {
+        return;
+    }
+
+    const Math::Vector3 center = (bounds.Min + bounds.Max) * 0.5;
+    const Math::Vector3 extents = bounds.Max - bounds.Min;
     const double maxExtent = std::max({extents.x, extents.y, extents.z});
 
-    // Calculate distance to fit the object in view.
-    // For a 90-degree field of view, distance = maxExtent / tan(45°) = maxExtent
-    // Add a small buffer to ensure the whole part is visible.
-    const double distance = maxExtent * 1.5;
+    const double distance = std::max(0.1, maxExtent * 1.5);
 
-    // Position camera in front of the part, looking towards its center.
     const auto currentCFrame = camera->GetProperty("CFrame").value<Math::CFrame>();
     const Math::Vector3 direction = (center - currentCFrame.Position).Unit();
     const Math::Vector3 newPosition = center - direction * distance;
@@ -124,7 +133,6 @@ void Viewport::FocusOnPart(const std::shared_ptr<Objects::BasePart>& part) {
 
     camera->SetProperty("CFrame", QVariant::fromValue(Math::CFrame::LookAt(newPosition, center)));
 
-    // Update camera controller's rotation to match the new view direction
     constexpr double radToDeg = 180.0 / 3.14159265358979323846;
     const double newPitch = std::asin(lookDirection.y) * radToDeg;
     const double newYaw = std::atan2(lookDirection.z, lookDirection.x) * radToDeg;

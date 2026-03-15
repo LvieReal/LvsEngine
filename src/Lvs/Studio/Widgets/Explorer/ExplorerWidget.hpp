@@ -43,6 +43,7 @@ public:
     void Unbind();
     void SetSelection(const std::vector<std::shared_ptr<Engine::Core::Instance>>& instances);
 
+    Engine::Utils::Signal<const std::vector<std::shared_ptr<Engine::Core::Instance>>&> SelectionChanged;
     Engine::Utils::Signal<const std::shared_ptr<Engine::Core::Instance>&> InstanceActivated;
 
 protected:
@@ -55,6 +56,8 @@ protected:
 
 private:
     void OnQtSelectionChanged();
+    void BeginTreeUpdate();
+    void EndTreeUpdate();
     void AddInstanceRecursive(QTreeWidgetItem* parentItem, const std::shared_ptr<Engine::Core::Instance>& instance);
     void AddInstanceRecursiveByParentId(const QString& parentId, const std::shared_ptr<Engine::Core::Instance>& instance);
     void RemoveInstanceRecursive(const std::shared_ptr<Engine::Core::Instance>& instance);
@@ -95,6 +98,9 @@ private:
     QHash<QString, QPushButton*> instanceToPlusButton_;
     QTreeWidgetItem* lastHoveredItem_{nullptr};
 	    bool suppressSelectionSignal_{false};
+        int treeUpdateDepth_{0};
+        std::vector<QString> treeUpdateSelectedIds_{};
+        QString treeUpdateCurrentId_{};
 	    bool isUnbinding_{false};
 	    bool columnWidthUpdateQueued_{false};
 	    QHash<QString, InstanceConnections> instanceConnections_;

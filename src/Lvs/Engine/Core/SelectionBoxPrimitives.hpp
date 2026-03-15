@@ -1,7 +1,9 @@
 #pragma once
 
 #include "Lvs/Engine/Math/AABB.hpp"
+#include "Lvs/Engine/Math/CFrame.hpp"
 #include "Lvs/Engine/Math/Color3.hpp"
+#include "Lvs/Engine/Math/Vector3.hpp"
 #include "Lvs/Engine/Rendering/Common/OverlayPrimitive.hpp"
 
 #include <vector>
@@ -22,6 +24,14 @@ struct SelectionBoxStyle {
 
 void AppendSelectionBoxOutlinePrimitives(
     const Math::AABB& bounds,
+    const SelectionBoxStyle& style,
+    std::vector<Rendering::Common::OverlayPrimitive>& out,
+    double distanceFromCamera = 1.0
+);
+
+void AppendSelectionBoxOutlinePrimitivesRotated(
+    const Math::CFrame& cframe,
+    const Math::Vector3& size,
     const SelectionBoxStyle& style,
     std::vector<Rendering::Common::OverlayPrimitive>& out,
     double distanceFromCamera = 1.0

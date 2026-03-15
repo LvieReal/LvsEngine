@@ -44,6 +44,7 @@
 #include <memory>
 #include <array>
 #include <cmath>
+#include <vector>
 
 namespace Lvs::Studio::Core {
 
@@ -211,7 +212,8 @@ bool StudioQuickActions::eventFilter(QObject* watched, QEvent* event) {
     const bool toolShortcut =
         StudioShortcutManager::Matches(StudioShortcutAction::ToolSelect, *keyEvent) ||
         StudioShortcutManager::Matches(StudioShortcutAction::ToolMove, *keyEvent) ||
-        StudioShortcutManager::Matches(StudioShortcutAction::ToolSize, *keyEvent);
+        StudioShortcutManager::Matches(StudioShortcutAction::ToolSize, *keyEvent) ||
+        StudioShortcutManager::Matches(StudioShortcutAction::ToggleLocalSpace, *keyEvent);
 
     const bool quickActionShortcut = quickActionContext && (
         StudioShortcutManager::Matches(StudioShortcutAction::Duplicate, *keyEvent) ||
@@ -239,6 +241,10 @@ bool StudioQuickActions::eventFilter(QObject* watched, QEvent* event) {
             ActivateTool(Engine::Core::Tool::MoveTool);
         } else if (StudioShortcutManager::Matches(StudioShortcutAction::ToolSize, *keyEvent)) {
             ActivateTool(Engine::Core::Tool::SizeTool);
+        } else if (StudioShortcutManager::Matches(StudioShortcutAction::ToggleLocalSpace, *keyEvent)) {
+            if (context_ != nullptr && context_->EditorToolState != nullptr) {
+                context_->EditorToolState->ToggleLocalSpace();
+            }
         }
     } else if (StudioShortcutManager::Matches(StudioShortcutAction::Duplicate, *keyEvent)) {
         DuplicateSelection();
@@ -283,6 +289,15 @@ std::shared_ptr<Engine::Core::Instance> StudioQuickActions::GetSelectedInstance(
         return nullptr;
     }
     return selection->GetPrimary();
+}
+
+static std::vector<std::shared_ptr<Engine::Core::Instance>> GetSelectedInstances(
+    const std::shared_ptr<Engine::DataModel::Selection>& selection
+) {
+    if (selection == nullptr) {
+        return {};
+    }
+    return selection->Get();
 }
 
 std::shared_ptr<Engine::DataModel::ChangeHistoryService> StudioQuickActions::GetHistoryService(
@@ -356,29 +371,53 @@ void StudioQuickActions::ActivateTool(const Engine::Core::Tool tool) const {
 
 void StudioQuickActions::DeleteSelection() const {
     try {
-        const auto selected = GetSelectedInstance();
-        if (selected == nullptr || !selected->IsInsertable() || selected->GetParent() == nullptr) {
+        const auto place = GetCurrentPlace();
+        const auto selectionService = GetSelectionService(place);
+        const auto historyService = GetHistoryService(place);
+
+        const auto selectedInstances = GetSelectedInstances(selectionService);
+        std::vector<std::shared_ptr<Engine::Core::Instance>> targets;
+        targets.reserve(selectedInstances.size());
+        for (const auto& inst : selectedInstances) {
+            if (inst == nullptr || !inst->IsInsertable() || inst->GetParent() == nullptr) {
+                continue;
+            }
+            targets.push_back(inst);
+        }
+        if (targets.empty()) {
             return;
         }
 
-        const auto place = GetCurrentPlace();
-        const auto historyService = GetHistoryService(place);
-        const auto selectionService = GetSelectionService(place);
-
-        auto command = std::make_shared<Engine::Utils::ReparentCommand>(selected, nullptr);
-        if (historyService == nullptr) {
-            command->Do();
-        } else if (historyService->IsRecording()) {
-            historyService->Record(command);
-        } else {
-            historyService->BeginRecording("Delete");
+        auto recordAll = [&](const bool beginGroup) {
+            if (historyService != nullptr && beginGroup) {
+                historyService->BeginRecording("Delete");
+            }
             try {
-                historyService->Record(command);
-                historyService->FinishRecording();
+                for (const auto& target : targets) {
+                    auto command = std::make_shared<Engine::Utils::ReparentCommand>(target, nullptr);
+                    if (historyService == nullptr) {
+                        command->Do();
+                    } else {
+                        historyService->Record(command);
+                    }
+                }
             } catch (...) {
-                historyService->FinishRecording();
+                if (historyService != nullptr && beginGroup) {
+                    historyService->FinishRecording();
+                }
                 throw;
             }
+            if (historyService != nullptr && beginGroup) {
+                historyService->FinishRecording();
+            }
+        };
+
+        if (historyService == nullptr) {
+            recordAll(false);
+        } else if (historyService->IsRecording()) {
+            recordAll(false);
+        } else {
+            recordAll(true);
         }
 
         if (selectionService != nullptr) {
@@ -391,42 +430,69 @@ void StudioQuickActions::DeleteSelection() const {
 
 void StudioQuickActions::DuplicateSelection() const {
     try {
-        const auto selected = GetSelectedInstance();
-        if (selected == nullptr || !selected->IsInsertable()) {
-            return;
-        }
-        const auto parent = selected->GetParent();
-        if (parent == nullptr) {
-            return;
-        }
-
-        const auto clone = CloneRecursive(selected);
-        if (clone == nullptr || !clone->CanParentTo(parent) || !parent->CanAcceptChild(clone)) {
-            return;
-        }
-
         const auto place = GetCurrentPlace();
-        const auto historyService = GetHistoryService(place);
         const auto selectionService = GetSelectionService(place);
+        const auto historyService = GetHistoryService(place);
 
-        auto command = std::make_shared<Engine::Utils::ReparentCommand>(clone, parent);
-        if (historyService == nullptr) {
-            command->Do();
-        } else if (historyService->IsRecording()) {
-            historyService->Record(command);
-        } else {
-            historyService->BeginRecording("Duplicate");
+        const auto selectedInstances = GetSelectedInstances(selectionService);
+        std::vector<std::pair<std::shared_ptr<Engine::Core::Instance>, std::shared_ptr<Engine::Core::Instance>>> toDuplicate;
+        toDuplicate.reserve(selectedInstances.size());
+        for (const auto& inst : selectedInstances) {
+            if (inst == nullptr || !inst->IsInsertable()) {
+                continue;
+            }
+            const auto parent = inst->GetParent();
+            if (parent == nullptr) {
+                continue;
+            }
+            toDuplicate.push_back({inst, parent});
+        }
+        if (toDuplicate.empty()) {
+            return;
+        }
+
+        std::vector<std::shared_ptr<Engine::Core::Instance>> clones;
+        clones.reserve(toDuplicate.size());
+
+        auto recordAll = [&](const bool beginGroup) {
+            if (historyService != nullptr && beginGroup) {
+                historyService->BeginRecording("Duplicate");
+            }
             try {
-                historyService->Record(command);
-                historyService->FinishRecording();
+                for (const auto& [src, parent] : toDuplicate) {
+                    const auto clone = CloneRecursive(src);
+                    if (clone == nullptr || !clone->CanParentTo(parent) || !parent->CanAcceptChild(clone)) {
+                        continue;
+                    }
+                    clones.push_back(clone);
+                    auto command = std::make_shared<Engine::Utils::ReparentCommand>(clone, parent);
+                    if (historyService == nullptr) {
+                        command->Do();
+                    } else {
+                        historyService->Record(command);
+                    }
+                }
             } catch (...) {
-                historyService->FinishRecording();
+                if (historyService != nullptr && beginGroup) {
+                    historyService->FinishRecording();
+                }
                 throw;
             }
+            if (historyService != nullptr && beginGroup) {
+                historyService->FinishRecording();
+            }
+        };
+
+        if (historyService == nullptr) {
+            recordAll(false);
+        } else if (historyService->IsRecording()) {
+            recordAll(false);
+        } else {
+            recordAll(true);
         }
 
-        if (selectionService != nullptr) {
-            selectionService->Set(clone);
+        if (selectionService != nullptr && !clones.empty()) {
+            selectionService->Set(clones);
         }
     } catch (const std::exception& ex) {
         Engine::Core::RegularError::ShowErrorFromException(ex);
@@ -435,11 +501,20 @@ void StudioQuickActions::DuplicateSelection() const {
 
 void StudioQuickActions::CopySelection() const {
     try {
-        const auto selected = GetSelectedInstance();
-        if (selected == nullptr || !selected->IsInsertable()) {
-            return;
+        clipboardPrototypes_.clear();
+
+        const auto place = GetCurrentPlace();
+        const auto selectionService = GetSelectionService(place);
+        const auto selectedInstances = GetSelectedInstances(selectionService);
+        for (const auto& inst : selectedInstances) {
+            if (inst == nullptr || !inst->IsInsertable()) {
+                continue;
+            }
+            const auto clone = CloneRecursive(inst);
+            if (clone != nullptr) {
+                clipboardPrototypes_.push_back(clone);
+            }
         }
-        clipboardPrototype_ = CloneRecursive(selected);
     } catch (const std::exception& ex) {
         Engine::Core::RegularError::ShowErrorFromException(ex);
     }
@@ -465,11 +540,48 @@ void StudioQuickActions::PasteSelectionIntoSelection() const {
 }
 
 void StudioQuickActions::FocusOnSelection() const {
-    const auto part = GetSelectedBasePart();
-    if (part == nullptr || viewport_ == nullptr) {
+    if (viewport_ == nullptr) {
         return;
     }
-    viewport_->FocusOnPart(part);
+
+    const auto place = GetCurrentPlace();
+    const auto selectionService = GetSelectionService(place);
+    if (selectionService == nullptr) {
+        return;
+    }
+
+    std::shared_ptr<Engine::Objects::BasePart> firstPart;
+    Engine::Math::AABB combined{};
+    bool hasBounds = false;
+
+    for (const auto& inst : selectionService->Get()) {
+        const auto part = std::dynamic_pointer_cast<Engine::Objects::BasePart>(inst);
+        if (part == nullptr || part->GetParent() == nullptr) {
+            continue;
+        }
+        if (firstPart == nullptr) {
+            firstPart = part;
+        }
+
+        const auto aabb = Engine::Utils::BuildPartWorldAABB(part);
+        if (!hasBounds) {
+            combined = aabb;
+            hasBounds = true;
+        } else {
+            combined.Min.x = std::min(combined.Min.x, aabb.Min.x);
+            combined.Min.y = std::min(combined.Min.y, aabb.Min.y);
+            combined.Min.z = std::min(combined.Min.z, aabb.Min.z);
+            combined.Max.x = std::max(combined.Max.x, aabb.Max.x);
+            combined.Max.y = std::max(combined.Max.y, aabb.Max.y);
+            combined.Max.z = std::max(combined.Max.z, aabb.Max.z);
+        }
+    }
+
+    if (!hasBounds) {
+        return;
+    }
+
+    viewport_->FocusOnBounds(combined);
 }
 
 void StudioQuickActions::PopulateInsertMenu(
@@ -620,7 +732,7 @@ bool StudioQuickActions::ShowContextMenu(
     const std::shared_ptr<Engine::Core::Instance>& selected,
     const std::shared_ptr<Engine::Core::Instance>& insertParent
 ) const {
-    if (selected == nullptr && insertParent == nullptr && clipboardPrototype_ == nullptr) {
+    if (selected == nullptr && insertParent == nullptr && clipboardPrototypes_.empty()) {
         return false;
     }
 
@@ -647,24 +759,46 @@ bool StudioQuickActions::ShowContextMenu(
 
     QAction* pasteAction = menu.addAction("Paste");
     StudioShortcutManager::ApplyToAction(*pasteAction, StudioShortcutAction::Paste);
-    pasteAction->setEnabled(clipboardPrototype_ != nullptr);
+    pasteAction->setEnabled(!clipboardPrototypes_.empty());
     QObject::connect(pasteAction, &QAction::triggered, &owner, [this]() { PasteSelectionToTopmostService(); });
 
     QAction* pasteIntoAction = menu.addAction("Paste Into Selection");
     StudioShortcutManager::ApplyToAction(*pasteIntoAction, StudioShortcutAction::PasteInto);
-    pasteIntoAction->setEnabled(clipboardPrototype_ != nullptr && selected != nullptr);
+    pasteIntoAction->setEnabled(!clipboardPrototypes_.empty() && selected != nullptr);
     QObject::connect(pasteIntoAction, &QAction::triggered, &owner, [this]() { PasteSelectionIntoSelection(); });
 
     menu.addSeparator();
 
     QAction* duplicateAction = menu.addAction("Duplicate");
     StudioShortcutManager::ApplyToAction(*duplicateAction, StudioShortcutAction::Duplicate);
-    duplicateAction->setEnabled(selected != nullptr && selected->IsInsertable() && selected->GetParent() != nullptr);
+    {
+        bool canDuplicate = false;
+        const auto place = GetCurrentPlace();
+        const auto selectionService = GetSelectionService(place);
+        for (const auto& inst : GetSelectedInstances(selectionService)) {
+            if (inst != nullptr && inst->IsInsertable() && inst->GetParent() != nullptr) {
+                canDuplicate = true;
+                break;
+            }
+        }
+        duplicateAction->setEnabled(canDuplicate);
+    }
     QObject::connect(duplicateAction, &QAction::triggered, &owner, [this]() { DuplicateSelection(); });
 
     QAction* deleteAction = menu.addAction("Delete");
     StudioShortcutManager::ApplyToAction(*deleteAction, StudioShortcutAction::Delete);
-    deleteAction->setEnabled(selected != nullptr && selected->IsInsertable() && selected->GetParent() != nullptr);
+    {
+        bool canDelete = false;
+        const auto place = GetCurrentPlace();
+        const auto selectionService = GetSelectionService(place);
+        for (const auto& inst : GetSelectedInstances(selectionService)) {
+            if (inst != nullptr && inst->IsInsertable() && inst->GetParent() != nullptr) {
+                canDelete = true;
+                break;
+            }
+        }
+        deleteAction->setEnabled(canDelete);
+    }
     QObject::connect(deleteAction, &QAction::triggered, &owner, [this]() { DeleteSelection(); });
 
     if (menu.actions().isEmpty()) {
@@ -707,12 +841,7 @@ void StudioQuickActions::PasteToParent(
     const QString& historyLabel
 ) const {
     try {
-        if (clipboardPrototype_ == nullptr || parent == nullptr) {
-            return;
-        }
-
-        const auto clone = CloneRecursive(clipboardPrototype_);
-        if (clone == nullptr || !clone->CanParentTo(parent) || !parent->CanAcceptChild(clone)) {
+        if (clipboardPrototypes_.empty() || parent == nullptr) {
             return;
         }
 
@@ -720,24 +849,48 @@ void StudioQuickActions::PasteToParent(
         const auto historyService = GetHistoryService(place);
         const auto selectionService = GetSelectionService(place);
 
-        auto command = std::make_shared<Engine::Utils::ReparentCommand>(clone, parent);
-        if (historyService == nullptr) {
-            command->Do();
-        } else if (historyService->IsRecording()) {
-            historyService->Record(command);
-        } else {
-            historyService->BeginRecording(historyLabel);
+        std::vector<std::shared_ptr<Engine::Core::Instance>> clones;
+        clones.reserve(clipboardPrototypes_.size());
+
+        auto recordAll = [&](const bool beginGroup) {
+            if (historyService != nullptr && beginGroup) {
+                historyService->BeginRecording(historyLabel);
+            }
             try {
-                historyService->Record(command);
-                historyService->FinishRecording();
+                for (const auto& proto : clipboardPrototypes_) {
+                    const auto clone = CloneRecursive(proto);
+                    if (clone == nullptr || !clone->CanParentTo(parent) || !parent->CanAcceptChild(clone)) {
+                        continue;
+                    }
+                    clones.push_back(clone);
+                    auto command = std::make_shared<Engine::Utils::ReparentCommand>(clone, parent);
+                    if (historyService == nullptr) {
+                        command->Do();
+                    } else {
+                        historyService->Record(command);
+                    }
+                }
             } catch (...) {
-                historyService->FinishRecording();
+                if (historyService != nullptr && beginGroup) {
+                    historyService->FinishRecording();
+                }
                 throw;
             }
+            if (historyService != nullptr && beginGroup) {
+                historyService->FinishRecording();
+            }
+        };
+
+        if (historyService == nullptr) {
+            recordAll(false);
+        } else if (historyService->IsRecording()) {
+            recordAll(false);
+        } else {
+            recordAll(true);
         }
 
-        if (selectionService != nullptr) {
-            selectionService->Set(clone);
+        if (selectionService != nullptr && !clones.empty()) {
+            selectionService->Set(clones);
         }
     } catch (const std::exception& ex) {
         Engine::Core::RegularError::ShowErrorFromException(ex);

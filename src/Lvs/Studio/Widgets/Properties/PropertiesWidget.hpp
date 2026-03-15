@@ -34,6 +34,7 @@ public:
     ~PropertiesWidget() override;
 
     void Clear();
+    void BindInstances(const std::vector<std::shared_ptr<Engine::Core::Instance>>& instances);
     void BindInstance(const std::shared_ptr<Engine::Core::Instance>& instance);
 
 private:
@@ -41,6 +42,7 @@ private:
     void ProcessQueuedBinding();
     void ResetContentRoot();
     QWidget* CreateInstanceHeader(const std::shared_ptr<Engine::Core::Instance>& instance, QWidget* parent);
+    QWidget* CreateMultiInstanceHeader(int count, QWidget* parent);
     bool ShouldShowProperty(
         const std::shared_ptr<Engine::Core::Instance>& instance,
         const Engine::Core::PropertyDefinition& definition
@@ -53,6 +55,7 @@ private:
         const QString& propertyName,
         const Engine::Core::PropertyDefinition& definition,
         const QVariant& value,
+        bool mixed,
         QWidget* parent
     );
     void RebuildForCurrentInstance();
@@ -60,6 +63,7 @@ private:
     QPointer<QVBoxLayout> layout_;
     std::shared_ptr<Engine::DataModel::ChangeHistoryService> historyService_;
     std::shared_ptr<Engine::Core::Instance> instance_;
+    std::vector<std::shared_ptr<Engine::Core::Instance>> instances_;
     QHash<QString, QWidget*> editors_;
     QHash<QString, Engine::Core::PropertyDefinition> editorDefinitions_;
     QSet<QString> visibilityDependencies_;
@@ -72,7 +76,7 @@ private:
     bool isBinding_{false};
     bool clearQueued_{false};
     bool bindQueued_{false};
-    std::shared_ptr<Engine::Core::Instance> queuedInstance_;
+    std::vector<std::shared_ptr<Engine::Core::Instance>> queuedInstances_;
 };
 
 } // namespace Lvs::Studio::Widgets::Properties

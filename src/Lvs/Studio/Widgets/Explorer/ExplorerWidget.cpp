@@ -10,6 +10,7 @@
 #include "Lvs/Studio/Core/IconPackManager.hpp"
 #include "Lvs/Studio/Core/Settings.hpp"
 
+#include <QAbstractItemView>
 #include <QCursor>
 #include <QDrag>
 #include <QDragEnterEvent>
@@ -30,6 +31,7 @@
 #include <QWidget>
 
 #include <exception>
+#include <unordered_set>
 #include <utility>
 
 namespace Lvs::Studio::Widgets::Explorer {
@@ -50,6 +52,7 @@ ExplorerWidget::ExplorerWidget(const std::shared_ptr<Engine::DataModel::Place>& 
     setAcceptDrops(true);
     setDropIndicatorShown(true);
     setDefaultDropAction(Qt::MoveAction);
+    setSelectionMode(QAbstractItemView::ExtendedSelection);
     setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     setContentsMargins(0, 0, 0, 0);
 
@@ -112,14 +115,26 @@ void ExplorerWidget::SetSelection(const std::vector<std::shared_ptr<Engine::Core
     suppressSelectionSignal_ = true;
     clearSelection();
 
+    QTreeWidgetItem* primaryItem = nullptr;
     if (!instances.empty()) {
-        const auto& instance = instances.front();
-        if (instance != nullptr) {
-            if (QTreeWidgetItem* item = instanceToItem_.value(instance->GetId(), nullptr); item != nullptr) {
-                item->setSelected(true);
-                scrollToItem(item);
-            }
+        const auto& primary = instances.front();
+        if (primary != nullptr) {
+            primaryItem = instanceToItem_.value(primary->GetId(), nullptr);
         }
+    }
+
+    for (const auto& instance : instances) {
+        if (instance == nullptr) {
+            continue;
+        }
+        if (QTreeWidgetItem* item = instanceToItem_.value(instance->GetId(), nullptr); item != nullptr) {
+            item->setSelected(true);
+        }
+    }
+
+    if (primaryItem != nullptr) {
+        setCurrentItem(primaryItem);
+        scrollToItem(primaryItem);
     }
 
     suppressSelectionSignal_ = false;
@@ -219,14 +234,104 @@ void ExplorerWidget::OnQtSelectionChanged() {
     if (suppressSelectionSignal_) {
         return;
     }
+    if (treeUpdateDepth_ > 0) {
+        return;
+    }
 
     const QList<QTreeWidgetItem*> selected = selectedItems();
     if (selected.isEmpty()) {
+        SelectionChanged.Fire({});
         InstanceActivated.Fire(nullptr);
         return;
     }
 
-    InstanceActivated.Fire(ResolveItemInstance(selected.front()));
+    std::vector<std::shared_ptr<Engine::Core::Instance>> instances;
+    instances.reserve(static_cast<std::size_t>(selected.size()));
+    std::unordered_set<const Engine::Core::Instance*> seen;
+
+    if (QTreeWidgetItem* current = currentItem(); current != nullptr && current->isSelected()) {
+        if (const auto currentInstance = ResolveItemInstance(current); currentInstance != nullptr) {
+            if (seen.insert(currentInstance.get()).second) {
+                instances.push_back(currentInstance);
+            }
+        }
+    }
+
+    for (QTreeWidgetItem* item : selected) {
+        if (item == nullptr) {
+            continue;
+        }
+        const auto instance = ResolveItemInstance(item);
+        if (instance == nullptr) {
+            continue;
+        }
+        if (!seen.insert(instance.get()).second) {
+            continue;
+        }
+        instances.push_back(instance);
+    }
+
+    SelectionChanged.Fire(instances);
+    InstanceActivated.Fire(!instances.empty() ? instances.front() : nullptr);
+}
+
+void ExplorerWidget::BeginTreeUpdate() {
+    ++treeUpdateDepth_;
+    if (treeUpdateDepth_ != 1) {
+        return;
+    }
+
+    treeUpdateSelectedIds_.clear();
+    const QList<QTreeWidgetItem*> selected = selectedItems();
+    treeUpdateSelectedIds_.reserve(selected.size());
+    for (QTreeWidgetItem* item : selected) {
+        if (item == nullptr) {
+            continue;
+        }
+        const QString id = item->data(0, Qt::UserRole).toString();
+        if (!id.isEmpty()) {
+            treeUpdateSelectedIds_.push_back(id);
+        }
+    }
+
+    treeUpdateCurrentId_.clear();
+    if (QTreeWidgetItem* current = currentItem(); current != nullptr) {
+        treeUpdateCurrentId_ = current->data(0, Qt::UserRole).toString();
+    }
+}
+
+void ExplorerWidget::EndTreeUpdate() {
+    if (treeUpdateDepth_ <= 0) {
+        treeUpdateDepth_ = 0;
+        return;
+    }
+
+    --treeUpdateDepth_;
+    if (treeUpdateDepth_ != 0) {
+        return;
+    }
+
+    suppressSelectionSignal_ = true;
+    clearSelection();
+
+    QTreeWidgetItem* current = nullptr;
+    for (const auto& id : treeUpdateSelectedIds_) {
+        if (QTreeWidgetItem* item = instanceToItem_.value(id, nullptr); item != nullptr) {
+            item->setSelected(true);
+            if (current == nullptr && !treeUpdateCurrentId_.isEmpty() && id == treeUpdateCurrentId_) {
+                current = item;
+            }
+        }
+    }
+
+    if (current == nullptr && !treeUpdateSelectedIds_.empty()) {
+        current = instanceToItem_.value(treeUpdateSelectedIds_.front(), nullptr);
+    }
+    if (current != nullptr) {
+        setCurrentItem(current);
+    }
+
+    suppressSelectionSignal_ = false;
 }
 
 void ExplorerWidget::AddInstanceRecursive(
@@ -363,6 +468,8 @@ void ExplorerWidget::AddInstanceRecursiveByParentId(
     if (isUnbinding_ || instance == nullptr) {
         return;
     }
+    BeginTreeUpdate();
+    struct Ender { ExplorerWidget* w; ~Ender() { w->EndTreeUpdate(); } } ender{this};
     QTreeWidgetItem* parentItem = instanceToItem_.value(parentId, nullptr);
     if (parentItem == nullptr) {
         return;
@@ -374,6 +481,8 @@ void ExplorerWidget::RemoveInstanceRecursive(const std::shared_ptr<Engine::Core:
     if (instance == nullptr) {
         return;
     }
+    BeginTreeUpdate();
+    struct Ender { ExplorerWidget* w; ~Ender() { w->EndTreeUpdate(); } } ender{this};
 
     for (const auto& child : instance->GetChildren()) {
         RemoveInstanceRecursive(child);

@@ -14,9 +14,14 @@
 #include "Lvs/Studio/Widgets/Properties/PropertyValueUtils.hpp"
 #include "Lvs/Studio/Widgets/Common/CollapsibleSection.hpp"
 
+#include <QCheckBox>
+#include <QComboBox>
+#include <QDoubleValidator>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QIntValidator>
+#include <QLineEdit>
 #include <QPointer>
 #include <QPixmap>
 #include <QScrollArea>
@@ -25,6 +30,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <unordered_set>
 #include <vector>
 
 namespace Lvs::Studio::Widgets::Properties {
@@ -77,7 +83,7 @@ PropertiesWidget::~PropertiesWidget() {
     isBinding_ = false;
     clearQueued_ = false;
     bindQueued_ = false;
-    queuedInstance_.reset();
+    queuedInstances_.clear();
     ClearInternal(false);
 }
 
@@ -85,7 +91,7 @@ void PropertiesWidget::Clear() {
     if (isBinding_) {
         clearQueued_ = true;
         bindQueued_ = false;
-        queuedInstance_.reset();
+        queuedInstances_.clear();
         return;
     }
     ClearInternal();
@@ -98,6 +104,7 @@ void PropertiesWidget::ClearInternal(const bool resetContentRoot) {
     }
 
     instance_.reset();
+    instances_.clear();
     editors_.clear();
     editorDefinitions_.clear();
     visibilityDependencies_.clear();
@@ -116,29 +123,52 @@ void PropertiesWidget::ProcessQueuedBinding() {
         return;
     }
     if (bindQueued_) {
-        auto next = queuedInstance_;
+        auto next = queuedInstances_;
         bindQueued_ = false;
-        queuedInstance_.reset();
-        BindInstance(next);
+        queuedInstances_.clear();
+        BindInstances(next);
     }
 }
 
 void PropertiesWidget::BindInstance(const std::shared_ptr<Engine::Core::Instance>& instance) {
+    if (instance == nullptr) {
+        BindInstances({});
+        return;
+    }
+    BindInstances({instance});
+}
+
+void PropertiesWidget::BindInstances(const std::vector<std::shared_ptr<Engine::Core::Instance>>& instances) {
     if (isBinding_) {
         bindQueued_ = true;
         clearQueued_ = false;
-        queuedInstance_ = instance;
+        queuedInstances_ = instances;
         return;
     }
 
     isBinding_ = true;
     ClearInternal();
-    if (instance == nullptr) {
+
+    instances_.clear();
+    instances_.reserve(instances.size());
+    std::unordered_set<const Engine::Core::Instance*> seen;
+    for (const auto& inst : instances) {
+        if (inst == nullptr) {
+            continue;
+        }
+        if (!seen.insert(inst.get()).second) {
+            continue;
+        }
+        instances_.push_back(inst);
+    }
+
+    if (instances_.empty()) {
         isBinding_ = false;
         ProcessQueuedBinding();
         return;
     }
-    instance_ = instance;
+
+    instance_ = instances_.front();
 
     struct OrderedProperty {
         QString Name;
@@ -150,11 +180,31 @@ void PropertiesWidget::BindInstance(const std::shared_ptr<Engine::Core::Instance
     for (auto it = instance_->GetClassDescriptor().PropertyDefinitions().cbegin();
          it != instance_->GetClassDescriptor().PropertyDefinitions().cend();
          ++it) {
-        orderedProperties.push_back({
-            it.key(),
-            it->Category,
-            it->RegistrationOrder
-        });
+        const QString propertyName = it.key();
+        const auto primaryDef = it.value();
+
+        bool common = true;
+        for (const auto& otherInstance : instances_) {
+            const auto& defs = otherInstance->GetClassDescriptor().PropertyDefinitions();
+            if (!defs.contains(propertyName)) {
+                common = false;
+                break;
+            }
+            const auto otherDef = defs.value(propertyName);
+            if (otherDef.Type.id() != primaryDef.Type.id() || otherDef.IsInstanceReference != primaryDef.IsInstanceReference) {
+                common = false;
+                break;
+            }
+            if (!ShouldShowProperty(otherInstance, otherDef)) {
+                common = false;
+                break;
+            }
+        }
+        if (!common) {
+            continue;
+        }
+
+        orderedProperties.push_back({propertyName, primaryDef.Category, primaryDef.RegistrationOrder});
     }
     std::sort(
         orderedProperties.begin(),
@@ -172,14 +222,12 @@ void PropertiesWidget::BindInstance(const std::shared_ptr<Engine::Core::Instance
     for (const auto& ordered : orderedProperties) {
         const auto& property = instance_->GetPropertyObject(ordered.Name);
         const auto& definition = property.Definition();
-        if (!ShouldShowProperty(instance_, definition)) {
-            continue;
-        }
-
-        for (const auto& tag : definition.CustomTags) {
-            const auto parsed = Engine::Core::PropertyTags::ParseVisibleIfTag(tag);
-            if (parsed.has_value()) {
-                visibilityDependencies_.insert(parsed->first);
+        if (instances_.size() == 1) {
+            for (const auto& tag : definition.CustomTags) {
+                const auto parsed = Engine::Core::PropertyTags::ParseVisibleIfTag(tag);
+                if (parsed.has_value()) {
+                    visibilityDependencies_.insert(parsed->first);
+                }
             }
         }
 
@@ -197,7 +245,10 @@ void PropertiesWidget::BindInstance(const std::shared_ptr<Engine::Core::Instance
             auto* contentLayout = new QVBoxLayout(contentWidget);
             contentLayout->setContentsMargins(5, 5, 5, 5);
             contentLayout->setSpacing(6);
-            contentLayout->addWidget(CreateInstanceHeader(instance_, contentWidget));
+            contentLayout->addWidget(
+                instances_.size() == 1 ? CreateInstanceHeader(instance_, contentWidget)
+                                       : CreateMultiInstanceHeader(static_cast<int>(instances_.size()), contentWidget)
+            );
             grid = new QGridLayout();
             grid->setContentsMargins(0, 0, 0, 0);
             contentLayout->addLayout(grid);
@@ -213,7 +264,29 @@ void PropertiesWidget::BindInstance(const std::shared_ptr<Engine::Core::Instance
         for (const auto& propertyName : categoryProperties.value(category)) {
             const auto& property = instance_->GetPropertyObject(propertyName);
             const auto& definition = property.Definition();
-            QWidget* editor = CreateEditor(propertyName, definition, property.Get(), contentWidget);
+            QVariant primaryValue;
+            try {
+                primaryValue = property.Get();
+            } catch (...) {
+                continue;
+            }
+
+            bool mixed = false;
+            for (std::size_t i = 1; i < instances_.size(); ++i) {
+                QVariant otherValue;
+                try {
+                    otherValue = instances_[i]->GetProperty(propertyName);
+                } catch (...) {
+                    mixed = true;
+                    break;
+                }
+                if (otherValue != primaryValue) {
+                    mixed = true;
+                    break;
+                }
+            }
+
+            QWidget* editor = CreateEditor(propertyName, definition, primaryValue, mixed, contentWidget);
             if (editor == nullptr) {
                 continue;
             }
@@ -253,25 +326,27 @@ void PropertiesWidget::BindInstance(const std::shared_ptr<Engine::Core::Instance
         layout_->insertWidget(layout_->count() - 1, section);
     }
 
-    const QPointer<PropertiesWidget> safeThis(this);
-    const std::weak_ptr<Engine::Core::Instance> boundInstance = instance_;
-    propertyChangedConnection_ = instance_->PropertyChanged.Connect(
-        [safeThis, boundInstance](const QString& propertyName, const QVariant& value) {
-            if (safeThis.isNull()) {
-                return;
+    if (instances_.size() == 1) {
+        const QPointer<PropertiesWidget> safeThis(this);
+        const std::weak_ptr<Engine::Core::Instance> boundInstance = instance_;
+        propertyChangedConnection_ = instance_->PropertyChanged.Connect(
+            [safeThis, boundInstance](const QString& propertyName, const QVariant& value) {
+                if (safeThis.isNull()) {
+                    return;
+                }
+                QMetaObject::invokeMethod(
+                    safeThis,
+                    [safeThis, boundInstance, propertyName, value]() {
+                        if (safeThis.isNull() || safeThis->instance_ != boundInstance.lock()) {
+                            return;
+                        }
+                        safeThis->OnPropertyChanged(propertyName, value);
+                    },
+                    Qt::QueuedConnection
+                );
             }
-            QMetaObject::invokeMethod(
-                safeThis,
-                [safeThis, boundInstance, propertyName, value]() {
-                    if (safeThis.isNull() || safeThis->instance_ != boundInstance.lock()) {
-                        return;
-                    }
-                    safeThis->OnPropertyChanged(propertyName, value);
-                },
-                Qt::QueuedConnection
-            );
-        }
-    );
+        );
+    }
 
     isBinding_ = false;
     ProcessQueuedBinding();
@@ -298,6 +373,19 @@ QWidget* PropertiesWidget::CreateInstanceHeader(
         QString("%1 (%2)").arg(instance->GetProperty("Name").toString(), instance->GetClassName()),
         header
     );
+    headerLayout->addWidget(headerTitleLabel_);
+    headerLayout->addStretch(1);
+    return header;
+}
+
+QWidget* PropertiesWidget::CreateMultiInstanceHeader(const int count, QWidget* parent) {
+    auto* header = new QWidget(parent);
+    auto* headerLayout = new QHBoxLayout(header);
+    headerLayout->setContentsMargins(8, 6, 8, 6);
+    headerLayout->setSpacing(6);
+
+    headerIconLabel_ = nullptr;
+    headerTitleLabel_ = new QLabel(QString("Multiple Objects (%1)").arg(count), header);
     headerLayout->addWidget(headerTitleLabel_);
     headerLayout->addStretch(1);
     return header;
@@ -355,29 +443,58 @@ bool PropertiesWidget::MatchesConditionValue(const QVariant& actualValue, const 
 }
 
 void PropertiesWidget::OnPropertyEdited(const QString& propertyName, const QVariant& value) {
-    if (instance_ == nullptr) {
+    if (instances_.empty()) {
         return;
     }
 
-    QVariant oldValue;
-    try {
-        oldValue = instance_->GetProperty(propertyName);
-    } catch (...) {
-        return;
+    std::vector<std::shared_ptr<Engine::Utils::SetPropertyCommand>> commands;
+    commands.reserve(instances_.size());
+
+    for (const auto& inst : instances_) {
+        if (inst == nullptr) {
+            continue;
+        }
+
+        QVariant oldValue;
+        try {
+            oldValue = inst->GetProperty(propertyName);
+        } catch (...) {
+            continue;
+        }
+        if (oldValue == value) {
+            continue;
+        }
+
+        commands.push_back(std::make_shared<Engine::Utils::SetPropertyCommand>(inst, propertyName, oldValue, value));
     }
-    if (oldValue == value) {
+
+    if (commands.empty()) {
         return;
     }
 
-    auto command = std::make_shared<Engine::Utils::SetPropertyCommand>(instance_, propertyName, oldValue, value);
     if (historyService_ == nullptr) {
-        command->Do();
+        for (const auto& command : commands) {
+            command->Do();
+        }
+        return;
+    }
+
+    if (historyService_->IsRecording()) {
+        try {
+            for (const auto& command : commands) {
+                historyService_->Record(command);
+            }
+        } catch (const std::exception& ex) {
+            Engine::Core::RegularError::ShowErrorFromException(ex);
+        }
         return;
     }
 
     historyService_->BeginRecording(QString("Set %1").arg(propertyName));
     try {
-        historyService_->Record(command);
+        for (const auto& command : commands) {
+            historyService_->Record(command);
+        }
     } catch (const std::exception& ex) {
         Engine::Core::RegularError::ShowErrorFromException(ex);
     }
@@ -385,6 +502,9 @@ void PropertiesWidget::OnPropertyEdited(const QString& propertyName, const QVari
 }
 
 void PropertiesWidget::OnPropertyChanged(const QString& propertyName, const QVariant& value) {
+    if (instances_.size() != 1) {
+        return;
+    }
     if (propertyName == "Name" && headerTitleLabel_ != nullptr && instance_ != nullptr) {
         headerTitleLabel_->setText(QString("%1 (%2)").arg(value.toString(), instance_->GetClassName()));
     }
@@ -414,22 +534,162 @@ QWidget* PropertiesWidget::CreateEditor(
     const QString& propertyName,
     const Engine::Core::PropertyDefinition& definition,
     const QVariant& value,
+    const bool mixed,
     QWidget* parent
 ) {
-    return EditorUtils::CreateEditor(
-        propertyName,
-        definition,
-        value,
-        parent,
-        [this](const QString& editedPropertyName, const QVariant& editedValue) {
-            OnPropertyEdited(editedPropertyName, editedValue);
+    if (!mixed) {
+        return EditorUtils::CreateEditor(
+            propertyName,
+            definition,
+            value,
+            parent,
+            [this](const QString& editedPropertyName, const QVariant& editedValue) {
+                OnPropertyEdited(editedPropertyName, editedValue);
+            }
+        );
+    }
+
+    const int typeId = definition.Type.id();
+
+    if (typeId == QMetaType::Bool) {
+        auto* editor = new QCheckBox(parent);
+        editor->setTristate(true);
+        editor->setCheckState(Qt::PartiallyChecked);
+        QObject::connect(editor, &QCheckBox::checkStateChanged, editor, [propertyName, this](const int state) {
+            if (state == Qt::PartiallyChecked) {
+                return;
+            }
+            OnPropertyEdited(propertyName, state == Qt::Checked);
+        });
+        return editor;
+    }
+
+    if (typeId == QMetaType::Int) {
+        auto* editor = new QLineEdit(parent);
+        editor->setPlaceholderText("<multiple>");
+        editor->setValidator(new QIntValidator(editor));
+        const QPointer<QLineEdit> safeEditor(editor);
+        QObject::connect(editor, &QLineEdit::editingFinished, editor, [propertyName, this, safeEditor]() {
+            if (safeEditor.isNull()) {
+                return;
+            }
+            bool ok = false;
+            const int next = safeEditor->text().toInt(&ok);
+            if (!ok) {
+                return;
+            }
+            OnPropertyEdited(propertyName, next);
+        });
+        return editor;
+    }
+
+    if (typeId == QMetaType::Double) {
+        auto* editor = new QLineEdit(parent);
+        editor->setPlaceholderText("<multiple>");
+        editor->setValidator(new QDoubleValidator(editor));
+        const QPointer<QLineEdit> safeEditor(editor);
+        QObject::connect(editor, &QLineEdit::editingFinished, editor, [propertyName, this, safeEditor]() {
+            if (safeEditor.isNull()) {
+                return;
+            }
+            bool ok = false;
+            const double next = safeEditor->text().toDouble(&ok);
+            if (!ok) {
+                return;
+            }
+            OnPropertyEdited(propertyName, next);
+        });
+        return editor;
+    }
+
+    const QList<ValueUtils::EnumOption> enumOptions = ValueUtils::EnumOptionsForType(typeId);
+    if (!enumOptions.isEmpty()) {
+        auto* editor = new QComboBox(parent);
+        editor->addItem("<multiple>", QVariant());
+        for (const auto& option : enumOptions) {
+            editor->addItem(option.Name, option.Value);
         }
-    );
+        editor->setCurrentIndex(0);
+        const QPointer<QComboBox> safeEditor(editor);
+        QObject::connect(
+            editor,
+            qOverload<int>(&QComboBox::currentIndexChanged),
+            editor,
+            [propertyName, this, safeEditor, typeId](const int index) {
+                if (safeEditor.isNull() || index <= 0 || index >= safeEditor->count()) {
+                    return;
+                }
+                OnPropertyEdited(
+                    propertyName,
+                    ValueUtils::EnumVariantFromTypeAndInt(typeId, safeEditor->itemData(index).toInt())
+                );
+            }
+        );
+        return editor;
+    }
+
+    if (definition.IsInstanceReference) {
+        auto* editor = new QLineEdit(parent);
+        editor->setText("<multiple>");
+        editor->setReadOnly(true);
+        return editor;
+    }
+
+    if (typeId == QMetaType::fromType<Lvs::Engine::Math::Vector3>().id()) {
+        auto* editor = new QLineEdit(parent);
+        editor->setPlaceholderText("<multiple>");
+        const QPointer<QLineEdit> safeEditor(editor);
+        QObject::connect(editor, &QLineEdit::editingFinished, editor, [propertyName, this, safeEditor]() {
+            if (safeEditor.isNull()) {
+                return;
+            }
+            Lvs::Engine::Math::Vector3 parsed;
+            if (!ValueUtils::TryParseVector3(safeEditor->text(), parsed)) {
+                return;
+            }
+            OnPropertyEdited(propertyName, QVariant::fromValue(parsed));
+        });
+        return editor;
+    }
+
+    if (typeId == QMetaType::fromType<Lvs::Engine::Math::CFrame>().id()) {
+        auto* editor = new QLineEdit(parent);
+        editor->setPlaceholderText("<multiple>");
+        const QPointer<QLineEdit> safeEditor(editor);
+        QObject::connect(editor, &QLineEdit::editingFinished, editor, [propertyName, this, safeEditor]() {
+            if (safeEditor.isNull()) {
+                return;
+            }
+            Lvs::Engine::Math::CFrame parsed;
+            if (!ValueUtils::TryParseCFrame(safeEditor->text(), parsed)) {
+                return;
+            }
+            OnPropertyEdited(propertyName, QVariant::fromValue(parsed));
+        });
+        return editor;
+    }
+
+    auto* editor = new QLineEdit(parent);
+    editor->setPlaceholderText("<multiple>");
+    const QPointer<QLineEdit> safeEditor(editor);
+    QObject::connect(editor, &QLineEdit::editingFinished, editor, [propertyName, this, safeEditor, typeId]() {
+        if (safeEditor.isNull()) {
+            return;
+        }
+        if (typeId == QMetaType::QString) {
+            OnPropertyEdited(propertyName, safeEditor->text());
+            return;
+        }
+        if (!safeEditor->text().isEmpty()) {
+            OnPropertyEdited(propertyName, safeEditor->text());
+        }
+    });
+    return editor;
 }
 
 void PropertiesWidget::RebuildForCurrentInstance() {
-    auto instance = instance_;
-    BindInstance(instance);
+    auto instances = instances_;
+    BindInstances(instances);
 }
 
 void PropertiesWidget::ResetContentRoot() {

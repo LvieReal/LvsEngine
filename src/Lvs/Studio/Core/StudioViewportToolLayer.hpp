@@ -9,6 +9,8 @@
 #include <optional>
 #include <vector>
 
+#include <Qt>
+
 class QMouseEvent;
 
 namespace Lvs::Engine {
@@ -54,7 +56,7 @@ public:
     void SetSnapIncrement(double value);
 
 private:
-    void PickSelection(const Engine::Utils::Ray& ray);
+    void PickSelection(const Engine::Utils::Ray& ray, Qt::KeyboardModifiers modifiers = Qt::NoModifier);
     bool CanDragGizmo() const;
     void EnsureGizmoSystem();
     void UpdateGizmo(const std::optional<Engine::Utils::Ray>& ray);
@@ -87,6 +89,11 @@ private:
     bool partDragging_{false};
     struct PartDragState {
         std::shared_ptr<Engine::Objects::BasePart> Instance;
+        struct TargetSnapshot {
+            std::shared_ptr<Engine::Objects::BasePart> Part;
+            Engine::Math::CFrame StartWorldCFrame;
+        };
+        std::vector<TargetSnapshot> Targets;
         Engine::Math::Vector3 StartPosition{};
         Engine::Math::Vector3 HalfExtents{};
         Engine::Math::Vector3 GrabOffset{};
@@ -98,9 +105,12 @@ private:
     std::optional<PartDragState> partDragState_;
     std::shared_ptr<Engine::Objects::BasePart> hoveredPart_;
     struct GizmoHistorySnapshot {
-        std::shared_ptr<Engine::Objects::BasePart> Instance;
-        Engine::Math::Vector3 Position;
-        Engine::Math::Vector3 Size;
+        struct TransformSnapshot {
+            std::shared_ptr<Engine::Objects::BasePart> Instance;
+            Engine::Math::CFrame CFrame;
+            Engine::Math::Vector3 Size;
+        };
+        std::vector<TransformSnapshot> Instances;
     };
     std::optional<GizmoHistorySnapshot> gizmoHistorySnapshot_;
     bool gizmoAlwaysOnTop_{true};

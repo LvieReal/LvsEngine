@@ -2,6 +2,7 @@
 
 #include "Lvs/Engine/Context.hpp"
 #include "Lvs/Engine/Utils/Raycast.hpp"
+#include "Lvs/Engine/Math/AABB.hpp"
 
 #include <QWidget>
 
@@ -51,6 +52,7 @@ public:
     void SetToolLayer(std::unique_ptr<ViewportToolLayer> layer);
     [[nodiscard]] ViewportToolLayer* GetToolLayer() const;
     void FocusOnPart(const std::shared_ptr<Objects::BasePart>& part);
+    void FocusOnBounds(const Math::AABB& bounds);
 
     [[nodiscard]] bool WasRightMousePanned() const;
 

@@ -118,7 +118,7 @@ private:
     Engine::Core::Viewport* viewport_{nullptr};
     Controllers::ToolbarController* toolbarController_{nullptr};
     QWidget* window_{nullptr};
-    mutable std::shared_ptr<Engine::Core::Instance> clipboardPrototype_;
+    mutable std::vector<std::shared_ptr<Engine::Core::Instance>> clipboardPrototypes_;
 };
 
 } // namespace Lvs::Studio::Core
