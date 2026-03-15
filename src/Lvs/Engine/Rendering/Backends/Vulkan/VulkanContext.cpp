@@ -542,7 +542,9 @@ void VulkanContext::RecreateSwapchain() {
         imageCount = capabilities.maxImageCount;
     }
 
-    DestroySwapchain();
+    const VkSwapchainKHR oldSwapchain = api_.Swapchain;
+    const std::vector<VkFramebuffer> oldFramebuffers = api_.SwapchainFramebuffers;
+    const std::vector<VkImageView> oldImageViews = api_.SwapchainImageViews;
 
     const std::uint32_t queueFamilyIndices[] = {graphicsQueueFamily_.value(), presentQueueFamily_.value()};
     const bool separateQueues = graphicsQueueFamily_.value() != presentQueueFamily_.value();
@@ -564,21 +566,22 @@ void VulkanContext::RecreateSwapchain() {
         .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
         .presentMode = presentMode,
         .clipped = VK_TRUE,
-        .oldSwapchain = VK_NULL_HANDLE
+        .oldSwapchain = oldSwapchain
     };
-    const VkResult createSwapchainResult = vkCreateSwapchainKHR(api_.Device, &createInfo, nullptr, &api_.Swapchain);
+    VkSwapchainKHR newSwapchain = VK_NULL_HANDLE;
+    const VkResult createSwapchainResult = vkCreateSwapchainKHR(api_.Device, &createInfo, nullptr, &newSwapchain);
     if (createSwapchainResult != VK_SUCCESS) {
-        api_.Swapchain = VK_NULL_HANDLE;
         return;
     }
 
     std::uint32_t swapchainImageCount = 0;
-    vkGetSwapchainImagesKHR(api_.Device, api_.Swapchain, &swapchainImageCount, nullptr);
-    api_.SwapchainImages.resize(swapchainImageCount);
-    vkGetSwapchainImagesKHR(api_.Device, api_.Swapchain, &swapchainImageCount, api_.SwapchainImages.data());
+    vkGetSwapchainImagesKHR(api_.Device, newSwapchain, &swapchainImageCount, nullptr);
+    std::vector<VkImage> newSwapchainImages(swapchainImageCount);
+    vkGetSwapchainImagesKHR(api_.Device, newSwapchain, &swapchainImageCount, newSwapchainImages.data());
 
-    api_.SwapchainImageViews.reserve(api_.SwapchainImages.size());
-    for (const auto image : api_.SwapchainImages) {
+    std::vector<VkImageView> newSwapchainImageViews{};
+    newSwapchainImageViews.reserve(newSwapchainImages.size());
+    for (const auto image : newSwapchainImages) {
         const VkImageViewCreateInfo viewInfo{
             .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
             .pNext = nullptr,
@@ -595,11 +598,37 @@ void VulkanContext::RecreateSwapchain() {
         };
         VkImageView imageView = VK_NULL_HANDLE;
         if (vkCreateImageView(api_.Device, &viewInfo, nullptr, &imageView) != VK_SUCCESS) {
-            DestroySwapchain();
+            for (const auto createdView : newSwapchainImageViews) {
+                if (createdView != VK_NULL_HANDLE) {
+                    vkDestroyImageView(api_.Device, createdView, nullptr);
+                }
+            }
+            vkDestroySwapchainKHR(api_.Device, newSwapchain, nullptr);
             return;
         }
-        api_.SwapchainImageViews.push_back(imageView);
+        newSwapchainImageViews.push_back(imageView);
     }
+
+    for (const auto framebuffer : oldFramebuffers) {
+        if (framebuffer != VK_NULL_HANDLE) {
+            vkDestroyFramebuffer(api_.Device, framebuffer, nullptr);
+        }
+    }
+    for (const auto view : oldImageViews) {
+        if (view != VK_NULL_HANDLE) {
+            vkDestroyImageView(api_.Device, view, nullptr);
+        }
+    }
+    if (oldSwapchain != VK_NULL_HANDLE) {
+        vkDestroySwapchainKHR(api_.Device, oldSwapchain, nullptr);
+    }
+
+    api_.Swapchain = newSwapchain;
+    api_.SwapchainImages = std::move(newSwapchainImages);
+    api_.SwapchainImageViews = std::move(newSwapchainImageViews);
+    api_.SwapchainFramebuffers.clear();
+    api_.Framebuffer = VK_NULL_HANDLE;
+    currentSwapchainImage_ = 0;
 
     InitializeSwapchainImageLayouts();
 }
@@ -778,7 +807,9 @@ void VulkanContext::InitializeBackendObjects() {
         vkCreatePipelineLayout(api_.Device, &layoutInfo, nullptr, &api_.PipelineLayout);
     }
 
-    RecreateSwapchain();
+    if (api_.Swapchain == VK_NULL_HANDLE || api_.SwapchainImages.empty() || api_.SwapchainImageViews.empty()) {
+        RecreateSwapchain();
+    }
 
     if (api_.RenderPass == VK_NULL_HANDLE) {
         const VkAttachmentDescription colorAttachment{
@@ -3193,6 +3224,21 @@ void VulkanContext::Initialize(const RHI::u32 width, const RHI::u32 height) {
     frameIndex_ = 0;
 }
 
+void VulkanContext::Resize(const RHI::u32 width, const RHI::u32 height) {
+    const bool sizeChanged = api_.SurfaceExtent.width != width || api_.SurfaceExtent.height != height;
+    api_.SurfaceExtent = {width, height};
+
+    if (renderer_ == nullptr) {
+        Initialize(width, height);
+        return;
+    }
+
+    renderer_->Initialize(*this, ::Lvs::Engine::Rendering::RenderSurface{width, height});
+    if (sizeChanged) {
+        pendingSwapchainRebuild_ = true;
+    }
+}
+
 void VulkanContext::Render(const ::Lvs::Engine::Rendering::SceneData& sceneData) {
     if (renderer_ == nullptr) {
         return;
@@ -3293,13 +3339,7 @@ void VulkanContext::Render(const ::Lvs::Engine::Rendering::SceneData& sceneData)
         return;
     }
     if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR || acquireResult == VK_SUBOPTIMAL_KHR) {
-        RecreateSwapchain();
-        RecreateDepthAttachment();
-        RecreateFramebuffer();
-        RecreateRenderFinishedSemaphores();
-        if (api_.Swapchain == VK_NULL_HANDLE || api_.SwapchainFramebuffers.empty()) {
-            static_cast<void>(RecreateSurfaceAndSwapchain());
-        }
+        pendingSwapchainRebuild_ = true;
         return;
     }
     if (acquireResult != VK_SUCCESS || imageIndex >= api_.SwapchainFramebuffers.size()) {
@@ -3363,14 +3403,7 @@ void VulkanContext::Render(const ::Lvs::Engine::Rendering::SceneData& sceneData)
             if (presentResult == VK_ERROR_SURFACE_LOST_KHR) {
                 static_cast<void>(RecreateSurfaceAndSwapchain());
             } else if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR) {
-                vkDeviceWaitIdle(api_.Device);
-                RecreateSwapchain();
-                RecreateDepthAttachment();
-                RecreateFramebuffer();
-                RecreateRenderFinishedSemaphores();
-                if (api_.Swapchain == VK_NULL_HANDLE || api_.SwapchainFramebuffers.empty()) {
-                    static_cast<void>(RecreateSurfaceAndSwapchain());
-                }
+                pendingSwapchainRebuild_ = true;
             } else if (presentResult != VK_SUCCESS) {
             } else {
             }

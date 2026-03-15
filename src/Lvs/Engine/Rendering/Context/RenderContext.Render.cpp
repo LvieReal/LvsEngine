@@ -134,7 +134,7 @@ void RenderContext::Render() {
     scene.PostBlurFinalTarget = scene.ShadowTarget;
     scene.PostProcessTarget = SceneData::PassTarget{
         .RenderPass = GetRhiContext().GetDefaultRenderPassHandle(),
-        .Framebuffer = GetRhiContext().GetDefaultFramebufferHandle(),
+        .Framebuffer = nullptr,
         .ColorAttachmentCount = 1,
         .SampleCount = 1,
         .Width = surfaceWidth_,

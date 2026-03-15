@@ -10,6 +10,7 @@
 #include <QResizeEvent>
 #include <Qt>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 
@@ -48,6 +49,10 @@ void Viewport::paintEvent(QPaintEvent* event) {
 
     try {
         EnsureGraphicsBound();
+        if (pendingResize_ && context_ != nullptr && context_->RenderContext != nullptr && graphicsBound_) {
+            context_->RenderContext->Resize(pendingResizeWidth_, pendingResizeHeight_);
+            pendingResize_ = false;
+        }
         if (context_ != nullptr && context_->RenderContext != nullptr) {
             context_->RenderContext->Render();
         }
@@ -68,12 +73,9 @@ void Viewport::paintEvent(QPaintEvent* event) {
 
 void Viewport::resizeEvent(QResizeEvent* event) {
     QWidget::resizeEvent(event);
-    if (context_ != nullptr && context_->RenderContext != nullptr && graphicsBound_) {
-        context_->RenderContext->Resize(
-            static_cast<std::uint32_t>(event->size().width()),
-            static_cast<std::uint32_t>(event->size().height())
-        );
-    }
+    pendingResizeWidth_ = static_cast<std::uint32_t>(std::max(0, event->size().width()));
+    pendingResizeHeight_ = static_cast<std::uint32_t>(std::max(0, event->size().height()));
+    pendingResize_ = true;
 }
 
 QPaintEngine* Viewport::paintEngine() const {

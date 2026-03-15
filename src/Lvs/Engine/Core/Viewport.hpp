@@ -9,6 +9,7 @@
 #include <QPoint>
 #include <unordered_set>
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -96,6 +97,9 @@ private:
     bool rightMousePanned_{false};
     bool graphicsBound_{false};
     bool graphicsUnavailable_{false};
+    bool pendingResize_{false};
+    std::uint32_t pendingResizeWidth_{0U};
+    std::uint32_t pendingResizeHeight_{0U};
     double cameraSpeed_{15.0};
     double cameraShiftSpeed_{5.0};
 };

@@ -680,6 +680,14 @@ void GLContext::Initialize(const RHI::u32 width, const RHI::u32 height) {
     frameIndex_ = 0;
 }
 
+void GLContext::Resize(const RHI::u32 width, const RHI::u32 height) {
+    if (renderer_ == nullptr) {
+        Initialize(width, height);
+        return;
+    }
+    renderer_->Initialize(*this, ::Lvs::Engine::Rendering::RenderSurface{width, height});
+}
+
 void GLContext::Render(const ::Lvs::Engine::Rendering::SceneData& sceneData) {
     if (renderer_ == nullptr || !EnsureNativeContext()) {
         return;

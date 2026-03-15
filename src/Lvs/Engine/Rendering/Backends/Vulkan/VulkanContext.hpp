@@ -36,6 +36,7 @@ public:
     [[nodiscard]] void* GetDefaultFramebufferHandle() const override;
 
     void Initialize(RHI::u32 width, RHI::u32 height);
+    void Resize(RHI::u32 width, RHI::u32 height);
     void Render(const ::Lvs::Engine::Rendering::SceneData& sceneData);
     void WaitIdle();
 

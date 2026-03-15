@@ -54,9 +54,9 @@ void RenderContext::Resize(const RHI::u32 width, const RHI::u32 height) {
     }
     EnsureBackend();
     if (vkBackend_ != nullptr) {
-        vkBackend_->Initialize(width, height);
+        vkBackend_->Resize(width, height);
     } else if (glBackend_ != nullptr) {
-        glBackend_->Initialize(width, height);
+        glBackend_->Resize(width, height);
     }
 }
 
