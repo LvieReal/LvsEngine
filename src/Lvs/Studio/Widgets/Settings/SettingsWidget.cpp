@@ -1,19 +1,25 @@
 #include "Lvs/Studio/Widgets/Settings/SettingsWidget.hpp"
 
 #include "Lvs/Engine/Enums/EnumMetadata.hpp"
+#include "Lvs/Engine/Utils/EngineDataPaths.hpp"
 #include "Lvs/Studio/Core/IconPackManager.hpp"
 #include "Lvs/Studio/Core/Settings.hpp"
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDesktopServices>
+#include <QFrame>
 #include <QFormLayout>
 #include <QHBoxLayout>
+#include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QSplitter>
+#include <QSizePolicy>
+#include <QUrl>
 #include <QVBoxLayout>
 
 #include <memory>
@@ -21,6 +27,51 @@
 namespace Lvs::Studio::Widgets::Settings {
 
 namespace {
+
+inline constexpr auto HEADER_PREFIX = "@";
+inline constexpr auto ACTION_PREFIX = "!";
+
+QWidget* CreateHeaderRow(QWidget* parent, const QString& title) {
+    auto* container = new QWidget(parent);
+    auto* layout = new QHBoxLayout(container);
+    layout->setContentsMargins(0, 10, 0, 4);
+
+    auto* label = new QLabel(title, container);
+    // label->setStyleSheet("font-weight: 600;"); // pls don't do that
+
+    auto* line = new QFrame(container);
+    line->setFrameShape(QFrame::HLine);
+    line->setFrameShadow(QFrame::Sunken);
+    line->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+
+    layout->addWidget(label);
+    layout->addWidget(line, 1);
+
+    return container;
+}
+
+QString ActionLabel(const QString& actionId) {
+    if (actionId == "OpenRootFolder") {
+        return "Open Root Folder";
+    }
+    return actionId;
+}
+
+QWidget* CreateActionEditor(QWidget* parent, const QString& actionId) {
+    if (actionId == "OpenRootFolder") {
+        auto* button = new QPushButton("Open", parent);
+        QObject::connect(button, &QPushButton::clicked, button, []() {
+            const QString root = Lvs::Engine::Utils::EngineDataPaths::RootDir();
+            QDesktopServices::openUrl(QUrl::fromLocalFile(root));
+        });
+        return button;
+    }
+
+    auto* button = new QPushButton("Run", parent);
+    button->setEnabled(false);
+    button->setToolTip(QString("Unknown action: %1").arg(actionId));
+    return button;
+}
 
 void UpdateEditorValue(QWidget* editor, const QString& key, const QVariant& value) {
     if (auto* checkBox = qobject_cast<QCheckBox*>(editor); checkBox != nullptr) {
@@ -135,6 +186,25 @@ void SettingsWidget::ReloadCategory() {
     const QString searchText = search_->text().trimmed().toLower();
 
     for (const QString& key : keys) {
+        if (key.startsWith(HEADER_PREFIX)) {
+            if (searchText.isEmpty()) {
+                form_->addRow(CreateHeaderRow(settingsPanel_, key.mid(1)));
+            }
+            continue;
+        }
+        if (key.startsWith(ACTION_PREFIX)) {
+            const QString actionId = key.mid(1);
+            const QString label = ActionLabel(actionId);
+            if (!searchText.isEmpty() && !label.toLower().contains(searchText)) {
+                continue;
+            }
+            form_->addRow(label, CreateActionEditor(settingsPanel_, actionId));
+            continue;
+        }
+        if (!Core::Settings::All().contains(key)) {
+            continue;
+        }
+
         const auto& meta = Core::Settings::All().value(key);
         const QString label = meta.Name.isEmpty() ? key : meta.Name;
         if (!searchText.isEmpty() && !label.toLower().contains(searchText)) {
@@ -215,7 +285,7 @@ QWidget* SettingsWidget::CreateEditor(const QString& key) {
         return line;
     }
 
-    if (key == "ExplorerIconPack") {
+    if (key == "StudioIconPack") {
         auto* combo = new QComboBox(settingsPanel_);
         combo->setEditable(true);
         const QStringList packs = Core::GetIconPackManager().GetAvailablePacks();

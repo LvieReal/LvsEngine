@@ -41,10 +41,10 @@ QHash<QString, QPixmap>& PixmapCache() {
 } // namespace
 
 IconPackManager::IconPackManager() {
-    activePackName_ = Settings::Get("ExplorerIconPack").toString();
+    activePackName_ = Settings::Get("StudioIconPack").toString();
     packPath_ = ResolvePackPath(activePackName_);
 
-    Settings::Changed("ExplorerIconPack", [this](const QVariant& value) {
+    Settings::Changed("StudioIconPack", [this](const QVariant& value) {
         SetActivePack(value.toString());
     });
 }

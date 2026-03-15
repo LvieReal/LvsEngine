@@ -26,7 +26,7 @@ QMap<QString, SettingMeta> g_settings = {
     {"BaseCameraSpeed", {"Base Camera Speed", "Base camera speed", 15.0}},
     {"ShiftCameraSpeed", {"Shift Camera Speed", "Shift camera speed", 5.0}},
     {"Theme", {"Theme", "Main studio theme", QVariant::fromValue(Engine::Enums::Theme::Light)}},
-    {"ExplorerIconPack", {"Explorer Icon Pack", "Explorer icon pack folder name", "famfamfam-silk"}},
+    {"StudioIconPack", {"Studio Icon Pack", "Studio icon pack folder name", "famfamfam-silk"}},
     {"ExplorerShowHiddenServices", {"Show Hidden Services", "Show hidden services in Explorer", false}},
     {"RenderingApi", {"Rendering API", "Preferred rendering backend", QVariant::fromValue(Engine::Rendering::RenderApi::Auto)}},
     {"MSAA", {"MSAA", "Multisample anti-aliasing sample count", QVariant::fromValue(Engine::Enums::MSAA::Off)}},
@@ -37,39 +37,48 @@ QMap<QString, SettingMeta> g_settings = {
     {"TransformSnapIncrement", {"Transform Snap Increment", "Snap amount for drag/move/size transforms (0 disables snap)", 1.0}},
     {"DockLayoutState", {"Dock Layout State", "Serialized dock and toolbar layout", ""}},
     {"LocalAssetsPath", {"Local Assets Folder", "Folder used for local assets (can be changed to any folder on this device)", ""}},
-    {"Shortcut.Tool.Select", {"Select Tool", "Keyboard shortcut(s) for Select tool (separate with ';')", "1;Shift+1"}},
-    {"Shortcut.Tool.Move", {"Move Tool", "Keyboard shortcut(s) for Move tool (separate with ';')", "2;Shift+2"}},
-    {"Shortcut.Tool.Size", {"Size Tool", "Keyboard shortcut(s) for Size tool (separate with ';')", "3;Shift+3"}}
+    {"Shortcut.Tool.Select", {"Select Tool", "Keyboard shortcut(s) for Select tool (separate with ';')", "1"}},
+    {"Shortcut.Tool.Move", {"Move Tool", "Keyboard shortcut(s) for Move tool (separate with ';')", "2"}},
+    {"Shortcut.Tool.Size", {"Size Tool", "Keyboard shortcut(s) for Size tool (separate with ';')", "3"}}
 };
 
 QMap<QString, QStringList> g_categories = {
     {"Studio",
         {
+        "@Studio",
+         "Theme",
+	     "StudioIconPack",
+         "@Explorer",
+	     "ExplorerShowHiddenServices",
+         "@Camera",
          "BaseCameraSpeed",
          "ShiftCameraSpeed",
-	     "Theme",
-	     "ExplorerIconPack",
-	     "ExplorerShowHiddenServices",
+         "@Gizmo",
 	     "GizmoAlwaysOnTop",
 	     "GizmoIgnoreDiffuseSpecular",
 	     "GizmoAlignByMagnitude",
+         "@Transforms", // TODO: move into toolbar
 	     "TransformSnapIncrement"
         }
     },
     {"Paths",
         {
+         "!OpenRootFolder",
          "LocalAssetsPath"
         }
     },
     {"Rendering",
         {
+         "@Backend",
          "RenderingApi",
+         "@Quality",
          "MSAA",
          "SurfaceMipmapping"
         }
     },
     {"Shortcuts",
         {
+         "@Tools",
          "Shortcut.Tool.Select",
          "Shortcut.Tool.Move",
          "Shortcut.Tool.Size"
@@ -277,6 +286,11 @@ void Load() {
         if (obj.contains(key)) {
             g_values[key] = ParseByDefaultType(meta.DefaultValue, obj.value(key));
         }
+    }
+
+    // MIGRATIONS
+    if (!g_values.contains("StudioIconPack") && obj.contains("ExplorerIconPack")) {
+        g_values["StudioIconPack"] = obj.value("ExplorerIconPack").toString();
     }
 
     ApplyDefaults();

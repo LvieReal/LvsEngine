@@ -6,9 +6,9 @@ namespace Lvs::Engine::Enums {
 
 enum class MSAA {
     Off = 0,
-    X2 = 2,
-    X4 = 4,
-    X8 = 8
+    X2 = 1,
+    X4 = 2,
+    X8 = 3
 };
 
 [[nodiscard]] constexpr int MsaaSampleCount(const MSAA value) {

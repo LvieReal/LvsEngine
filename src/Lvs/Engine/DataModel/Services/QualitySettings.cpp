@@ -16,14 +16,14 @@ Core::ClassDescriptor& QualitySettings::Descriptor() {
             Enums::MSAA::Off,
             true,
             "Quality",
-            "Multisample anti-aliasing sample count (0, 2, 4, 8)."
+            "Multisample anti-aliasing sample count."
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Enums::SurfaceMipmapping>(
             "SurfaceMipmapping",
             Enums::SurfaceMipmapping::On,
             true,
             "Quality",
-            "Mipmapped filtering for surface atlas textures (reduces shimmer; small memory cost)."
+            "Mipmapped filtering for surface atlas textures."
         ));
 
         Core::ClassDescriptor::RegisterClassDescriptor(&descriptor);

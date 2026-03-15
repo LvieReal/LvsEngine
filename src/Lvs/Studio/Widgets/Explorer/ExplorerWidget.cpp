@@ -59,8 +59,9 @@ ExplorerWidget::ExplorerWidget(const std::shared_ptr<Engine::DataModel::Place>& 
 
 	QObject::connect(this, &QTreeWidget::itemSelectionChanged, this, [this]() { OnQtSelectionChanged(); });
 
+    // TODO: move this out
 	iconPackConnection_.Disconnect();
-	iconPackConnection_ = Core::Settings::Changed("ExplorerIconPack", [this](const QVariant&) { RefreshIcons(); });
+	iconPackConnection_ = Core::Settings::Changed("StudioIconPack", [this](const QVariant&) { RefreshIcons(); });
 
 	showHiddenServicesConnection_.Disconnect();
 	showHiddenServicesConnection_ = Core::Settings::Changed(

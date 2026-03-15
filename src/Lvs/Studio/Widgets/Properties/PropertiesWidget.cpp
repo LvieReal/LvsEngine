@@ -66,7 +66,7 @@ PropertiesWidget::PropertiesWidget(const std::shared_ptr<Engine::DataModel::Plac
     ResetContentRoot();
 
     iconPackConnection_ = std::make_shared<Core::Settings::Connection>(
-        Core::Settings::Changed("ExplorerIconPack", [this](const QVariant&) {
+        Core::Settings::Changed("StudioIconPack", [this](const QVariant&) {
             if (instance_ == nullptr || headerIconLabel_ == nullptr) {
                 return;
             }

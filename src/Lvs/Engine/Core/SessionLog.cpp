@@ -12,9 +12,14 @@
 #include <QStringConverter>
 #include <QTextStream>
 
+#include <algorithm>
+#include <vector>
+
 namespace Lvs::Engine::Core::SessionLog {
 
 namespace {
+
+inline constexpr int MAX_SESSION_LOGS = 100;
 
 QMutex g_mutex;
 QFile g_file;
@@ -56,6 +61,44 @@ QString MakeLogFilePath(const QString& sessionName) {
     return QDir(Utils::EngineDataPaths::LogsDir()).filePath(QString("%1_%2_%3.log").arg(safe, ts).arg(pid));
 }
 
+void PruneOldLogsLocked(const QString& keepAbsolutePath) {
+    const QString logsDirPath = Utils::EngineDataPaths::LogsDir();
+    QDir logsDir(logsDirPath);
+    const QFileInfoList files = logsDir.entryInfoList(QStringList() << "*.log", QDir::Files | QDir::NoSymLinks);
+
+    if (files.size() <= MAX_SESSION_LOGS) {
+        return;
+    }
+
+    std::vector<QFileInfo> candidates;
+    candidates.reserve(static_cast<std::size_t>(files.size()));
+    int total = 0;
+
+    const QString keep = QDir::cleanPath(QFileInfo(keepAbsolutePath).absoluteFilePath());
+
+    for (const QFileInfo& fi : files) {
+        ++total;
+        const QString abs = QDir::cleanPath(fi.absoluteFilePath());
+        if (abs == keep) {
+            continue;
+        }
+        candidates.push_back(fi);
+    }
+
+    std::sort(
+        candidates.begin(),
+        candidates.end(),
+        [](const QFileInfo& a, const QFileInfo& b) { return a.lastModified() < b.lastModified(); }
+    );
+
+    std::size_t idx = 0;
+    while (total > MAX_SESSION_LOGS && idx < candidates.size()) {
+        QFile::remove(candidates[idx].absoluteFilePath());
+        --total;
+        ++idx;
+    }
+}
+
 void EnsureOpenLocked(const QString& sessionName) {
     if (g_file.isOpen()) {
         return;
@@ -64,6 +107,7 @@ void EnsureOpenLocked(const QString& sessionName) {
     g_file.setFileName(g_path);
     QDir().mkpath(QFileInfo(g_path).absolutePath());
     static_cast<void>(g_file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text));
+    PruneOldLogsLocked(g_path);
 }
 
 void WriteLineLocked(const QString& level, const QString& message) {
