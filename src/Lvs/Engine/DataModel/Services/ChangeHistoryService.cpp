@@ -1,9 +1,9 @@
-#include "Lvs/Engine/DataModel/ChangeHistoryService.hpp"
+#include "Lvs/Engine/DataModel/Services/ChangeHistoryService.hpp"
 
 #include "Lvs/Engine/DataModel/ClassRegistry.hpp"
 #include "Lvs/Engine/DataModel/DataModel.hpp"
 #include "Lvs/Engine/DataModel/Place.hpp"
-#include "Lvs/Engine/DataModel/ServiceRegistry.hpp"
+#include "Lvs/Engine/DataModel/Services/ServiceRegistry.hpp"
 
 #include <stdexcept>
 

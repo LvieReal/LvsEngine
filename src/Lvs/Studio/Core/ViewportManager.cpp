@@ -3,7 +3,8 @@
 #include "Lvs/Engine/Context.hpp"
 #include "Lvs/Engine/Core/Viewport.hpp"
 #include "Lvs/Engine/Core/Window.hpp"
-#include "Lvs/Engine/DataModel/QualitySettings.hpp"
+#include "Lvs/Engine/DataModel/Services/QualitySettings.hpp"
+#include "Lvs/Engine/Enums/EnumMetadata.hpp"
 #include "Lvs/Engine/Enums/MSAA.hpp"
 #include "Lvs/Engine/Enums/SurfaceMipmapping.hpp"
 #include "Lvs/Engine/Rendering/IRenderContext.hpp"
@@ -94,13 +95,16 @@ void ViewportManager::BindSettings() {
             toolLayer_->SetSnapIncrement(value.toDouble());
         }
     }, true));
-    settingsConnections_.push_back(Settings::Changed("RenderingApi", [this](const QVariant& value) {
-        if (viewport_ != nullptr) {
-            viewport_->SetRenderingApiPreference(
-                Engine::Rendering::ParseRenderApi(value.toString().toStdString())
-            );
-        }
-    }, true));
+	    settingsConnections_.push_back(Settings::Changed("RenderingApi", [this](const QVariant& value) {
+	        if (viewport_ != nullptr) {
+	            const int typeId = QMetaType::fromType<Engine::Rendering::RenderApi>().id();
+	            QVariant api = Engine::Enums::Metadata::CoerceVariant(typeId, value);
+	            if (!api.isValid()) {
+	                api = QVariant::fromValue(Engine::Rendering::RenderApi::Auto);
+	            }
+	            viewport_->SetRenderingApiPreference(api.value<Engine::Rendering::RenderApi>());
+	        }
+	    }, true));
     settingsConnections_.push_back(Settings::Changed("MSAA", [this](const QVariant& value) {
         ApplyMsaaSetting(value);
     }, true));
@@ -121,16 +125,12 @@ void ViewportManager::ApplyMsaaSetting(const QVariant& value) const {
         return;
     }
 
-    Engine::Enums::MSAA msaa = Engine::Enums::MSAA::Off;
-    const QString text = value.toString().trimmed().toLower();
-    if (text == "2x" || text == "2") {
-        msaa = Engine::Enums::MSAA::X2;
-    } else if (text == "4x" || text == "4") {
-        msaa = Engine::Enums::MSAA::X4;
-    } else if (text == "8x" || text == "8") {
-        msaa = Engine::Enums::MSAA::X8;
+    const int typeId = QMetaType::fromType<Engine::Enums::MSAA>().id();
+    QVariant msaa = Engine::Enums::Metadata::CoerceVariant(typeId, value);
+    if (!msaa.isValid()) {
+        msaa = QVariant::fromValue(Engine::Enums::MSAA::Off);
     }
-    qualitySettings->SetProperty("MSAA", QVariant::fromValue(msaa));
+    qualitySettings->SetProperty("MSAA", msaa);
 }
 
 void ViewportManager::ApplySurfaceMipmappingSetting(const QVariant& value) const {
@@ -145,12 +145,12 @@ void ViewportManager::ApplySurfaceMipmappingSetting(const QVariant& value) const
         return;
     }
 
-    Engine::Enums::SurfaceMipmapping mipmapping = Engine::Enums::SurfaceMipmapping::On;
-    const QString text = value.toString().trimmed().toLower();
-    if (text == "off" || text == "0" || text == "false") {
-        mipmapping = Engine::Enums::SurfaceMipmapping::Off;
+    const int typeId = QMetaType::fromType<Engine::Enums::SurfaceMipmapping>().id();
+    QVariant mipmapping = Engine::Enums::Metadata::CoerceVariant(typeId, value);
+    if (!mipmapping.isValid()) {
+        mipmapping = QVariant::fromValue(Engine::Enums::SurfaceMipmapping::On);
     }
-    qualitySettings->SetProperty("SurfaceMipmapping", QVariant::fromValue(mipmapping));
+    qualitySettings->SetProperty("SurfaceMipmapping", mipmapping);
 }
 
 } // namespace Lvs::Studio::Core

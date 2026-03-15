@@ -1,7 +1,7 @@
-#include "Lvs/Engine/DataModel/Workspace.hpp"
+#include "Lvs/Engine/DataModel/Services/Workspace.hpp"
 
 #include "Lvs/Engine/DataModel/ClassRegistry.hpp"
-#include "Lvs/Engine/DataModel/ServiceRegistry.hpp"
+#include "Lvs/Engine/DataModel/Services/ServiceRegistry.hpp"
 #include "Lvs/Engine/Objects/Camera.hpp"
 
 namespace Lvs::Engine::DataModel {

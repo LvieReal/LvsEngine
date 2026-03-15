@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Lvs/Engine/Utils/Signal.hpp"
+#include "Lvs/Studio/Core/Settings.hpp"
 
 #include <QHash>
 #include <QVariant>
@@ -93,11 +94,13 @@ private:
     QHash<QString, QLabel*> instanceToIconLabel_;
     QHash<QString, QPushButton*> instanceToPlusButton_;
     QTreeWidgetItem* lastHoveredItem_{nullptr};
-    bool suppressSelectionSignal_{false};
-    bool isUnbinding_{false};
-    bool columnWidthUpdateQueued_{false};
-    QHash<QString, InstanceConnections> instanceConnections_;
-    std::vector<std::function<void()>> disconnectors_;
+	    bool suppressSelectionSignal_{false};
+	    bool isUnbinding_{false};
+	    bool columnWidthUpdateQueued_{false};
+	    QHash<QString, InstanceConnections> instanceConnections_;
+	    Core::Settings::Connection iconPackConnection_{};
+	    Core::Settings::Connection showHiddenServicesConnection_{};
+	    bool showHiddenServices_{false};
 };
 
 } // namespace Lvs::Studio::Widgets::Explorer

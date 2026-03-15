@@ -1,7 +1,7 @@
 #include "Lvs/Studio/Controllers/ExplorerSelectionController.hpp"
 
 #include "Lvs/Engine/DataModel/Place.hpp"
-#include "Lvs/Engine/DataModel/Selection.hpp"
+#include "Lvs/Engine/DataModel/Services/Selection.hpp"
 #include "Lvs/Studio/Widgets/Explorer/ExplorerWidget.hpp"
 
 #include <QMetaObject>

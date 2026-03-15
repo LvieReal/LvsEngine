@@ -1,7 +1,7 @@
 #include "Lvs/Engine/Core/Viewport.hpp"
 
 #include "Lvs/Engine/Core/CameraController.hpp"
-#include "Lvs/Engine/DataModel/Workspace.hpp"
+#include "Lvs/Engine/DataModel/Services/Workspace.hpp"
 #include "Lvs/Engine/Math/CFrame.hpp"
 #include "Lvs/Engine/Objects/BasePart.hpp"
 #include "Lvs/Engine/Objects/Camera.hpp"

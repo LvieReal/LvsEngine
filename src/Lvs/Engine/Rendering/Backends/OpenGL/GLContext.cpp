@@ -2,6 +2,9 @@
 
 #include "Lvs/Engine/Rendering/Backends/OpenGL/GLCommandBuffer.hpp"
 #include "Lvs/Engine/Rendering/Backends/OpenGL/GLPipeline.hpp"
+#include "Lvs/Engine/Rendering/Backends/OpenGL/Utils/GLRhiObjects.hpp"
+#include "Lvs/Engine/Rendering/Backends/OpenGL/Utils/GLRenderUtils.hpp"
+#include "Lvs/Engine/Rendering/Backends/OpenGL/Utils/GLWin32Utils.hpp"
 #include "Lvs/Engine/Rendering/Common/SceneUniformData.hpp"
 #include "Lvs/Engine/Rendering/ShaderLoader.hpp"
 
@@ -22,369 +25,7 @@
 
 namespace Lvs::Engine::Rendering::Backends::OpenGL {
 
-namespace {
-
-#ifdef _WIN32
-void* GetGLProcAddress(const char* name) {
-    void* proc = reinterpret_cast<void*>(wglGetProcAddress(name));
-    if (proc == nullptr || proc == reinterpret_cast<void*>(0x1) || proc == reinterpret_cast<void*>(0x2) ||
-        proc == reinterpret_cast<void*>(0x3) || proc == reinterpret_cast<void*>(-1)) {
-        HMODULE module = GetModuleHandleA("opengl32.dll");
-        proc = module != nullptr ? reinterpret_cast<void*>(GetProcAddress(module, name)) : nullptr;
-    }
-    return proc;
-}
-
-using WglSwapIntervalExtProc = BOOL(WINAPI*)(int);
-using WglCreateContextAttribsArbProc = HGLRC(WINAPI*)(HDC, HGLRC, const int*);
-
-constexpr int kWglContextMajorVersionArb = 0x2091;
-constexpr int kWglContextMinorVersionArb = 0x2092;
-constexpr int kWglContextFlagsArb = 0x2094;
-constexpr int kWglContextProfileMaskArb = 0x9126;
-constexpr int kWglContextCoreProfileBitArb = 0x00000001;
-#if !defined(NDEBUG)
-constexpr int kWglContextDebugBitArb = 0x0001;
-#endif
-
-void DisableVSyncIfAvailable() {
-    const auto proc = reinterpret_cast<WglSwapIntervalExtProc>(GetGLProcAddress("wglSwapIntervalEXT"));
-    if (proc != nullptr) {
-        proc(0);
-    }
-}
-
-HGLRC CreateBestOpenGLContextForDevice(HDC hdc, unsigned int& majorOut, unsigned int& minorOut) {
-    majorOut = 0U;
-    minorOut = 0U;
-    if (hdc == nullptr) {
-        return nullptr;
-    }
-
-    HGLRC legacyContext = wglCreateContext(hdc);
-    if (legacyContext == nullptr || wglMakeCurrent(hdc, legacyContext) == FALSE) {
-        if (legacyContext != nullptr) {
-            wglDeleteContext(legacyContext);
-        }
-        return nullptr;
-    }
-
-    const auto createAttribs = reinterpret_cast<WglCreateContextAttribsArbProc>(GetGLProcAddress("wglCreateContextAttribsARB"));
-    if (createAttribs == nullptr) {
-        majorOut = 1U;
-        minorOut = 0U;
-        return legacyContext;
-    }
-
-    const std::array<std::array<int, 2>, 2> candidates{{
-        {4, 6},
-        {4, 5}
-    }};
-    for (const auto& candidate : candidates) {
-        const int major = candidate[0];
-        const int minor = candidate[1];
-        const int flags =
-#if !defined(NDEBUG)
-            kWglContextDebugBitArb;
-#else
-            0;
-#endif
-        const std::array<int, 9> attribs{
-            kWglContextMajorVersionArb,
-            major,
-            kWglContextMinorVersionArb,
-            minor,
-            kWglContextProfileMaskArb,
-            kWglContextCoreProfileBitArb,
-            kWglContextFlagsArb,
-            flags,
-            0
-        };
-        HGLRC created = createAttribs(hdc, nullptr, attribs.data());
-        if (created == nullptr) {
-            continue;
-        }
-        wglMakeCurrent(nullptr, nullptr);
-        wglDeleteContext(legacyContext);
-        if (wglMakeCurrent(hdc, created) == FALSE) {
-            wglDeleteContext(created);
-            return nullptr;
-        }
-        majorOut = static_cast<unsigned int>(major);
-        minorOut = static_cast<unsigned int>(minor);
-        return created;
-    }
-
-    majorOut = 1U;
-    minorOut = 0U;
-    return legacyContext;
-}
-#endif
-
-class GLResourceSet final : public RHI::IResourceSet {
-public:
-    explicit GLResourceSet(const RHI::u32 id)
-        : id_(id) {}
-
-    [[nodiscard]] void* GetNativeHandle() const override {
-        return reinterpret_cast<void*>(static_cast<std::uintptr_t>(id_));
-    }
-
-private:
-    RHI::u32 id_{0U};
-};
-
-class GLRenderTarget final : public RHI::IRenderTarget {
-public:
-    GLRenderTarget(
-        const RHI::u32 width,
-        const RHI::u32 height,
-        const unsigned int drawFramebuffer,
-        const unsigned int resolveFramebuffer,
-        const std::vector<unsigned int>& colorTextures,
-        const std::vector<unsigned int>& msaaColorRenderbuffers,
-        const unsigned int depthRenderbuffer,
-        const unsigned int depthTexture,
-        const unsigned int msaaDepthRenderbuffer,
-        const RHI::Format colorFormat,
-        const RHI::Format depthFormat,
-        const RHI::u32 sampleCount,
-        std::function<void(unsigned int)> unregisterMsaa
-    )
-        : width_(width),
-          height_(height),
-          drawFramebuffer_(drawFramebuffer),
-          resolveFramebuffer_(resolveFramebuffer),
-          colorTextures_(colorTextures),
-          msaaColorRenderbuffers_(msaaColorRenderbuffers),
-          depthRenderbuffer_(depthRenderbuffer),
-          depthTexture_(depthTexture),
-          msaaDepthRenderbuffer_(msaaDepthRenderbuffer),
-          colorFormat_(colorFormat),
-          depthFormat_(depthFormat),
-          sampleCount_(sampleCount),
-          unregisterMsaa_(std::move(unregisterMsaa)) {
-        colorTextureViews_.reserve(colorTextures_.size());
-        for (const auto handle : colorTextures_) {
-            RHI::Texture texture{};
-            texture.width = width_;
-            texture.height = height_;
-            texture.format = colorFormat_;
-            texture.type = RHI::TextureType::Texture2D;
-            texture.graphic_handle_i = static_cast<int>(handle);
-            texture.sampler_handle_ptr = nullptr;
-            colorTextureViews_.push_back(texture);
-        }
-
-        if (depthTexture_ != 0U) {
-            depthTextureView_.width = width_;
-            depthTextureView_.height = height_;
-            depthTextureView_.format = depthFormat_;
-            depthTextureView_.type = RHI::TextureType::Texture2D;
-            depthTextureView_.graphic_handle_i = static_cast<int>(depthTexture_);
-            depthTextureView_.sampler_handle_ptr = nullptr;
-            hasDepthTexture_ = true;
-        }
-    }
-
-    ~GLRenderTarget() override {
-        if (depthTexture_ != 0U) {
-            glDeleteTextures(1, &depthTexture_);
-        }
-        if (depthRenderbuffer_ != 0U) {
-            glDeleteRenderbuffers(1, &depthRenderbuffer_);
-        }
-        if (msaaDepthRenderbuffer_ != 0U) {
-            glDeleteRenderbuffers(1, &msaaDepthRenderbuffer_);
-        }
-        if (!msaaColorRenderbuffers_.empty()) {
-            glDeleteRenderbuffers(static_cast<GLsizei>(msaaColorRenderbuffers_.size()), msaaColorRenderbuffers_.data());
-        }
-        if (!colorTextures_.empty()) {
-            glDeleteTextures(static_cast<GLsizei>(colorTextures_.size()), colorTextures_.data());
-        }
-        if (resolveFramebuffer_ != 0U) {
-            glDeleteFramebuffers(1, &resolveFramebuffer_);
-        }
-        if (drawFramebuffer_ != 0U && drawFramebuffer_ != resolveFramebuffer_) {
-            glDeleteFramebuffers(1, &drawFramebuffer_);
-        }
-        if (unregisterMsaa_ != nullptr && drawFramebuffer_ != resolveFramebuffer_) {
-            unregisterMsaa_(drawFramebuffer_);
-        }
-    }
-
-    [[nodiscard]] void* GetRenderPassHandle() const override {
-        return nullptr;
-    }
-
-    [[nodiscard]] void* GetFramebufferHandle() const override {
-        return reinterpret_cast<void*>(static_cast<std::uintptr_t>(drawFramebuffer_));
-    }
-
-    [[nodiscard]] RHI::u32 GetWidth() const override {
-        return width_;
-    }
-
-    [[nodiscard]] RHI::u32 GetHeight() const override {
-        return height_;
-    }
-
-    [[nodiscard]] RHI::u32 GetColorAttachmentCount() const override {
-        return static_cast<RHI::u32>(colorTextureViews_.size());
-    }
-
-    [[nodiscard]] RHI::u32 GetSampleCount() const override {
-        return sampleCount_;
-    }
-
-    [[nodiscard]] RHI::Texture GetColorTexture(const RHI::u32 index) const override {
-        if (index >= colorTextureViews_.size()) {
-            return {};
-        }
-        return colorTextureViews_[index];
-    }
-
-    [[nodiscard]] bool HasDepth() const override {
-        return depthRenderbuffer_ != 0U || depthTexture_ != 0U || msaaDepthRenderbuffer_ != 0U;
-    }
-
-    [[nodiscard]] RHI::Texture GetDepthTexture() const override {
-        return hasDepthTexture_ ? depthTextureView_ : RHI::Texture{};
-    }
-
-private:
-    RHI::u32 width_{0U};
-    RHI::u32 height_{0U};
-    unsigned int drawFramebuffer_{0U};
-    unsigned int resolveFramebuffer_{0U};
-    std::vector<unsigned int> colorTextures_{};
-    std::vector<unsigned int> msaaColorRenderbuffers_{};
-    unsigned int depthRenderbuffer_{0U};
-    unsigned int depthTexture_{0U};
-    unsigned int msaaDepthRenderbuffer_{0U};
-    RHI::Format colorFormat_{RHI::Format::R8G8B8A8_UNorm};
-    RHI::Format depthFormat_{RHI::Format::D32_Float};
-    std::vector<RHI::Texture> colorTextureViews_{};
-    bool hasDepthTexture_{false};
-    RHI::Texture depthTextureView_{};
-    RHI::u32 sampleCount_{1U};
-    std::function<void(unsigned int)> unregisterMsaa_{};
-};
-
-class GLBuffer final : public RHI::IBuffer {
-public:
-    GLBuffer(const unsigned int handle, const std::size_t size)
-        : handle_(handle),
-          size_(size) {}
-
-    ~GLBuffer() override {
-        if (handle_ != 0U) {
-            glDeleteBuffers(1, &handle_);
-        }
-    }
-
-    [[nodiscard]] void* GetNativeHandle() const override {
-        return reinterpret_cast<void*>(static_cast<std::uintptr_t>(handle_));
-    }
-
-    [[nodiscard]] std::size_t GetSize() const override {
-        return size_;
-    }
-
-private:
-    unsigned int handle_{0U};
-    std::size_t size_{0};
-};
-
-unsigned int CompileShader(
-    const unsigned int shaderType,
-    const std::string& source,
-    const char* stageName
-) {
-    const unsigned int shader = glCreateShader(shaderType);
-    const char* srcPtr = source.c_str();
-    const int srcLen = static_cast<int>(source.size());
-    glShaderSource(shader, 1, &srcPtr, &srcLen);
-    glCompileShader(shader);
-    int status = 0;
-    glGetShaderiv(shader, GL_COMPILE_STATUS, &status);
-    if (status != 0) {
-        return shader;
-    }
-
-    int logLen = 0;
-    glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &logLen);
-    std::string log(static_cast<std::size_t>(std::max(logLen, 1)), '\0');
-    int written = 0;
-    glGetShaderInfoLog(shader, static_cast<int>(log.size()), &written, log.data());
-    glDeleteShader(shader);
-    throw std::runtime_error(std::string("OpenGL shader compile failed (") + stageName + "): " + log);
-}
-
-void ApplyCullMode(const RHI::CullMode mode) {
-    switch (mode) {
-        case RHI::CullMode::None:
-            glDisable(GL_CULL_FACE);
-            break;
-        case RHI::CullMode::Front:
-            glEnable(GL_CULL_FACE);
-            glCullFace(GL_FRONT);
-            glFrontFace(GL_CCW);
-            break;
-        case RHI::CullMode::Back:
-        default:
-            glEnable(GL_CULL_FACE);
-            glCullFace(GL_BACK);
-            glFrontFace(GL_CCW);
-            break;
-    }
-}
-
-GLenum ResolveDepthCompare(const RHI::DepthCompare compare) {
-    switch (compare) {
-        case RHI::DepthCompare::Always:
-            return GL_ALWAYS;
-        case RHI::DepthCompare::Equal:
-            return GL_EQUAL;
-        case RHI::DepthCompare::LessOrEqual:
-            return GL_LEQUAL;
-        case RHI::DepthCompare::GreaterOrEqual:
-        default:
-            return GL_GEQUAL;
-    }
-}
-
-#if !defined(NDEBUG)
-void APIENTRY GLDebugMessageCallback(
-    GLenum source,
-    GLenum type,
-    GLuint id,
-    GLenum severity,
-    GLsizei length,
-    const GLchar* message,
-    const void* userParam
-) {
-    static_cast<void>(source);
-    static_cast<void>(type);
-    static_cast<void>(id);
-    static_cast<void>(length);
-    static_cast<void>(userParam);
-    const char* prefix = "[OpenGL][Info]";
-    if (severity == GL_DEBUG_SEVERITY_HIGH) {
-        prefix = "[OpenGL][Error]";
-    } else if (severity == GL_DEBUG_SEVERITY_MEDIUM) {
-        prefix = "[OpenGL][Warning]";
-    } else if (severity == GL_DEBUG_SEVERITY_LOW) {
-        prefix = "[OpenGL][Low]";
-    } else if (severity == GL_DEBUG_SEVERITY_NOTIFICATION) {
-        prefix = "[OpenGL][Verbose]";
-    }
-    std::cerr << prefix << " " << (message != nullptr ? message : "Unknown message") << std::endl;
-}
-#endif
-
-} // namespace
+// Utility helpers live in Backends/OpenGL/Utils.
 
 GLContext::GLContext(const GLApi api)
     : api_(api) {}
@@ -423,8 +64,8 @@ std::unique_ptr<RHI::IPipeline> GLContext::CreatePipeline(const RHI::PipelineDes
 
     const std::string vertSrc = ShaderLoader::LoadGLSL(desc.pipelineId, "vert");
     const std::string fragSrc = ShaderLoader::LoadGLSL(desc.pipelineId, "frag");
-    const unsigned int vertShader = CompileShader(GL_VERTEX_SHADER, vertSrc, "vertex");
-    const unsigned int fragShader = CompileShader(GL_FRAGMENT_SHADER, fragSrc, "fragment");
+    const unsigned int vertShader = Utils::CompileShader(GL_VERTEX_SHADER, vertSrc, "vertex");
+    const unsigned int fragShader = Utils::CompileShader(GL_FRAGMENT_SHADER, fragSrc, "fragment");
 
     const unsigned int program = glCreateProgram();
     glAttachShader(program, vertShader);
@@ -660,7 +301,7 @@ std::unique_ptr<RHI::IRenderTarget> GLContext::CreateRenderTarget(const RHI::Ren
         };
     }
 
-    return std::make_unique<GLRenderTarget>(
+    return std::make_unique<Utils::GLRenderTarget>(
         desc.width,
         desc.height,
         drawFramebuffer,
@@ -681,7 +322,7 @@ std::unique_ptr<RHI::IRenderTarget> GLContext::CreateRenderTarget(const RHI::Ren
 
 std::unique_ptr<RHI::IBuffer> GLContext::CreateBuffer(const RHI::BufferDesc& desc) {
     if (!api_.GladLoaded || desc.size == 0) {
-        return std::make_unique<GLBuffer>(0U, desc.size);
+        return std::make_unique<Utils::GLBuffer>(0U, desc.size);
     }
 
     unsigned int handle = 0U;
@@ -692,7 +333,7 @@ std::unique_ptr<RHI::IBuffer> GLContext::CreateBuffer(const RHI::BufferDesc& des
     glBindBuffer(target, handle);
     glBufferData(target, static_cast<GLsizeiptr>(desc.size), desc.initialData, usage);
 
-    return std::make_unique<GLBuffer>(handle, desc.size);
+    return std::make_unique<Utils::GLBuffer>(handle, desc.size);
 }
 
 std::unique_ptr<RHI::IResourceSet> GLContext::CreateResourceSet(const RHI::ResourceSetDesc& desc) {
@@ -704,7 +345,7 @@ std::unique_ptr<RHI::IResourceSet> GLContext::CreateResourceSet(const RHI::Resou
         bindings.push_back(desc.bindings[i]);
     }
     resourceSetTextures_[id] = std::move(bindings);
-    return std::make_unique<GLResourceSet>(id);
+    return std::make_unique<Utils::GLResourceSet>(id);
 }
 
 RHI::Texture GLContext::CreateTexture2D(const RHI::Texture2DDesc& desc) {
@@ -944,7 +585,7 @@ bool GLContext::EnsureNativeContext() {
 
     unsigned int majorVersion = 0U;
     unsigned int minorVersion = 0U;
-    hglrc = CreateBestOpenGLContextForDevice(hdc, majorVersion, minorVersion);
+    hglrc = Utils::CreateBestOpenGLContextForDevice(hdc, majorVersion, minorVersion);
     if (hglrc == nullptr) {
         ReleaseDC(hwnd, hdc);
         return false;
@@ -986,11 +627,11 @@ void GLContext::Initialize(const RHI::u32 width, const RHI::u32 height) {
         return;
     }
 #ifdef _WIN32
-    DisableVSyncIfAvailable();
+    Utils::DisableVSyncIfAvailable();
 #endif
     if (!api_.GladLoaded) {
 #ifdef _WIN32
-        api_.GladLoaded = gladLoadGLLoader(reinterpret_cast<GLADloadproc>(GetGLProcAddress)) != 0;
+        api_.GladLoaded = gladLoadGLLoader(reinterpret_cast<GLADloadproc>(Utils::GetGLProcAddress)) != 0;
 #else
         api_.GladLoaded = gladLoadGL() != 0;
 #endif
@@ -1016,7 +657,7 @@ void GLContext::Initialize(const RHI::u32 width, const RHI::u32 height) {
         if (GLAD_GL_VERSION_4_3 || GLAD_GL_KHR_debug) {
             glEnable(GL_DEBUG_OUTPUT);
             glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
-            glDebugMessageCallback(GLDebugMessageCallback, nullptr);
+            glDebugMessageCallback(Utils::GLDebugMessageCallback, nullptr);
             glDebugMessageControl(
                 GL_DONT_CARE,
                 GL_DONT_CARE,
@@ -1156,7 +797,7 @@ void GLContext::BindPipeline(const RHI::IPipeline& pipeline) {
         } else {
             glDisable(GL_MULTISAMPLE);
         }
-        ApplyCullMode(glPipeline->GetDesc().cullMode);
+        Utils::ApplyCullMode(glPipeline->GetDesc().cullMode);
 #ifdef GL_DEPTH_CLAMP
         if (glPipeline->GetDesc().pipelineId == "shadow") {
             glEnable(GL_DEPTH_CLAMP);
@@ -1173,14 +814,14 @@ void GLContext::BindPipeline(const RHI::IPipeline& pipeline) {
         }
         if (glPipeline->GetDesc().depthTest) {
             glEnable(GL_DEPTH_TEST);
-            glDepthFunc(ResolveDepthCompare(glPipeline->GetDesc().depthCompare));
+            glDepthFunc(Utils::ResolveDepthCompare(glPipeline->GetDesc().depthCompare));
         } else {
             glDisable(GL_DEPTH_TEST);
         }
         glDepthMask(glPipeline->GetDesc().depthWrite ? GL_TRUE : GL_FALSE);
     } else {
         currentVertexLayout_ = RHI::VertexLayout::None;
-        ApplyCullMode(RHI::CullMode::Back);
+        Utils::ApplyCullMode(RHI::CullMode::Back);
         glDisable(GL_MULTISAMPLE);
 #ifdef GL_DEPTH_CLAMP
         glDisable(GL_DEPTH_CLAMP);

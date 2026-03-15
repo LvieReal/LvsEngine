@@ -2,7 +2,7 @@
 
 #include "Lvs/Engine/Core/Instance.hpp"
 #include "Lvs/Engine/Core/RegularError.hpp"
-#include "Lvs/Engine/DataModel/ChangeHistoryService.hpp"
+#include "Lvs/Engine/DataModel/Services/ChangeHistoryService.hpp"
 #include "Lvs/Engine/DataModel/ClassRegistry.hpp"
 #include "Lvs/Engine/DataModel/DataModel.hpp"
 #include "Lvs/Engine/DataModel/Place.hpp"
@@ -53,12 +53,23 @@ ExplorerWidget::ExplorerWidget(const std::shared_ptr<Engine::DataModel::Place>& 
     setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     setContentsMargins(0, 0, 0, 0);
 
-    QObject::connect(this, &QTreeWidget::itemSelectionChanged, this, [this]() { OnQtSelectionChanged(); });
+	QObject::connect(this, &QTreeWidget::itemSelectionChanged, this, [this]() { OnQtSelectionChanged(); });
 
-    auto iconPackConnection = std::make_shared<Core::Settings::Connection>(
-        Core::Settings::Changed("ExplorerIconPack", [this](const QVariant&) { RefreshIcons(); })
-    );
-    disconnectors_.push_back([iconPackConnection]() { iconPackConnection->Disconnect(); });
+	iconPackConnection_.Disconnect();
+	iconPackConnection_ = Core::Settings::Changed("ExplorerIconPack", [this](const QVariant&) { RefreshIcons(); });
+
+	showHiddenServicesConnection_.Disconnect();
+	showHiddenServicesConnection_ = Core::Settings::Changed(
+	    "ExplorerShowHiddenServices",
+	    [this](const QVariant& value) {
+	        showHiddenServices_ = value.toBool();
+	        const auto root = rootInstance_;
+	        if (root != nullptr) {
+	            BindToRoot(root);
+	        }
+	    },
+	    true
+	);
 }
 
 ExplorerWidget::~ExplorerWidget() {
@@ -79,17 +90,12 @@ void ExplorerWidget::BindToRoot(const std::shared_ptr<Engine::Core::Instance>& r
 }
 
 void ExplorerWidget::Unbind() {
-    isUnbinding_ = true;
-    HideLastHoveredPlusButton();
-
-    for (auto& disconnect : disconnectors_) {
-        disconnect();
-    }
-    disconnectors_.clear();
-    const auto connectionKeys = instanceConnections_.keys();
-    for (const auto& id : connectionKeys) {
-        DisconnectInstanceConnections(id);
-    }
+	isUnbinding_ = true;
+	HideLastHoveredPlusButton();
+	const auto connectionKeys = instanceConnections_.keys();
+	for (const auto& id : connectionKeys) {
+	    DisconnectInstanceConnections(id);
+	}
 
     clear();
     instanceToItem_.clear();
@@ -227,19 +233,25 @@ void ExplorerWidget::AddInstanceRecursive(
     QTreeWidgetItem* parentItem,
     const std::shared_ptr<Engine::Core::Instance>& instance
 ) {
-    if (isUnbinding_ || instance == nullptr) {
-        return;
-    }
-    const QString instanceId = instance->GetId();
-    if (instanceId.isEmpty()) {
-        return;
-    }
-    if (QTreeWidgetItem* existing = instanceToItem_.value(instanceId, nullptr); existing != nullptr) {
-        const bool hidden = instance->IsHiddenService();
-        existing->setHidden(hidden);
-        if (parentItem != nullptr && existing->parent() != parentItem) {
-            if (QTreeWidgetItem* oldParent = existing->parent(); oldParent != nullptr) {
-                oldParent->removeChild(existing);
+	if (isUnbinding_ || instance == nullptr) {
+	    return;
+	}
+	if (!showHiddenServices_ && instance->IsHiddenService()) {
+	    return;
+	}
+	const QString instanceId = instance->GetId();
+	if (instanceId.isEmpty()) {
+	    return;
+	}
+	if (QTreeWidgetItem* existing = instanceToItem_.value(instanceId, nullptr); existing != nullptr) {
+	    const bool isHiddenService = instance->IsHiddenService();
+	    existing->setHidden(isHiddenService && !showHiddenServices_);
+	    if (QLabel* nameLabel = instanceToNameLabel_.value(instanceId, nullptr); nameLabel != nullptr) {
+	        nameLabel->setDisabled(isHiddenService);
+	    }
+	    if (parentItem != nullptr && existing->parent() != parentItem) {
+	        if (QTreeWidgetItem* oldParent = existing->parent(); oldParent != nullptr) {
+	            oldParent->removeChild(existing);
             } else {
                 const int topLevel = indexOfTopLevelItem(existing);
                 if (topLevel >= 0) {
@@ -255,11 +267,11 @@ void ExplorerWidget::AddInstanceRecursive(
         return;
     }
 
-    auto* item = new QTreeWidgetItem();
-    item->setData(0, Qt::UserRole, instanceId);
-    const bool hidden = instance->IsHiddenService();
-    item->setHidden(hidden);
-    item->setSizeHint(0, QSize(0, 20));
+	auto* item = new QTreeWidgetItem();
+	item->setData(0, Qt::UserRole, instanceId);
+	const bool isHiddenService = instance->IsHiddenService();
+	item->setHidden(isHiddenService && !showHiddenServices_);
+	item->setSizeHint(0, QSize(0, 20));
 
     instanceToItem_.insert(instanceId, item);
 
@@ -287,10 +299,10 @@ void ExplorerWidget::AddInstanceRecursive(
     }
     rowLayout->addWidget(iconLabel);
 
-    auto* nameLabel = new QLabel(instance->GetProperty("Name").toString(), rowWidget);
-    nameLabel->setMouseTracking(true);
-    nameLabel->setDisabled(hidden);
-    rowLayout->addWidget(nameLabel);
+	auto* nameLabel = new QLabel(instance->GetProperty("Name").toString(), rowWidget);
+	nameLabel->setMouseTracking(true);
+	nameLabel->setDisabled(isHiddenService);
+	rowLayout->addWidget(nameLabel);
 
     auto* plusButton = new QPushButton("+", rowWidget);
     plusButton->setFixedSize(15, 15);

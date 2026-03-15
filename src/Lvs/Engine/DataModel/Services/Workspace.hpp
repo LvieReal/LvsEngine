@@ -1,13 +1,13 @@
 #pragma once
 
-#include "Lvs/Engine/DataModel/Service.hpp"
+#include "Lvs/Engine/DataModel/Services/Service.hpp"
 
 namespace Lvs::Engine::DataModel {
 
-class Lighting : public Service {
+class Workspace : public Service {
 public:
-    Lighting();
-    ~Lighting() override = default;
+    Workspace();
+    ~Workspace() override = default;
 
     static Core::ClassDescriptor& Descriptor();
     void InitializeDefaultObjects();

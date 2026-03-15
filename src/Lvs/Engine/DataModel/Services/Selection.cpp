@@ -1,7 +1,7 @@
-#include "Lvs/Engine/DataModel/Selection.hpp"
+#include "Lvs/Engine/DataModel/Services/Selection.hpp"
 
 #include "Lvs/Engine/DataModel/ClassRegistry.hpp"
-#include "Lvs/Engine/DataModel/ServiceRegistry.hpp"
+#include "Lvs/Engine/DataModel/Services/ServiceRegistry.hpp"
 
 namespace Lvs::Engine::DataModel {
 

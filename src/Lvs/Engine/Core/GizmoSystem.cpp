@@ -1,6 +1,6 @@
 #include "Lvs/Engine/Core/GizmoSystem.hpp"
 
-#include "Lvs/Engine/DataModel/Selection.hpp"
+#include "Lvs/Engine/DataModel/Services/Selection.hpp"
 #include "Lvs/Engine/Math/AABB.hpp"
 #include "Lvs/Engine/Math/CFrame.hpp"
 #include "Lvs/Engine/Objects/BasePart.hpp"

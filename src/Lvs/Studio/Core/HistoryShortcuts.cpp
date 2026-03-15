@@ -1,7 +1,7 @@
 #include "Lvs/Studio/Core/HistoryShortcuts.hpp"
 
 #include "Lvs/Engine/Context.hpp"
-#include "Lvs/Engine/DataModel/ChangeHistoryService.hpp"
+#include "Lvs/Engine/DataModel/Services/ChangeHistoryService.hpp"
 #include "Lvs/Engine/DataModel/Place.hpp"
 #include "Lvs/Engine/DataModel/PlaceManager.hpp"
 #include "Lvs/Studio/Core/StudioShortcutManager.hpp"

@@ -1,6 +1,6 @@
 #include "Lvs/Engine/Rendering/Common/EnvironmentLookup.hpp"
 
-#include "Lvs/Engine/DataModel/Lighting.hpp"
+#include "Lvs/Engine/DataModel/Services/Lighting.hpp"
 #include "Lvs/Engine/DataModel/Place.hpp"
 #include "Lvs/Engine/Objects/Skybox.hpp"
 

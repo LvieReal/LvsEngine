@@ -9,6 +9,10 @@ enum class SurfaceMipmapping {
     On = 1
 };
 
+[[nodiscard]] constexpr bool IsSurfaceMipmappingEnabled(const SurfaceMipmapping value) {
+    return value != SurfaceMipmapping::Off;
+}
+
 } // namespace Lvs::Engine::Enums
 
 Q_DECLARE_METATYPE(Lvs::Engine::Enums::SurfaceMipmapping)

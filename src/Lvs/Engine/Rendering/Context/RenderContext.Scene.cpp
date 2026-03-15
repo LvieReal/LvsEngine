@@ -1,8 +1,8 @@
 #include "Lvs/Engine/Rendering/Context/RenderContext.hpp"
 
-#include "Lvs/Engine/DataModel/Lighting.hpp"
+#include "Lvs/Engine/DataModel/Services/Lighting.hpp"
 #include "Lvs/Engine/DataModel/Place.hpp"
-#include "Lvs/Engine/DataModel/Workspace.hpp"
+#include "Lvs/Engine/DataModel/Services/Workspace.hpp"
 #include "Lvs/Engine/Enums/LightingComputationMode.hpp"
 #include "Lvs/Engine/Enums/PartSurfaceType.hpp"
 #include "Lvs/Engine/Math/CFrame.hpp"
@@ -334,4 +334,3 @@ Common::SkyboxPushConstants RenderContext::BuildSkyboxPushConstants() const {
 }
 
 } // namespace Lvs::Engine::Rendering
-

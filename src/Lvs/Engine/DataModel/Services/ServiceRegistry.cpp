@@ -1,4 +1,4 @@
-#include "Lvs/Engine/DataModel/ServiceRegistry.hpp"
+#include "Lvs/Engine/DataModel/Services/ServiceRegistry.hpp"
 
 namespace Lvs::Engine::DataModel::ServiceRegistry {
 

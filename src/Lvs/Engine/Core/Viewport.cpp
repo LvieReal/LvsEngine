@@ -4,7 +4,7 @@
 #include "Lvs/Engine/Core/Cursor.hpp"
 #include "Lvs/Engine/Core/ViewportToolLayer.hpp"
 #include "Lvs/Engine/DataModel/Place.hpp"
-#include "Lvs/Engine/DataModel/Workspace.hpp"
+#include "Lvs/Engine/DataModel/Services/Workspace.hpp"
 #include "Lvs/Engine/Objects/Camera.hpp"
 #include "Lvs/Engine/Rendering/IRenderContext.hpp"
 

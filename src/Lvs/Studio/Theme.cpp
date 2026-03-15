@@ -1,5 +1,7 @@
 ﻿#include "Lvs/Studio/Theme.hpp"
 
+#include "Lvs/Engine/Enums/EnumMetadata.hpp"
+#include "Lvs/Engine/Enums/Theme.hpp"
 #include "Lvs/Engine/Utils/SourcePath.hpp"
 #include "Lvs/Studio/Core/Settings.hpp"
 
@@ -16,9 +18,9 @@ namespace Lvs::Studio::Theme {
 namespace {
 Core::Settings::Connection g_themeConnection;
 
-void ApplyThemeValue(const QString& theme)
+void ApplyThemeValue(const Engine::Enums::Theme theme)
 {
-    QGuiApplication::styleHints()->setColorScheme(theme.compare("Dark", Qt::CaseInsensitive) == 0 ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light);
+    QGuiApplication::styleHints()->setColorScheme(theme == Engine::Enums::Theme::Dark ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light);
 }
 } // namespace
 
@@ -42,7 +44,13 @@ void ApplyTheme(QApplication& app) {
     g_themeConnection = Core::Settings::Changed(
         "Theme",
         [&app](const QVariant& value) {
-            ApplyThemeValue(value.toString());
+            static_cast<void>(app);
+            const int typeId = QMetaType::fromType<Engine::Enums::Theme>().id();
+            QVariant coerced = Engine::Enums::Metadata::CoerceVariant(typeId, value);
+            if (!coerced.isValid()) {
+                coerced = QVariant::fromValue(Engine::Enums::Theme::Light);
+            }
+            ApplyThemeValue(coerced.value<Engine::Enums::Theme>());
         },
         true
     );

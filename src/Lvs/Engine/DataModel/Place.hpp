@@ -2,7 +2,7 @@
 
 #include "Lvs/Engine/Core/Instance.hpp"
 #include "Lvs/Engine/DataModel/DataModel.hpp"
-#include "Lvs/Engine/DataModel/Service.hpp"
+#include "Lvs/Engine/DataModel/Services/Service.hpp"
 
 #include <QHash>
 #include <QString>

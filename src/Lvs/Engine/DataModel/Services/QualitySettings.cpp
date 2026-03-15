@@ -1,8 +1,8 @@
-#include "Lvs/Engine/DataModel/QualitySettings.hpp"
+#include "Lvs/Engine/DataModel/Services/QualitySettings.hpp"
 
 #include "Lvs/Engine/Core/ObjectBase.hpp"
 #include "Lvs/Engine/DataModel/ClassRegistry.hpp"
-#include "Lvs/Engine/DataModel/ServiceRegistry.hpp"
+#include "Lvs/Engine/DataModel/Services/ServiceRegistry.hpp"
 #include "Lvs/Engine/Enums/MSAA.hpp"
 #include "Lvs/Engine/Enums/SurfaceMipmapping.hpp"
 
@@ -37,6 +37,7 @@ Core::ClassDescriptor& QualitySettings::Descriptor() {
 
 QualitySettings::QualitySettings()
     : Service(Descriptor()) {
+    SetServiceFlags(true, true);
     SetInsertable(false);
 }
 

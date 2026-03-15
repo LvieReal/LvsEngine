@@ -3,11 +3,15 @@
 #include "Lvs/Engine/Rendering/Backends/OpenGL/GLContext.hpp"
 #include "Lvs/Engine/Rendering/Backends/Vulkan/VulkanContext.hpp"
 #include "Lvs/Engine/DataModel/Place.hpp"
-#include "Lvs/Engine/DataModel/Lighting.hpp"
-#include "Lvs/Engine/DataModel/QualitySettings.hpp"
+#include "Lvs/Engine/DataModel/Services/Lighting.hpp"
+#include "Lvs/Engine/DataModel/Services/QualitySettings.hpp"
 #include "Lvs/Engine/Enums/EnumMetadata.hpp"
+#include "Lvs/Engine/Enums/MSAA.hpp"
+#include "Lvs/Engine/Enums/SurfaceMipmapping.hpp"
 #include "Lvs/Engine/Objects/DirectionalLight.hpp"
 #include "Lvs/Engine/Rendering/Context/RenderContextUtils.hpp"
+
+#include <QMetaType>
 
 #include <algorithm>
 #include <array>
@@ -21,29 +25,25 @@ void RenderContext::Render() {
     }
     EnsureBackend();
     RHI::u32 desiredMsaaSamples = 1U;
-    bool desiredSurfaceMipmaps = true;
-    if (place_ != nullptr) {
-        if (const auto qualitySettings = std::dynamic_pointer_cast<DataModel::QualitySettings>(place_->FindService("QualitySettings"));
-            qualitySettings != nullptr) {
-            const int msaaValue = Enums::Metadata::IntFromVariant(qualitySettings->GetProperty("MSAA"));
-            switch (msaaValue) {
-                case 2:
-                    desiredMsaaSamples = 2U;
-                    break;
-                case 4:
-                    desiredMsaaSamples = 4U;
-                    break;
-                case 8:
-                    desiredMsaaSamples = 8U;
-                    break;
-                default:
-                    desiredMsaaSamples = 1U;
-                    break;
-            }
-            const int mipValue = Enums::Metadata::IntFromVariant(qualitySettings->GetProperty("SurfaceMipmapping"));
-            desiredSurfaceMipmaps = mipValue != 0;
-        }
-    }
+	    bool desiredSurfaceMipmaps = true;
+	    if (place_ != nullptr) {
+	        if (const auto qualitySettings = std::dynamic_pointer_cast<DataModel::QualitySettings>(place_->FindService("QualitySettings"));
+	            qualitySettings != nullptr) {
+	            const int msaaTypeId = QMetaType::fromType<Enums::MSAA>().id();
+	            QVariant msaaValue = Enums::Metadata::CoerceVariant(msaaTypeId, qualitySettings->GetProperty("MSAA"));
+	            if (!msaaValue.isValid()) {
+	                msaaValue = QVariant::fromValue(Enums::MSAA::Off);
+	            }
+	            desiredMsaaSamples = static_cast<RHI::u32>(Enums::MsaaSampleCount(msaaValue.value<Enums::MSAA>()));
+
+	            const int mipTypeId = QMetaType::fromType<Enums::SurfaceMipmapping>().id();
+	            QVariant mipValue = Enums::Metadata::CoerceVariant(mipTypeId, qualitySettings->GetProperty("SurfaceMipmapping"));
+	            if (!mipValue.isValid()) {
+	                mipValue = QVariant::fromValue(Enums::SurfaceMipmapping::On);
+	            }
+	            desiredSurfaceMipmaps = Enums::IsSurfaceMipmappingEnabled(mipValue.value<Enums::SurfaceMipmapping>());
+	        }
+	    }
     if (desiredMsaaSamples != requestedMsaaSampleCount_) {
         requestedMsaaSampleCount_ = desiredMsaaSamples;
         effectiveMsaaSampleCount_ = desiredMsaaSamples;

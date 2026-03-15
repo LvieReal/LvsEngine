@@ -2,6 +2,8 @@
 
 #include "Lvs/Engine/Rendering/Backends/Vulkan/VulkanCommandBuffer.hpp"
 #include "Lvs/Engine/Rendering/Backends/Vulkan/VulkanPipeline.hpp"
+#include "Lvs/Engine/Rendering/Backends/Vulkan/Utils/VulkanRhiObjects.hpp"
+#include "Lvs/Engine/Rendering/Backends/Vulkan/Utils/VulkanRenderUtils.hpp"
 #include "Lvs/Engine/Rendering/Common/SceneUniformData.hpp"
 #include "Lvs/Engine/Rendering/ShaderLoader.hpp"
 
@@ -19,410 +21,7 @@
 
 namespace Lvs::Engine::Rendering::Backends::Vulkan {
 
-namespace {
-
-class VulkanResourceSet final : public RHI::IResourceSet {
-public:
-    VulkanResourceSet(
-        const VkDevice device,
-        const VkDescriptorPool pool,
-        const VkDescriptorSet set,
-        const bool ownsSet
-    )
-        : device_(device),
-          pool_(pool),
-          set_(set),
-          ownsSet_(ownsSet) {}
-
-    ~VulkanResourceSet() override {
-        if (ownsSet_ && device_ != VK_NULL_HANDLE && pool_ != VK_NULL_HANDLE && set_ != VK_NULL_HANDLE) {
-            vkFreeDescriptorSets(device_, pool_, 1, &set_);
-            set_ = VK_NULL_HANDLE;
-        }
-    }
-
-    [[nodiscard]] void* GetNativeHandle() const override {
-        return reinterpret_cast<void*>(set_);
-    }
-
-private:
-    VkDevice device_{VK_NULL_HANDLE};
-    VkDescriptorPool pool_{VK_NULL_HANDLE};
-    VkDescriptorSet set_{VK_NULL_HANDLE};
-    bool ownsSet_{false};
-};
-
-class VulkanBuffer final : public RHI::IBuffer {
-public:
-    VulkanBuffer(
-        const VkDevice device,
-        const VkBuffer buffer,
-        const VkDeviceMemory memory,
-        const std::size_t size
-    )
-        : device_(device),
-          buffer_(buffer),
-          memory_(memory),
-          size_(size) {}
-
-    ~VulkanBuffer() override {
-        if (device_ != VK_NULL_HANDLE && buffer_ != VK_NULL_HANDLE) {
-            vkDestroyBuffer(device_, buffer_, nullptr);
-        }
-        if (device_ != VK_NULL_HANDLE && memory_ != VK_NULL_HANDLE) {
-            vkFreeMemory(device_, memory_, nullptr);
-        }
-    }
-
-    [[nodiscard]] void* GetNativeHandle() const override {
-        return reinterpret_cast<void*>(buffer_);
-    }
-
-    [[nodiscard]] std::size_t GetSize() const override {
-        return size_;
-    }
-
-private:
-    VkDevice device_{VK_NULL_HANDLE};
-    VkBuffer buffer_{VK_NULL_HANDLE};
-    VkDeviceMemory memory_{VK_NULL_HANDLE};
-    std::size_t size_{0};
-};
-
-class VulkanRenderTarget final : public RHI::IRenderTarget {
-public:
-    struct ColorAttachment {
-        VkImage image{VK_NULL_HANDLE};
-        VkDeviceMemory memory{VK_NULL_HANDLE};
-        VkImageView view{VK_NULL_HANDLE};
-        VkSampler sampler{VK_NULL_HANDLE};
-    };
-
-    VulkanRenderTarget(
-        const VkDevice device,
-        const RHI::u32 width,
-        const RHI::u32 height,
-        const VkFormat colorFormat,
-        const VkRenderPass renderPass,
-        const VkFramebuffer framebuffer,
-        const std::vector<ColorAttachment>& resolveColors,
-        const std::vector<ColorAttachment>& msaaColors,
-        const VkImage depthImage,
-        const VkDeviceMemory depthMemory,
-        const VkImageView depthView,
-        const VkSampler depthSampler,
-        const RHI::Format depthFormat,
-        const RHI::u32 sampleCount
-    )
-        : device_(device),
-          width_(width),
-          height_(height),
-          colorFormat_(colorFormat),
-          renderPass_(renderPass),
-          framebuffer_(framebuffer),
-          colorAttachments_(resolveColors),
-          msaaColorAttachments_(msaaColors),
-          depthImage_(depthImage),
-          depthMemory_(depthMemory),
-          depthView_(depthView),
-          depthSampler_(depthSampler),
-          depthFormat_(depthFormat),
-          sampleCount_(sampleCount) {
-        colorTextures_.reserve(colorAttachments_.size());
-        for (const auto& color : colorAttachments_) {
-            RHI::Texture texture{};
-            texture.width = width_;
-            texture.height = height_;
-            switch (colorFormat_) {
-                case VK_FORMAT_R16G16B16A16_SFLOAT:
-                    texture.format = RHI::Format::R16G16B16A16_Float;
-                    break;
-                case VK_FORMAT_B8G8R8A8_UNORM:
-                    texture.format = RHI::Format::B8G8R8A8_UNorm;
-                    break;
-                default:
-                    texture.format = RHI::Format::R8G8B8A8_UNorm;
-                    break;
-            }
-            texture.type = RHI::TextureType::Texture2D;
-            texture.graphic_handle_ptr = color.view;
-            texture.sampler_handle_ptr = color.sampler;
-            colorTextures_.push_back(texture);
-        }
-
-        if (depthView_ != VK_NULL_HANDLE) {
-            depthTexture_.width = width_;
-            depthTexture_.height = height_;
-            depthTexture_.format = depthFormat_;
-            depthTexture_.type = RHI::TextureType::Texture2D;
-            depthTexture_.graphic_handle_ptr = depthView_;
-            depthTexture_.sampler_handle_ptr = depthSampler_;
-        }
-    }
-
-    ~VulkanRenderTarget() override {
-        if (device_ == VK_NULL_HANDLE) {
-            return;
-        }
-        if (framebuffer_ != VK_NULL_HANDLE) {
-            vkDestroyFramebuffer(device_, framebuffer_, nullptr);
-        }
-        if (renderPass_ != VK_NULL_HANDLE) {
-            vkDestroyRenderPass(device_, renderPass_, nullptr);
-        }
-        for (const auto& color : msaaColorAttachments_) {
-            if (color.view != VK_NULL_HANDLE) {
-                vkDestroyImageView(device_, color.view, nullptr);
-            }
-            if (color.image != VK_NULL_HANDLE) {
-                vkDestroyImage(device_, color.image, nullptr);
-            }
-            if (color.memory != VK_NULL_HANDLE) {
-                vkFreeMemory(device_, color.memory, nullptr);
-            }
-        }
-        for (const auto& color : colorAttachments_) {
-            if (color.sampler != VK_NULL_HANDLE) {
-                vkDestroySampler(device_, color.sampler, nullptr);
-            }
-            if (color.view != VK_NULL_HANDLE) {
-                vkDestroyImageView(device_, color.view, nullptr);
-            }
-            if (color.image != VK_NULL_HANDLE) {
-                vkDestroyImage(device_, color.image, nullptr);
-            }
-            if (color.memory != VK_NULL_HANDLE) {
-                vkFreeMemory(device_, color.memory, nullptr);
-            }
-        }
-        if (depthView_ != VK_NULL_HANDLE) {
-            vkDestroyImageView(device_, depthView_, nullptr);
-        }
-        if (depthSampler_ != VK_NULL_HANDLE) {
-            vkDestroySampler(device_, depthSampler_, nullptr);
-        }
-        if (depthImage_ != VK_NULL_HANDLE) {
-            vkDestroyImage(device_, depthImage_, nullptr);
-        }
-        if (depthMemory_ != VK_NULL_HANDLE) {
-            vkFreeMemory(device_, depthMemory_, nullptr);
-        }
-    }
-
-    [[nodiscard]] void* GetRenderPassHandle() const override {
-        return reinterpret_cast<void*>(renderPass_);
-    }
-
-    [[nodiscard]] void* GetFramebufferHandle() const override {
-        return reinterpret_cast<void*>(framebuffer_);
-    }
-
-    [[nodiscard]] RHI::u32 GetWidth() const override {
-        return width_;
-    }
-
-    [[nodiscard]] RHI::u32 GetHeight() const override {
-        return height_;
-    }
-
-    [[nodiscard]] RHI::u32 GetColorAttachmentCount() const override {
-        return static_cast<RHI::u32>(colorTextures_.size());
-    }
-
-    [[nodiscard]] RHI::u32 GetSampleCount() const override {
-        return sampleCount_;
-    }
-
-    [[nodiscard]] RHI::Texture GetColorTexture(const RHI::u32 index) const override {
-        if (index >= colorTextures_.size()) {
-            return {};
-        }
-        return colorTextures_[index];
-    }
-
-    [[nodiscard]] bool HasDepth() const override {
-        return depthView_ != VK_NULL_HANDLE;
-    }
-
-    [[nodiscard]] RHI::Texture GetDepthTexture() const override {
-        return depthView_ != VK_NULL_HANDLE ? depthTexture_ : RHI::Texture{};
-    }
-
-private:
-    VkDevice device_{VK_NULL_HANDLE};
-    RHI::u32 width_{0U};
-    RHI::u32 height_{0U};
-    VkFormat colorFormat_{VK_FORMAT_R8G8B8A8_UNORM};
-    VkRenderPass renderPass_{VK_NULL_HANDLE};
-    VkFramebuffer framebuffer_{VK_NULL_HANDLE};
-    std::vector<ColorAttachment> colorAttachments_{};
-    std::vector<ColorAttachment> msaaColorAttachments_{};
-    VkImage depthImage_{VK_NULL_HANDLE};
-    VkDeviceMemory depthMemory_{VK_NULL_HANDLE};
-    VkImageView depthView_{VK_NULL_HANDLE};
-    VkSampler depthSampler_{VK_NULL_HANDLE};
-    RHI::Format depthFormat_{RHI::Format::D32_Float};
-    std::vector<RHI::Texture> colorTextures_{};
-    RHI::Texture depthTexture_{};
-    RHI::u32 sampleCount_{1U};
-};
-
-VkCullModeFlags ResolveCullMode(const RHI::PipelineDesc& desc) {
-    switch (desc.cullMode) {
-        case RHI::CullMode::None:
-            return VK_CULL_MODE_NONE;
-        case RHI::CullMode::Front:
-            return VK_CULL_MODE_FRONT_BIT;
-        case RHI::CullMode::Back:
-        default:
-            return VK_CULL_MODE_BACK_BIT;
-    }
-}
-
-VkSampleCountFlagBits ResolveSampleCount(const VkPhysicalDevice physicalDevice, const RHI::u32 sampleCount) {
-    if (sampleCount <= 1U || physicalDevice == VK_NULL_HANDLE) {
-        return VK_SAMPLE_COUNT_1_BIT;
-    }
-    VkPhysicalDeviceProperties properties{};
-    vkGetPhysicalDeviceProperties(physicalDevice, &properties);
-    const VkSampleCountFlags counts =
-        properties.limits.framebufferColorSampleCounts & properties.limits.framebufferDepthSampleCounts;
-    const auto supports = [&](const VkSampleCountFlagBits bit) { return (counts & bit) == bit; };
-    if (sampleCount >= 8U && supports(VK_SAMPLE_COUNT_8_BIT)) {
-        return VK_SAMPLE_COUNT_8_BIT;
-    }
-    if (sampleCount >= 4U && supports(VK_SAMPLE_COUNT_4_BIT)) {
-        return VK_SAMPLE_COUNT_4_BIT;
-    }
-    if (sampleCount >= 2U && supports(VK_SAMPLE_COUNT_2_BIT)) {
-        return VK_SAMPLE_COUNT_2_BIT;
-    }
-    return VK_SAMPLE_COUNT_1_BIT;
-}
-
-VkCompareOp ResolveDepthCompare(const RHI::DepthCompare compare) {
-    switch (compare) {
-        case RHI::DepthCompare::Always:
-            return VK_COMPARE_OP_ALWAYS;
-        case RHI::DepthCompare::Equal:
-            return VK_COMPARE_OP_EQUAL;
-        case RHI::DepthCompare::LessOrEqual:
-            return VK_COMPARE_OP_LESS_OR_EQUAL;
-        case RHI::DepthCompare::GreaterOrEqual:
-        default:
-            return VK_COMPARE_OP_GREATER_OR_EQUAL;
-    }
-}
-
-#if !defined(NDEBUG)
-constexpr const char* kValidationLayerName = "VK_LAYER_KHRONOS_validation";
-#endif
-
-bool HasInstanceLayer(const char* layerName) {
-    std::uint32_t layerCount = 0;
-    if (vkEnumerateInstanceLayerProperties(&layerCount, nullptr) != VK_SUCCESS || layerCount == 0) {
-        return false;
-    }
-    std::vector<VkLayerProperties> layers(layerCount);
-    vkEnumerateInstanceLayerProperties(&layerCount, layers.data());
-    for (const auto& layer : layers) {
-        if (std::strcmp(layer.layerName, layerName) == 0) {
-            return true;
-        }
-    }
-    return false;
-}
-
-bool HasInstanceExtension(const char* extensionName) {
-    std::uint32_t extensionCount = 0;
-    if (vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr) != VK_SUCCESS || extensionCount == 0) {
-        return false;
-    }
-    std::vector<VkExtensionProperties> extensions(extensionCount);
-    vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, extensions.data());
-    for (const auto& extension : extensions) {
-        if (std::strcmp(extension.extensionName, extensionName) == 0) {
-            return true;
-        }
-    }
-    return false;
-}
-
-VkImageAspectFlags DepthAspectMaskForFormat(const VkFormat format) {
-    switch (format) {
-        case VK_FORMAT_D16_UNORM_S8_UINT:
-        case VK_FORMAT_D24_UNORM_S8_UINT:
-        case VK_FORMAT_D32_SFLOAT_S8_UINT:
-            return VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
-        default:
-            return VK_IMAGE_ASPECT_DEPTH_BIT;
-    }
-}
-
-VkResult CreateDebugUtilsMessenger(
-    const VkInstance instance,
-    const VkDebugUtilsMessengerCreateInfoEXT* createInfo,
-    VkDebugUtilsMessengerEXT* messenger
-) {
-    const auto fn = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
-        vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT")
-    );
-    if (fn == nullptr) {
-        return VK_ERROR_EXTENSION_NOT_PRESENT;
-    }
-    return fn(instance, createInfo, nullptr, messenger);
-}
-
-void DestroyDebugUtilsMessenger(const VkInstance instance, const VkDebugUtilsMessengerEXT messenger) {
-    const auto fn = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
-        vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT")
-    );
-    if (fn != nullptr) {
-        fn(instance, messenger, nullptr);
-    }
-}
-
-VKAPI_ATTR VkBool32 VKAPI_CALL DebugMessageCallback(
-    VkDebugUtilsMessageSeverityFlagBitsEXT severity,
-    VkDebugUtilsMessageTypeFlagsEXT,
-    const VkDebugUtilsMessengerCallbackDataEXT* callbackData,
-    void*
-) {
-    const char* prefix = "[Vulkan][Info]";
-    if ((severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) != 0U) {
-        prefix = "[Vulkan][Error]";
-    } else if ((severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) != 0U) {
-        prefix = "[Vulkan][Warning]";
-    } else if ((severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT) != 0U) {
-        prefix = "[Vulkan][Verbose]";
-    }
-    std::cerr << prefix << " " << (callbackData != nullptr ? callbackData->pMessage : "Unknown") << std::endl;
-    return VK_FALSE;
-}
-
-std::uint32_t SelectVulkanApiVersion() {
-    std::uint32_t loaderVersion = VK_API_VERSION_1_0;
-    if (vkEnumerateInstanceVersion(&loaderVersion) != VK_SUCCESS) {
-        loaderVersion = VK_API_VERSION_1_0;
-    }
-
-    const std::array<std::uint32_t, 4> candidates{
-        VK_API_VERSION_1_3,
-        VK_API_VERSION_1_2,
-        VK_API_VERSION_1_1,
-        VK_API_VERSION_1_0
-    };
-    for (const auto candidate : candidates) {
-        if (VK_API_VERSION_MAJOR(loaderVersion) > VK_API_VERSION_MAJOR(candidate) ||
-            (VK_API_VERSION_MAJOR(loaderVersion) == VK_API_VERSION_MAJOR(candidate) &&
-             VK_API_VERSION_MINOR(loaderVersion) >= VK_API_VERSION_MINOR(candidate))) {
-            return candidate;
-        }
-    }
-    return VK_API_VERSION_1_0;
-}
-
-} // namespace
+// Utility helpers live in Backends/Vulkan/Utils.
 
 VulkanContext::VulkanContext(VulkanApi api)
     : api_(api) {}
@@ -537,7 +136,7 @@ VulkanContext::~VulkanContext() {
         api_.Surface = VK_NULL_HANDLE;
     }
     if (ownsInstance_ && debugMessenger_ != VK_NULL_HANDLE) {
-        DestroyDebugUtilsMessenger(api_.Instance, debugMessenger_);
+        Utils::DestroyDebugUtilsMessenger(api_.Instance, debugMessenger_);
         debugMessenger_ = VK_NULL_HANDLE;
     }
     if (ownsInstance_ && api_.Instance != VK_NULL_HANDLE) {
@@ -565,17 +164,17 @@ void VulkanContext::EnsureApiBootstrap() {
 
 #if !defined(NDEBUG)
         std::vector<const char*> requiredLayers;
-        if (HasInstanceLayer(kValidationLayerName)) {
-            requiredLayers.push_back(kValidationLayerName);
+        if (Utils::HasInstanceLayer(Utils::kValidationLayerName)) {
+            requiredLayers.push_back(Utils::kValidationLayerName);
             validationLayersEnabled_ = true;
-            if (HasInstanceExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME)) {
+            if (Utils::HasInstanceExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME)) {
                 requiredExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
             }
         } else {
             validationLayersEnabled_ = false;
         }
 #endif
-        api_.NegotiatedApiVersion = SelectVulkanApiVersion();
+        api_.NegotiatedApiVersion = Utils::SelectVulkanApiVersion();
         const VkApplicationInfo appInfo{
             .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
             .pNext = nullptr,
@@ -617,10 +216,10 @@ void VulkanContext::EnsureApiBootstrap() {
                 .messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
                                VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
                                VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
-                .pfnUserCallback = DebugMessageCallback,
+                .pfnUserCallback = Utils::DebugMessageCallback,
                 .pUserData = nullptr
             };
-            if (CreateDebugUtilsMessenger(api_.Instance, &messengerInfo, &debugMessenger_) != VK_SUCCESS) {
+            if (Utils::CreateDebugUtilsMessenger(api_.Instance, &messengerInfo, &debugMessenger_) != VK_SUCCESS) {
                 debugMessenger_ = VK_NULL_HANDLE;
             }
         }
@@ -1488,7 +1087,7 @@ void VulkanContext::RecreateDepthAttachment() {
             VK_COMPONENT_SWIZZLE_IDENTITY,
             VK_COMPONENT_SWIZZLE_IDENTITY,
             VK_COMPONENT_SWIZZLE_IDENTITY},
-        .subresourceRange = {DepthAspectMaskForFormat(api_.DepthFormat), 0, 1, 0, 1}
+        .subresourceRange = {Utils::DepthAspectMaskForFormat(api_.DepthFormat), 0, 1, 0, 1}
     };
     if (vkCreateImageView(api_.Device, &viewInfo, nullptr, &api_.DepthAttachmentView) != VK_SUCCESS) {
         DestroyDepthAttachment();
@@ -1530,7 +1129,7 @@ void VulkanContext::RecreateDepthAttachment() {
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image = ownedDepthImage_,
-        .subresourceRange = {DepthAspectMaskForFormat(api_.DepthFormat), 0, 1, 0, 1}
+        .subresourceRange = {Utils::DepthAspectMaskForFormat(api_.DepthFormat), 0, 1, 0, 1}
     };
     vkCmdPipelineBarrier(
         commandBuffer,
@@ -1758,7 +1357,7 @@ std::unique_ptr<RHI::IPipeline> VulkanContext::CreatePipeline(const RHI::Pipelin
         .depthClampEnable = (desc.pipelineId == "shadow" && depthClampEnabled_) ? VK_TRUE : VK_FALSE,
         .rasterizerDiscardEnable = VK_FALSE,
         .polygonMode = VK_POLYGON_MODE_FILL,
-        .cullMode = ResolveCullMode(desc),
+        .cullMode = Utils::ResolveCullMode(desc),
         // Main/sky use a CPU-side projection flip (projection[1][1] *= -1) to match OpenGL-style screen-space winding.
         // Shadow uses an unflipped light projection (0..1 depth), so its winding is opposite.
         .frontFace = (desc.pipelineId == "shadow") ? VK_FRONT_FACE_CLOCKWISE : VK_FRONT_FACE_COUNTER_CLOCKWISE,
@@ -1768,7 +1367,7 @@ std::unique_ptr<RHI::IPipeline> VulkanContext::CreatePipeline(const RHI::Pipelin
         .depthBiasSlopeFactor = 0.0F,
         .lineWidth = 1.0F
     };
-    const VkSampleCountFlagBits sampleCount = ResolveSampleCount(api_.PhysicalDevice, desc.sampleCount);
+    const VkSampleCountFlagBits sampleCount = Utils::ResolveSampleCount(api_.PhysicalDevice, desc.sampleCount);
     const VkPipelineMultisampleStateCreateInfo multisample{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
         .pNext = nullptr,
@@ -1786,7 +1385,7 @@ std::unique_ptr<RHI::IPipeline> VulkanContext::CreatePipeline(const RHI::Pipelin
         .flags = 0,
         .depthTestEnable = desc.depthTest ? VK_TRUE : VK_FALSE,
         .depthWriteEnable = desc.depthWrite ? VK_TRUE : VK_FALSE,
-        .depthCompareOp = desc.depthTest ? ResolveDepthCompare(desc.depthCompare) : VK_COMPARE_OP_ALWAYS,
+        .depthCompareOp = desc.depthTest ? Utils::ResolveDepthCompare(desc.depthCompare) : VK_COMPARE_OP_ALWAYS,
         .depthBoundsTestEnable = VK_FALSE,
         .stencilTestEnable = VK_FALSE,
         .front = {},
@@ -1885,14 +1484,14 @@ std::unique_ptr<RHI::IRenderTarget> VulkanContext::CreateRenderTarget(const RHI:
         }
     }
 
-    VkSampleCountFlagBits sampleCount = ResolveSampleCount(api_.PhysicalDevice, desc.sampleCount);
+    VkSampleCountFlagBits sampleCount = Utils::ResolveSampleCount(api_.PhysicalDevice, desc.sampleCount);
     if (desc.depthTexture && sampleCount != VK_SAMPLE_COUNT_1_BIT) {
         sampleCount = VK_SAMPLE_COUNT_1_BIT;
     }
     const bool useMsaa = sampleCount != VK_SAMPLE_COUNT_1_BIT;
 
-    std::vector<VulkanRenderTarget::ColorAttachment> colors(desc.colorAttachmentCount);
-    std::vector<VulkanRenderTarget::ColorAttachment> msaaColors(useMsaa ? desc.colorAttachmentCount : 0U);
+    std::vector<Utils::VulkanRenderTarget::ColorAttachment> colors(desc.colorAttachmentCount);
+    std::vector<Utils::VulkanRenderTarget::ColorAttachment> msaaColors(useMsaa ? desc.colorAttachmentCount : 0U);
     std::vector<VkAttachmentDescription> attachments{};
     const std::uint32_t colorAttachmentSlots =
         useMsaa ? (desc.colorAttachmentCount * 2U) : desc.colorAttachmentCount;
@@ -1904,7 +1503,7 @@ std::unique_ptr<RHI::IRenderTarget> VulkanContext::CreateRenderTarget(const RHI:
     std::vector<VkImageView> framebufferAttachments{};
     framebufferAttachments.reserve(colorAttachmentSlots + (desc.hasDepth ? 1U : 0U));
 
-    const auto createColorAttachment = [&](VulkanRenderTarget::ColorAttachment& outColor,
+    const auto createColorAttachment = [&](Utils::VulkanRenderTarget::ColorAttachment& outColor,
                                            const VkSampleCountFlagBits samples,
                                            const bool sampled) -> bool {
         const VkImageUsageFlags usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
@@ -2118,7 +1717,7 @@ std::unique_ptr<RHI::IRenderTarget> VulkanContext::CreateRenderTarget(const RHI:
                 VK_COMPONENT_SWIZZLE_IDENTITY
             },
             .subresourceRange = {
-                DepthAspectMaskForFormat(api_.DepthFormat),
+                Utils::DepthAspectMaskForFormat(api_.DepthFormat),
                 0,
                 1,
                 0,
@@ -2332,7 +1931,7 @@ std::unique_ptr<RHI::IRenderTarget> VulkanContext::CreateRenderTarget(const RHI:
                 .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                 .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                 .image = depthImage,
-                .subresourceRange = {DepthAspectMaskForFormat(api_.DepthFormat), 0, 1, 0, 1}
+                .subresourceRange = {Utils::DepthAspectMaskForFormat(api_.DepthFormat), 0, 1, 0, 1}
             };
             vkCmdPipelineBarrier(
                 commandBuffer,
@@ -2367,7 +1966,7 @@ std::unique_ptr<RHI::IRenderTarget> VulkanContext::CreateRenderTarget(const RHI:
 
     const RHI::Format rhiDepthFormat = api_.DepthFormat == VK_FORMAT_D24_UNORM_S8_UINT ? RHI::Format::D24S8
                                                                                        : RHI::Format::D32_Float;
-    return std::make_unique<VulkanRenderTarget>(
+    return std::make_unique<Utils::VulkanRenderTarget>(
         api_.Device,
         desc.width,
         desc.height,
@@ -2387,7 +1986,7 @@ std::unique_ptr<RHI::IRenderTarget> VulkanContext::CreateRenderTarget(const RHI:
 
 std::unique_ptr<RHI::IBuffer> VulkanContext::CreateBuffer(const RHI::BufferDesc& desc) {
     if (api_.Device == VK_NULL_HANDLE || desc.size == 0) {
-        return std::make_unique<VulkanBuffer>(api_.Device, VK_NULL_HANDLE, VK_NULL_HANDLE, desc.size);
+        return std::make_unique<Utils::VulkanBuffer>(api_.Device, VK_NULL_HANDLE, VK_NULL_HANDLE, desc.size);
     }
 
     VkBufferUsageFlags usageFlags = 0;
@@ -2419,7 +2018,7 @@ std::unique_ptr<RHI::IBuffer> VulkanContext::CreateBuffer(const RHI::BufferDesc&
 
     VkBuffer buffer = VK_NULL_HANDLE;
     if (vkCreateBuffer(api_.Device, &bufferInfo, nullptr, &buffer) != VK_SUCCESS) {
-        return std::make_unique<VulkanBuffer>(api_.Device, VK_NULL_HANDLE, VK_NULL_HANDLE, desc.size);
+        return std::make_unique<Utils::VulkanBuffer>(api_.Device, VK_NULL_HANDLE, VK_NULL_HANDLE, desc.size);
     }
 
     VkMemoryRequirements memRequirements{};
@@ -2428,7 +2027,7 @@ std::unique_ptr<RHI::IBuffer> VulkanContext::CreateBuffer(const RHI::BufferDesc&
         FindMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     if (memoryTypeIndex == UINT32_MAX) {
         vkDestroyBuffer(api_.Device, buffer, nullptr);
-        return std::make_unique<VulkanBuffer>(api_.Device, VK_NULL_HANDLE, VK_NULL_HANDLE, desc.size);
+        return std::make_unique<Utils::VulkanBuffer>(api_.Device, VK_NULL_HANDLE, VK_NULL_HANDLE, desc.size);
     }
 
     const VkMemoryAllocateInfo allocInfo{
@@ -2440,7 +2039,7 @@ std::unique_ptr<RHI::IBuffer> VulkanContext::CreateBuffer(const RHI::BufferDesc&
     VkDeviceMemory memory = VK_NULL_HANDLE;
     if (vkAllocateMemory(api_.Device, &allocInfo, nullptr, &memory) != VK_SUCCESS) {
         vkDestroyBuffer(api_.Device, buffer, nullptr);
-        return std::make_unique<VulkanBuffer>(api_.Device, VK_NULL_HANDLE, VK_NULL_HANDLE, desc.size);
+        return std::make_unique<Utils::VulkanBuffer>(api_.Device, VK_NULL_HANDLE, VK_NULL_HANDLE, desc.size);
     }
     vkBindBufferMemory(api_.Device, buffer, memory, 0);
 
@@ -2452,12 +2051,12 @@ std::unique_ptr<RHI::IBuffer> VulkanContext::CreateBuffer(const RHI::BufferDesc&
         }
     }
 
-    return std::make_unique<VulkanBuffer>(api_.Device, buffer, memory, desc.size);
+    return std::make_unique<Utils::VulkanBuffer>(api_.Device, buffer, memory, desc.size);
 }
 
 std::unique_ptr<RHI::IResourceSet> VulkanContext::CreateResourceSet(const RHI::ResourceSetDesc& desc) {
     if (desc.nativeHandleHint != nullptr) {
-        return std::make_unique<VulkanResourceSet>(
+        return std::make_unique<Utils::VulkanResourceSet>(
             api_.Device,
             api_.DescriptorPool,
             reinterpret_cast<VkDescriptorSet>(desc.nativeHandleHint),
@@ -2465,7 +2064,7 @@ std::unique_ptr<RHI::IResourceSet> VulkanContext::CreateResourceSet(const RHI::R
         );
     }
     if (api_.Device == VK_NULL_HANDLE || api_.DescriptorPool == VK_NULL_HANDLE || api_.DescriptorSetLayout == VK_NULL_HANDLE) {
-        return std::make_unique<VulkanResourceSet>(api_.Device, api_.DescriptorPool, VK_NULL_HANDLE, false);
+        return std::make_unique<Utils::VulkanResourceSet>(api_.Device, api_.DescriptorPool, VK_NULL_HANDLE, false);
     }
 
     const VkDescriptorSetAllocateInfo allocInfo{
@@ -2477,7 +2076,7 @@ std::unique_ptr<RHI::IResourceSet> VulkanContext::CreateResourceSet(const RHI::R
     };
     VkDescriptorSet set = VK_NULL_HANDLE;
     if (vkAllocateDescriptorSets(api_.Device, &allocInfo, &set) != VK_SUCCESS) {
-        return std::make_unique<VulkanResourceSet>(api_.Device, api_.DescriptorPool, VK_NULL_HANDLE, false);
+        return std::make_unique<Utils::VulkanResourceSet>(api_.Device, api_.DescriptorPool, VK_NULL_HANDLE, false);
     }
 
     std::vector<VkDescriptorImageInfo> imageInfos;
@@ -2534,7 +2133,7 @@ std::unique_ptr<RHI::IResourceSet> VulkanContext::CreateResourceSet(const RHI::R
         vkUpdateDescriptorSets(api_.Device, static_cast<std::uint32_t>(writes.size()), writes.data(), 0, nullptr);
     }
 
-    return std::make_unique<VulkanResourceSet>(api_.Device, api_.DescriptorPool, set, true);
+    return std::make_unique<Utils::VulkanResourceSet>(api_.Device, api_.DescriptorPool, set, true);
 }
 
 RHI::Texture VulkanContext::CreateTexture2D(const RHI::Texture2DDesc& desc) {

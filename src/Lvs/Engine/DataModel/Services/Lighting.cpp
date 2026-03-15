@@ -1,8 +1,8 @@
-#include "Lvs/Engine/DataModel/Lighting.hpp"
+#include "Lvs/Engine/DataModel/Services/Lighting.hpp"
 
 #include "Lvs/Engine/Core/ObjectBase.hpp"
 #include "Lvs/Engine/DataModel/ClassRegistry.hpp"
-#include "Lvs/Engine/DataModel/ServiceRegistry.hpp"
+#include "Lvs/Engine/DataModel/Services/ServiceRegistry.hpp"
 #include "Lvs/Engine/Enums/LightingComputationMode.hpp"
 #include "Lvs/Engine/Enums/LightingTechnology.hpp"
 #include "Lvs/Engine/Math/Color3.hpp"

@@ -3,6 +3,8 @@
 #include "Lvs/Engine/Rendering/Common/OverlayPrimitive.hpp"
 #include "Lvs/Engine/Rendering/RHI/Types.hpp"
 
+#include <QMetaType>
+
 #include <memory>
 #include <string>
 #include <stdexcept>
@@ -43,3 +45,5 @@ public:
 [[nodiscard]] std::unique_ptr<IRenderContext> CreateRenderContext(RenderApi preferredApi = RenderApi::Auto);
 
 } // namespace Lvs::Engine::Rendering
+
+Q_DECLARE_METATYPE(Lvs::Engine::Rendering::RenderApi)

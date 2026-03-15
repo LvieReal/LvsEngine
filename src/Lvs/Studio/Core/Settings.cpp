@@ -1,6 +1,12 @@
 #include "Lvs/Studio/Core/Settings.hpp"
 #include "Lvs/Engine/Utils/SourcePath.hpp"
 
+#include "Lvs/Engine/Enums/EnumMetadata.hpp"
+#include "Lvs/Engine/Enums/MSAA.hpp"
+#include "Lvs/Engine/Enums/SurfaceMipmapping.hpp"
+#include "Lvs/Engine/Enums/Theme.hpp"
+#include "Lvs/Engine/Rendering/IRenderContext.hpp"
+
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -16,11 +22,12 @@ namespace {
 QMap<QString, SettingMeta> g_settings = {
     {"BaseCameraSpeed", {"Base Camera Speed", "Base camera speed", 15.0}},
     {"ShiftCameraSpeed", {"Shift Camera Speed", "Shift camera speed", 5.0}},
-    {"Theme", {"Theme", "Main studio theme", "Light", QStringList{"Light", "Dark"}}},
+    {"Theme", {"Theme", "Main studio theme", QVariant::fromValue(Engine::Enums::Theme::Light)}},
     {"ExplorerIconPack", {"Explorer Icon Pack", "Explorer icon pack folder name", "famfamfam-silk"}},
-    {"RenderingApi", {"Rendering API", "Preferred rendering backend", "Auto", QStringList{"Auto", "Vulkan", "OpenGL"}}},
-    {"MSAA", {"MSAA", "Multisample anti-aliasing sample count", "Off", QStringList{"Off", "2x", "4x", "8x"}}},
-    {"SurfaceMipmapping", {"Surface Mipmapping", "Mipmapped filtering for surface textures", "On", QStringList{"Off", "On"}}},
+    {"ExplorerShowHiddenServices", {"Show Hidden Services", "Show hidden services in Explorer", false}},
+    {"RenderingApi", {"Rendering API", "Preferred rendering backend", QVariant::fromValue(Engine::Rendering::RenderApi::Auto)}},
+    {"MSAA", {"MSAA", "Multisample anti-aliasing sample count", QVariant::fromValue(Engine::Enums::MSAA::Off)}},
+    {"SurfaceMipmapping", {"Surface Mipmapping", "Mipmapped filtering for surface textures", QVariant::fromValue(Engine::Enums::SurfaceMipmapping::On)}},
     {"GizmoAlwaysOnTop", {"Gizmo Always On Top", "Render gizmos on top of scene geometry", true}},
     {"GizmoIgnoreDiffuseSpecular", {"Gizmo Ignore Lighting", "Ignore diffuse and specular lighting for gizmos", true}},
     {"GizmoAlignByMagnitude", {"Gizmo Align By Magnitude", "Place gizmo handles using bounds magnitude", true}},
@@ -36,12 +43,13 @@ QMap<QString, QStringList> g_categories = {
         {
          "BaseCameraSpeed",
          "ShiftCameraSpeed",
-         "Theme",
-         "ExplorerIconPack",
-         "GizmoAlwaysOnTop",
-         "GizmoIgnoreDiffuseSpecular",
-         "GizmoAlignByMagnitude",
-         "TransformSnapIncrement"
+	     "Theme",
+	     "ExplorerIconPack",
+	     "ExplorerShowHiddenServices",
+	     "GizmoAlwaysOnTop",
+	     "GizmoIgnoreDiffuseSpecular",
+	     "GizmoAlignByMagnitude",
+	     "TransformSnapIncrement"
         }
     },
     {"Rendering",
@@ -91,6 +99,19 @@ void FireChanged(const QString& key, const QVariant& value) {
 }
 
 QVariant ParseByDefaultType(const QVariant& defaultValue, const QJsonValue& value) {
+    if (Engine::Enums::Metadata::IsRegisteredEnumType(defaultValue.typeId())) {
+        const int typeId = defaultValue.typeId();
+        if (value.isString()) {
+            const QVariant parsed = Engine::Enums::Metadata::VariantFromName(typeId, value.toString());
+            return parsed.isValid() ? parsed : defaultValue;
+        }
+        if (value.isDouble()) {
+            const int fallback = Engine::Enums::Metadata::IntFromVariant(defaultValue);
+            return Engine::Enums::Metadata::VariantFromInt(typeId, value.toInt(fallback));
+        }
+        return defaultValue;
+    }
+
     switch (defaultValue.typeId()) {
         case QMetaType::Bool:
             return value.toBool(defaultValue.toBool());
@@ -106,6 +127,14 @@ QVariant ParseByDefaultType(const QVariant& defaultValue, const QJsonValue& valu
 }
 
 QJsonValue ToJsonValue(const QVariant& value) {
+    if (Engine::Enums::Metadata::IsRegisteredEnumType(value.typeId())) {
+        const QString name = Engine::Enums::Metadata::NameFromVariant(value);
+        if (!name.isEmpty()) {
+            return QJsonValue(name);
+        }
+        return QJsonValue(Engine::Enums::Metadata::IntFromVariant(value));
+    }
+
     switch (value.typeId()) {
         case QMetaType::Bool:
             return QJsonValue(value.toBool());
@@ -137,11 +166,18 @@ void Verify() {
             continue;
         }
 
-        QVariant value = g_values.value(key);
-        if (!value.convert(meta.DefaultValue.metaType())) {
-            g_values[key] = meta.DefaultValue;
-        }
-    }
+	    QVariant value = g_values.value(key);
+	    if (Engine::Enums::Metadata::IsRegisteredEnumType(meta.DefaultValue.typeId())) {
+	        const QVariant coerced = Engine::Enums::Metadata::CoerceVariant(meta.DefaultValue.typeId(), value);
+	        g_values[key] = coerced.isValid() ? coerced : meta.DefaultValue;
+	        continue;
+	    }
+	    if (!value.convert(meta.DefaultValue.metaType())) {
+	        g_values[key] = meta.DefaultValue;
+	    } else {
+	        g_values[key] = value;
+	    }
+	}
 }
 
 QString ResolveConfigPath() {
@@ -228,9 +264,16 @@ bool Set(const QString& key, const QVariant& value) {
         throw std::runtime_error(QString("Unknown setting: %1").arg(key).toStdString());
     }
 
-    QVariant converted = value;
     const QVariant& defaultValue = g_settings.value(key).DefaultValue;
-    if (!converted.convert(defaultValue.metaType())) {
+    QVariant converted = value;
+    if (Engine::Enums::Metadata::IsRegisteredEnumType(defaultValue.typeId())) {
+        if (converted.typeId() != defaultValue.typeId()) {
+            converted = Engine::Enums::Metadata::CoerceVariant(defaultValue.typeId(), converted);
+        }
+        if (!converted.isValid() || converted.typeId() != defaultValue.typeId()) {
+            return false;
+        }
+    } else if (!converted.convert(defaultValue.metaType())) {
         return false;
     }
 

@@ -1,5 +1,6 @@
 #include "Lvs/Studio/Widgets/Settings/SettingsWidget.hpp"
 
+#include "Lvs/Engine/Enums/EnumMetadata.hpp"
 #include "Lvs/Studio/Core/IconPackManager.hpp"
 #include "Lvs/Studio/Core/Settings.hpp"
 
@@ -35,6 +36,15 @@ void UpdateEditorValue(QWidget* editor, const QString& key, const QVariant& valu
     if (auto* combo = qobject_cast<QComboBox*>(editor); combo != nullptr) {
         const QSignalBlocker blocker(combo);
         static_cast<void>(key);
+        if (Lvs::Engine::Enums::Metadata::IsRegisteredEnumType(value.typeId())) {
+            const int currentValue = Lvs::Engine::Enums::Metadata::IntFromVariant(value);
+            for (int i = 0; i < combo->count(); ++i) {
+                if (combo->itemData(i).toInt() == currentValue) {
+                    combo->setCurrentIndex(i);
+                    return;
+                }
+            }
+        }
         combo->setCurrentText(value.toString());
     }
 }
@@ -216,6 +226,42 @@ QWidget* SettingsWidget::CreateEditor(const QString& key) {
         connect(combo, &QComboBox::currentTextChanged, combo, [key](const QString& current) {
             Core::Settings::Set(key, current);
         });
+        return combo;
+    }
+
+    if (Engine::Enums::Metadata::IsRegisteredEnumType(defaultValue.typeId())) {
+        auto* combo = new QComboBox(settingsPanel_);
+        combo->setEditable(false);
+
+        const int typeId = defaultValue.typeId();
+        const auto options = Engine::Enums::Metadata::OptionsForType(typeId);
+        for (const auto& opt : options) {
+            combo->addItem(QString::fromUtf8(opt.Name), opt.Value);
+        }
+
+        QVariant current = value;
+        if (current.typeId() != typeId) {
+            current = Engine::Enums::Metadata::CoerceVariant(typeId, current);
+        }
+        if (!current.isValid()) {
+            current = defaultValue;
+        }
+        const int currentValue = Engine::Enums::Metadata::IntFromVariant(current);
+        for (int i = 0; i < combo->count(); ++i) {
+            if (combo->itemData(i).toInt() == currentValue) {
+                combo->setCurrentIndex(i);
+                break;
+            }
+        }
+
+        connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged), combo, [combo, key, typeId](const int index) {
+            if (index < 0) {
+                return;
+            }
+            const int selectedValue = combo->itemData(index).toInt();
+            Core::Settings::Set(key, Engine::Enums::Metadata::VariantFromInt(typeId, selectedValue));
+        });
+
         return combo;
     }
 

@@ -39,7 +39,7 @@ void ShowGraphicsUnsupportedError(const QString& text) {
     box.setIcon(QMessageBox::Critical);
     box.setWindowTitle("Unexpected Error");
     box.setText(
-        QString("An unexpected error occured and %1 needs to quit, sorry!\n%2").arg(appLabel, text)
+        QString("An unexpected error occured and %1 needs to quit, sorry!\n\n%2").arg(appLabel, text)
     );
     QPushButton* exitButton = box.addButton("Exit", QMessageBox::DestructiveRole);
     box.setDefaultButton(exitButton);

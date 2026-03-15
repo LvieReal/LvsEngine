@@ -4,7 +4,7 @@
 #include "Lvs/Engine/Core/Property.hpp"
 #include "Lvs/Engine/Core/PropertyTags.hpp"
 #include "Lvs/Engine/Core/RegularError.hpp"
-#include "Lvs/Engine/DataModel/ChangeHistoryService.hpp"
+#include "Lvs/Engine/DataModel/Services/ChangeHistoryService.hpp"
 #include "Lvs/Engine/DataModel/Place.hpp"
 #include "Lvs/Engine/Math/Color3.hpp"
 #include "Lvs/Engine/Utils/Command.hpp"
