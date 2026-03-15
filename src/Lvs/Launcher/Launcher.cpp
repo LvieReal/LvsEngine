@@ -1,7 +1,9 @@
 #include "Lvs/Launcher/Launcher.hpp"
 
 #include "Lvs/Engine/Bootstrap.hpp"
+#include "Lvs/Engine/Core/CrashHandler.hpp"
 #include "Lvs/Engine/Core/CriticalError.hpp"
+#include "Lvs/Engine/Core/SessionLog.hpp"
 #include "Lvs/Engine/Core/Window.hpp"
 #include "Lvs/Engine/Rendering/IRenderContext.hpp"
 #include "Lvs/Engine/Utils/SourcePath.hpp"
@@ -18,6 +20,10 @@ namespace Lvs::Launcher {
 int Run(int argc, char* argv[], const BuildType buildType, const char* appName, const char* appIconPath) {
     QApplication app(argc, argv);
     app.setApplicationDisplayName(appName);
+    app.setApplicationName(appName);
+
+    Engine::Core::CrashHandler::Install();
+    Engine::Core::SessionLog::Start(QString::fromUtf8(appName));
 
     if (appIconPath != nullptr) {
         const QString iconInput = QString::fromUtf8(appIconPath);
@@ -41,10 +47,13 @@ int Run(int argc, char* argv[], const BuildType buildType, const char* appName, 
 
         return app.exec();
     } catch (const Engine::Rendering::RenderingInitializationError& ex) {
+        Engine::Core::CrashHandler::WriteCrashLog("Rendering initialization error (Exit)", QString::fromUtf8(ex.what()));
         Engine::Core::CriticalError::ShowGraphicsUnsupportedError(QString::fromUtf8(ex.what()));
     } catch (const std::exception& ex) {
+        Engine::Core::CrashHandler::WriteCrashLogFromException(ex, "Unhandled exception (Exit)");
         Engine::Core::CriticalError::ShowCriticalErrorFromException(ex);
     } catch (...) {
+        Engine::Core::CrashHandler::WriteCrashLog("Unknown error (Exit)");
         Engine::Core::CriticalError::ShowUnknownCriticalError();
     }
 

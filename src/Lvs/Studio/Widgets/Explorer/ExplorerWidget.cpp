@@ -19,6 +19,7 @@
 #include <QEvent>
 #include <QHBoxLayout>
 #include <QIcon>
+#include <QItemSelectionModel>
 #include <QLabel>
 #include <QMenu>
 #include <QMimeData>
@@ -112,8 +113,35 @@ void ExplorerWidget::Unbind() {
 }
 
 void ExplorerWidget::SetSelection(const std::vector<std::shared_ptr<Engine::Core::Instance>>& instances) {
-    suppressSelectionSignal_ = true;
-    clearSelection();
+    std::unordered_set<QString> desired;
+    desired.reserve(instances.size());
+    for (const auto& instance : instances) {
+        if (instance == nullptr) {
+            continue;
+        }
+        const QString id = instance->GetId();
+        if (!id.isEmpty()) {
+            desired.insert(id);
+        }
+    }
+
+    bool alreadySelected = true;
+    const QList<QTreeWidgetItem*> currentSelected = selectedItems();
+    if (static_cast<std::size_t>(currentSelected.size()) != desired.size()) {
+        alreadySelected = false;
+    } else {
+        for (QTreeWidgetItem* item : currentSelected) {
+            if (item == nullptr) {
+                alreadySelected = false;
+                break;
+            }
+            const QString id = item->data(0, Qt::UserRole).toString();
+            if (id.isEmpty() || desired.find(id) == desired.end()) {
+                alreadySelected = false;
+                break;
+            }
+        }
+    }
 
     QTreeWidgetItem* primaryItem = nullptr;
     if (!instances.empty()) {
@@ -122,6 +150,21 @@ void ExplorerWidget::SetSelection(const std::vector<std::shared_ptr<Engine::Core
             primaryItem = instanceToItem_.value(primary->GetId(), nullptr);
         }
     }
+
+    if (alreadySelected) {
+        if (primaryItem != nullptr && currentItem() != primaryItem) {
+            suppressSelectionSignal_ = true;
+            setCurrentItem(primaryItem, 0, QItemSelectionModel::NoUpdate);
+            suppressSelectionSignal_ = false;
+        }
+        if (primaryItem != nullptr) {
+            scrollToItem(primaryItem);
+        }
+        return;
+    }
+
+    suppressSelectionSignal_ = true;
+    clearSelection();
 
     for (const auto& instance : instances) {
         if (instance == nullptr) {
@@ -133,7 +176,7 @@ void ExplorerWidget::SetSelection(const std::vector<std::shared_ptr<Engine::Core
     }
 
     if (primaryItem != nullptr) {
-        setCurrentItem(primaryItem);
+        setCurrentItem(primaryItem, 0, QItemSelectionModel::NoUpdate);
         scrollToItem(primaryItem);
     }
 
@@ -328,7 +371,7 @@ void ExplorerWidget::EndTreeUpdate() {
         current = instanceToItem_.value(treeUpdateSelectedIds_.front(), nullptr);
     }
     if (current != nullptr) {
-        setCurrentItem(current);
+        setCurrentItem(current, 0, QItemSelectionModel::NoUpdate);
     }
 
     suppressSelectionSignal_ = false;

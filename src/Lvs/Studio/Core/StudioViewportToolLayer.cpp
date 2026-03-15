@@ -328,8 +328,13 @@ bool StudioViewportToolLayer::CanDragPart() const {
     if (context_ == nullptr || context_->EditorToolState == nullptr || selection_ == nullptr) {
         return false;
     }
-    const auto selected = std::dynamic_pointer_cast<Engine::Objects::BasePart>(selection_->GetPrimary());
-    return selected != nullptr && selected->GetParent() != nullptr;
+    for (const auto& inst : selection_->Get()) {
+        const auto part = std::dynamic_pointer_cast<Engine::Objects::BasePart>(inst);
+        if (part != nullptr && part->GetParent() != nullptr) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool StudioViewportToolLayer::TryBeginPartDrag(const Engine::Utils::Ray& ray) {
@@ -337,33 +342,36 @@ bool StudioViewportToolLayer::TryBeginPartDrag(const Engine::Utils::Ray& ray) {
         return false;
     }
 
-    const auto selected = std::dynamic_pointer_cast<Engine::Objects::BasePart>(selection_->GetPrimary());
-    if (selected == nullptr) {
-        return false;
-    }
-    const auto hitDistance = Engine::Utils::RaycastPartAABB(ray, selected);
-    if (!hitDistance.has_value()) {
-        return false;
-    }
-
     const auto parts = CollectWorkspaceParts();
-    const auto [frontMostPart, frontMostDistance] = Engine::Utils::RaycastParts(ray, parts);
-    static_cast<void>(frontMostDistance);
-    if (frontMostPart != selected) {
+    const auto [hitPart, hitDistance] = Engine::Utils::RaycastParts(ray, parts);
+    if (hitPart == nullptr || !std::isfinite(hitDistance)) {
         return false;
     }
 
-    const auto aabb = Engine::Utils::BuildPartWorldAABB(selected);
+    bool hitIsSelected = false;
+    if (selection_ != nullptr) {
+        for (const auto& inst : selection_->Get()) {
+            if (hitPart == std::dynamic_pointer_cast<Engine::Objects::BasePart>(inst)) {
+                hitIsSelected = true;
+                break;
+            }
+        }
+    }
+    if (!hitIsSelected) {
+        return false;
+    }
+
+    const auto aabb = Engine::Utils::BuildPartWorldAABB(hitPart);
     const Engine::Math::Vector3 halfExtents = (aabb.Max - aabb.Min) * 0.5;
-    const Engine::Math::Vector3 startPosition = selected->GetWorldPosition();
-    const Engine::Math::Vector3 hitPoint = ray.Origin + ray.Direction * hitDistance.value();
+    const Engine::Math::Vector3 startPosition = hitPart->GetWorldPosition();
+    const Engine::Math::Vector3 hitPoint = ray.Origin + ray.Direction * hitDistance;
     const Engine::Math::Vector3 grabOffset = hitPoint - startPosition;
-    const Engine::Math::Vector3 size = selected->GetProperty("Size").value<Engine::Math::Vector3>();
+    const Engine::Math::Vector3 size = hitPart->GetProperty("Size").value<Engine::Math::Vector3>();
     const double maxAxis = std::max({std::abs(size.x), std::abs(size.y), std::abs(size.z)});
     const double fallbackDepth = std::max(0.1, maxAxis * 2.0);
 
     PartDragState state{
-        .Instance = selected,
+        .Instance = hitPart,
         .Targets = {},
         .StartPosition = startPosition,
         .HalfExtents = halfExtents,
@@ -384,7 +392,7 @@ bool StudioViewportToolLayer::TryBeginPartDrag(const Engine::Utils::Ray& ray) {
         }
     }
     if (state.Targets.empty()) {
-        state.Targets.push_back(PartDragState::TargetSnapshot{.Part = selected, .StartWorldCFrame = selected->GetWorldCFrame()});
+        state.Targets.push_back(PartDragState::TargetSnapshot{.Part = hitPart, .StartWorldCFrame = hitPart->GetWorldCFrame()});
     }
 
     partDragState_ = state;
@@ -413,15 +421,22 @@ void StudioViewportToolLayer::UpdatePartDrag(const Engine::Utils::Ray& ray) {
     Engine::Math::Vector3 newPosition = fallbackHitPoint - state.GrabOffset;
     bool hasHitPlacement = false;
 
-    const auto parts = CollectWorkspaceParts(state.Instance);
+    const auto parts = CollectWorkspaceParts();
     if (!parts.empty()) {
         std::vector<std::shared_ptr<Engine::Objects::BasePart>> descendantsToExclude;
-        descendantsToExclude.push_back(state.Instance);
-        const auto descendants = state.Instance->GetDescendants();
-        for (const auto& desc : descendants) {
-            if (const auto descPart = std::dynamic_pointer_cast<Engine::Objects::BasePart>(desc);
-                descPart != nullptr) {
-                descendantsToExclude.push_back(descPart);
+        descendantsToExclude.reserve(state.Targets.size() * 2);
+
+        for (const auto& target : state.Targets) {
+            if (target.Part == nullptr) {
+                continue;
+            }
+            descendantsToExclude.push_back(target.Part);
+            const auto descendants = target.Part->GetDescendants();
+            for (const auto& desc : descendants) {
+                if (const auto descPart = std::dynamic_pointer_cast<Engine::Objects::BasePart>(desc);
+                    descPart != nullptr) {
+                    descendantsToExclude.push_back(descPart);
+                }
             }
         }
 

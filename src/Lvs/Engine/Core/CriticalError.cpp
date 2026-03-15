@@ -1,4 +1,5 @@
 #include "Lvs/Engine/Core/CriticalError.hpp"
+#include "Lvs/Engine/Core/CrashHandler.hpp"
 
 #include <QCoreApplication>
 #include <QMessageBox>
@@ -28,6 +29,7 @@ void ShowGraphicsUnsupportedError(const QString& text) {
     box.setEscapeButton(exitButton);
     box.exec();
 
+    CrashHandler::WriteCrashLog("Graphics Unsupported", text);
     QCoreApplication::exit(1);
 }
 
@@ -46,6 +48,7 @@ void ShowGraphicsUnsupportedError(const QString& text) {
     box.setEscapeButton(exitButton);
     box.exec();
 
+    CrashHandler::WriteCrashLog("Unexpected Error (Exit)", text);
     QCoreApplication::quit();
     std::exit(1);
 }

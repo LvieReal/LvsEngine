@@ -1,4 +1,5 @@
 #include "Lvs/Studio/Core/Settings.hpp"
+#include "Lvs/Engine/Utils/EngineDataPaths.hpp"
 #include "Lvs/Engine/Utils/SourcePath.hpp"
 
 #include "Lvs/Engine/Enums/EnumMetadata.hpp"
@@ -7,7 +8,9 @@
 #include "Lvs/Engine/Enums/Theme.hpp"
 #include "Lvs/Engine/Rendering/IRenderContext.hpp"
 
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
 
@@ -33,6 +36,7 @@ QMap<QString, SettingMeta> g_settings = {
     {"GizmoAlignByMagnitude", {"Gizmo Align By Magnitude", "Place gizmo handles using bounds magnitude", true}},
     {"TransformSnapIncrement", {"Transform Snap Increment", "Snap amount for drag/move/size transforms (0 disables snap)", 1.0}},
     {"DockLayoutState", {"Dock Layout State", "Serialized dock and toolbar layout", ""}},
+    {"LocalAssetsPath", {"Local Assets Folder", "Folder used for local assets (can be changed to any folder on this device)", ""}},
     {"Shortcut.Tool.Select", {"Select Tool", "Keyboard shortcut(s) for Select tool (separate with ';')", "1;Shift+1"}},
     {"Shortcut.Tool.Move", {"Move Tool", "Keyboard shortcut(s) for Move tool (separate with ';')", "2;Shift+2"}},
     {"Shortcut.Tool.Size", {"Size Tool", "Keyboard shortcut(s) for Size tool (separate with ';')", "3;Shift+3"}}
@@ -52,6 +56,11 @@ QMap<QString, QStringList> g_categories = {
 	     "TransformSnapIncrement"
         }
     },
+    {"Paths",
+        {
+         "LocalAssetsPath"
+        }
+    },
     {"Rendering",
         {
          "RenderingApi",
@@ -68,7 +77,7 @@ QMap<QString, QStringList> g_categories = {
     }
 };
 
-QStringList g_categoryOrder = {"Studio", "Rendering", "Shortcuts"};
+QStringList g_categoryOrder = {"Studio", "Paths", "Rendering", "Shortcuts"};
 
 QMap<QString, QVariant> g_values;
 QMap<QString, std::vector<std::pair<std::size_t, SettingChangedCallback>>> g_callbacks;
@@ -152,7 +161,11 @@ QJsonValue ToJsonValue(const QVariant& value) {
 void ApplyDefaults() {
     for (auto it = g_settings.cbegin(); it != g_settings.cend(); ++it) {
         if (!g_values.contains(it.key())) {
-            g_values.insert(it.key(), it.value().DefaultValue);
+            if (it.key() == "LocalAssetsPath") {
+                g_values.insert(it.key(), Engine::Utils::EngineDataPaths::DefaultLocalAssetsDir());
+            } else {
+                g_values.insert(it.key(), it.value().DefaultValue);
+            }
         }
     }
 }
@@ -162,7 +175,11 @@ void Verify() {
         const auto& key = it.key();
         const auto& meta = it.value();
         if (!g_values.contains(key)) {
-            g_values[key] = meta.DefaultValue;
+            if (key == "LocalAssetsPath") {
+                g_values[key] = Engine::Utils::EngineDataPaths::DefaultLocalAssetsDir();
+            } else {
+                g_values[key] = meta.DefaultValue;
+            }
             continue;
         }
 
@@ -177,10 +194,23 @@ void Verify() {
 	    } else {
 	        g_values[key] = value;
 	    }
+
+        if (key == "LocalAssetsPath") {
+            QString p = g_values.value(key).toString().trimmed();
+            if (p.isEmpty()) {
+                p = Engine::Utils::EngineDataPaths::DefaultLocalAssetsDir();
+            }
+            QDir().mkpath(p);
+            g_values[key] = QDir::cleanPath(QFileInfo(p).absoluteFilePath());
+        }
 	}
 }
 
 QString ResolveConfigPath() {
+    return Engine::Utils::EngineDataPaths::StudioConfigFile();
+}
+
+QString ResolveLegacyConfigPath() {
     return Engine::Utils::SourcePath::GetSourcePath("studioConfig.json");
 }
 
@@ -205,11 +235,28 @@ void Load() {
     QFile file(path);
 
     if (!file.exists()) {
-        if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-            throw std::runtime_error("Unable to create studioConfig.json");
+        bool migrated = false;
+        const QString legacy = ResolveLegacyConfigPath();
+        if (legacy != path && QFile::exists(legacy)) {
+            QDir().mkpath(QFileInfo(path).absolutePath());
+            if (QFile::copy(legacy, path)) {
+                file.setFileName(path);
+                migrated = true;
+            }
         }
-        file.write("{}");
-        file.close();
+
+        if (!migrated) {
+            if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                QDir().mkpath(QFileInfo(path).absolutePath());
+                file.setFileName(path);
+
+                if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                    throw std::runtime_error("Unable to create studioConfig.json");
+                }
+            }
+            file.write("{}");
+            file.close();
+        }
     }
 
     if (!file.open(QIODevice::ReadOnly)) {
@@ -246,7 +293,13 @@ void Save() {
 
     QFile file(ConfigFilePath());
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        throw std::runtime_error("Unable to write studioConfig.json");
+        const QString path = ConfigFilePath();
+        QDir().mkpath(QFileInfo(path).absolutePath());
+        file.setFileName(path);
+
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            throw std::runtime_error("Unable to write studioConfig.json");
+        }
     }
     file.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
     file.close();
