@@ -303,10 +303,6 @@ bool StudioViewportToolLayer::CanDragPart() const {
     if (context_ == nullptr || context_->EditorToolState == nullptr || selection_ == nullptr) {
         return false;
     }
-    const Engine::Core::Tool activeTool = context_->EditorToolState->GetActiveTool();
-    if (activeTool != Engine::Core::Tool::SelectTool && activeTool != Engine::Core::Tool::MoveTool) {
-        return false;
-    }
     const auto selected = std::dynamic_pointer_cast<Engine::Objects::BasePart>(selection_->GetPrimary());
     return selected != nullptr && selected->GetParent() != nullptr;
 }

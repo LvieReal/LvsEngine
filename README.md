@@ -1,10 +1,8 @@
 # LvsEngine
 
-Early Lvs Engine version in modern C++ 23 with Qt6 UI and (temporary only limited to) Vulkan rendering.
+Early Lvs Engine version in modern C++ 23 with Qt6 UI and default Vulkan (1.0+) or fallback OpenGL (4.5+) rendering.
 
-The engine is required to run Studio and App (which is not available yet, even in the near future).
-
-This will be expanding into online toy in the future!
+Studio is constantly being maintained, slowly expanding into building toy!
 
 ## Project requirements
 
