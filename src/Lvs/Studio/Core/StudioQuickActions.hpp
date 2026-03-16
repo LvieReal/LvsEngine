@@ -4,6 +4,7 @@
 #include <QString>
 
 #include <memory>
+#include <vector>
 
 class QApplication;
 class QEvent;
@@ -84,6 +85,8 @@ private:
     void CutSelection() const;
     void PasteSelectionToTopmostService() const;
     void PasteSelectionIntoSelection() const;
+    void GroupSelection() const;
+    void UngroupSelection() const;
     void FocusOnSelection() const;
     void PopulateInsertMenu(
         QMenu& menu,
@@ -107,6 +110,10 @@ private:
     ) const;
     void PasteToParent(
         const std::shared_ptr<Engine::Core::Instance>& parent,
+        const QString& historyLabel
+    ) const;
+    void PasteToParents(
+        const std::vector<std::shared_ptr<Engine::Core::Instance>>& parents,
         const QString& historyLabel
     ) const;
     std::shared_ptr<Engine::Core::Instance> CloneRecursive(

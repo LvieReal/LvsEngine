@@ -16,6 +16,7 @@
 #include "Lvs/Engine/Objects/BasePart.hpp"
 #include "Lvs/Engine/Objects/Camera.hpp"
 #include "Lvs/Engine/Utils/Command.hpp"
+#include "Lvs/Engine/Utils/InstanceSelection.hpp"
 #include "Lvs/Engine/Utils/Raycast.hpp"
 #include "Lvs/Studio/Controllers/ToolbarController.hpp"
 #include "Lvs/Studio/Core/IconPackManager.hpp"
@@ -42,6 +43,7 @@
 
 #include <exception>
 #include <memory>
+#include <unordered_set>
 #include <array>
 #include <cmath>
 #include <vector>
@@ -218,6 +220,8 @@ bool StudioQuickActions::eventFilter(QObject* watched, QEvent* event) {
     const bool quickActionShortcut = quickActionContext && (
         StudioShortcutManager::Matches(StudioShortcutAction::Duplicate, *keyEvent) ||
         StudioShortcutManager::Matches(StudioShortcutAction::Delete, *keyEvent) ||
+        StudioShortcutManager::Matches(StudioShortcutAction::Group, *keyEvent) ||
+        StudioShortcutManager::Matches(StudioShortcutAction::Ungroup, *keyEvent) ||
         StudioShortcutManager::Matches(StudioShortcutAction::Copy, *keyEvent) ||
         StudioShortcutManager::Matches(StudioShortcutAction::Cut, *keyEvent) ||
         StudioShortcutManager::Matches(StudioShortcutAction::PasteInto, *keyEvent) ||
@@ -250,6 +254,10 @@ bool StudioQuickActions::eventFilter(QObject* watched, QEvent* event) {
         DuplicateSelection();
     } else if (StudioShortcutManager::Matches(StudioShortcutAction::Delete, *keyEvent)) {
         DeleteSelection();
+    } else if (StudioShortcutManager::Matches(StudioShortcutAction::Group, *keyEvent)) {
+        GroupSelection();
+    } else if (StudioShortcutManager::Matches(StudioShortcutAction::Ungroup, *keyEvent)) {
+        UngroupSelection();
     } else if (StudioShortcutManager::Matches(StudioShortcutAction::Copy, *keyEvent)) {
         CopySelection();
     } else if (StudioShortcutManager::Matches(StudioShortcutAction::Cut, *keyEvent)) {
@@ -531,12 +539,227 @@ void StudioQuickActions::PasteSelectionToTopmostService() const {
 }
 
 void StudioQuickActions::PasteSelectionIntoSelection() const {
-    const auto selected = GetSelectedInstance();
-    if (selected != nullptr) {
-        PasteToParent(selected, "Paste Into");
+    const auto place = GetCurrentPlace();
+    const auto selectionService = GetSelectionService(place);
+    const auto selectedInstances = GetSelectedInstances(selectionService);
+    if (!selectedInstances.empty()) {
+        PasteToParents(selectedInstances, "Paste Into");
         return;
     }
     PasteSelectionToTopmostService();
+}
+
+void StudioQuickActions::GroupSelection() const {
+    try {
+        const auto place = GetCurrentPlace();
+        const auto selectionService = GetSelectionService(place);
+        if (selectionService == nullptr) {
+            return;
+        }
+
+        const auto historyService = GetHistoryService(place);
+
+        std::vector<std::shared_ptr<Engine::Core::Instance>> groupable;
+        groupable.reserve(selectionService->Get().size());
+        for (const auto& inst : selectionService->Get()) {
+            if (inst == nullptr || inst->IsService() || !inst->IsInsertable() || inst->GetParent() == nullptr) {
+                continue;
+            }
+            groupable.push_back(inst);
+        }
+
+        groupable = Engine::Utils::FilterTopLevelInstances(groupable);
+        if (groupable.empty()) {
+            return;
+        }
+
+        auto targetParent = groupable.front()->GetParent();
+        bool allSameParent = true;
+        for (const auto& inst : groupable) {
+            if (inst == nullptr) {
+                continue;
+            }
+            if (inst->GetParent() != targetParent) {
+                allSameParent = false;
+                break;
+            }
+        }
+        if (!allSameParent) {
+            if (const auto primary = selectionService->GetPrimary(); primary != nullptr && primary->GetParent() != nullptr) {
+                targetParent = primary->GetParent();
+            }
+        }
+        if (targetParent == nullptr) {
+            return;
+        }
+
+        bool hasAnyParts = false;
+        for (const auto& inst : groupable) {
+            if (inst == nullptr) {
+                continue;
+            }
+            if (!Engine::Utils::CollectDescendantBaseParts(inst).empty()) {
+                hasAnyParts = true;
+                break;
+            }
+        }
+
+        const QString className = hasAnyParts ? "Model" : "Folder";
+        const auto group = Engine::DataModel::ClassRegistry::CreateInstance(className);
+        if (group == nullptr) {
+            return;
+        }
+        if (!group->CanParentTo(targetParent) || !targetParent->CanAcceptChild(group)) {
+            return;
+        }
+
+        auto recordAll = [&](const bool beginGroup) {
+            if (historyService != nullptr && beginGroup) {
+                historyService->BeginRecording("Group");
+            }
+            try {
+                auto parentCommand = std::make_shared<Engine::Utils::ReparentCommand>(group, targetParent);
+                if (historyService == nullptr) {
+                    parentCommand->Do();
+                } else {
+                    historyService->Record(parentCommand);
+                }
+
+                for (const auto& inst : groupable) {
+                    if (inst == nullptr || inst->GetParent() == nullptr) {
+                        continue;
+                    }
+                    if (!inst->CanParentTo(group) || !group->CanAcceptChild(inst)) {
+                        continue;
+                    }
+                    auto command = std::make_shared<Engine::Utils::ReparentCommand>(inst, group);
+                    if (historyService == nullptr) {
+                        command->Do();
+                    } else {
+                        historyService->Record(command);
+                    }
+                }
+            } catch (...) {
+                if (historyService != nullptr && beginGroup) {
+                    historyService->FinishRecording();
+                }
+                throw;
+            }
+            if (historyService != nullptr && beginGroup) {
+                historyService->FinishRecording();
+            }
+        };
+
+        if (historyService == nullptr) {
+            recordAll(false);
+        } else if (historyService->IsRecording()) {
+            recordAll(false);
+        } else {
+            recordAll(true);
+        }
+
+        selectionService->Set(group);
+    } catch (const std::exception& ex) {
+        Engine::Core::RegularError::ShowErrorFromException(ex);
+    }
+}
+
+void StudioQuickActions::UngroupSelection() const {
+    try {
+        const auto place = GetCurrentPlace();
+        const auto selectionService = GetSelectionService(place);
+        if (selectionService == nullptr) {
+            return;
+        }
+
+        const auto historyService = GetHistoryService(place);
+
+        std::vector<std::shared_ptr<Engine::Core::Instance>> groups;
+        groups.reserve(selectionService->Get().size());
+        for (const auto& inst : selectionService->Get()) {
+            if (inst == nullptr || inst->GetParent() == nullptr) {
+                continue;
+            }
+            const QString cls = inst->GetClassName();
+            if (cls != "Model" && cls != "Folder") {
+                continue;
+            }
+            groups.push_back(inst);
+        }
+
+        groups = Engine::Utils::FilterTopLevelInstances(groups);
+        if (groups.empty()) {
+            return;
+        }
+
+        std::vector<std::shared_ptr<Engine::Core::Instance>> moved;
+
+        auto recordAll = [&](const bool beginGroup) {
+            if (historyService != nullptr && beginGroup) {
+                historyService->BeginRecording("Ungroup");
+            }
+            try {
+                for (const auto& group : groups) {
+                    if (group == nullptr || group->GetParent() == nullptr) {
+                        continue;
+                    }
+                    const auto parent = group->GetParent();
+                    if (parent == nullptr) {
+                        continue;
+                    }
+
+                    const auto children = group->GetChildren();
+                    for (const auto& child : children) {
+                        if (child == nullptr) {
+                            continue;
+                        }
+                        if (!child->CanParentTo(parent) || !parent->CanAcceptChild(child)) {
+                            continue;
+                        }
+                        moved.push_back(child);
+                        auto command = std::make_shared<Engine::Utils::ReparentCommand>(child, parent);
+                        if (historyService == nullptr) {
+                            command->Do();
+                        } else {
+                            historyService->Record(command);
+                        }
+                    }
+
+                    auto removeGroupCommand = std::make_shared<Engine::Utils::ReparentCommand>(group, nullptr);
+                    if (historyService == nullptr) {
+                        removeGroupCommand->Do();
+                    } else {
+                        historyService->Record(removeGroupCommand);
+                    }
+                }
+            } catch (...) {
+                if (historyService != nullptr && beginGroup) {
+                    historyService->FinishRecording();
+                }
+                throw;
+            }
+            if (historyService != nullptr && beginGroup) {
+                historyService->FinishRecording();
+            }
+        };
+
+        if (historyService == nullptr) {
+            recordAll(false);
+        } else if (historyService->IsRecording()) {
+            recordAll(false);
+        } else {
+            recordAll(true);
+        }
+
+        moved = Engine::Utils::FilterTopLevelInstances(moved);
+        if (!moved.empty()) {
+            selectionService->Set(moved);
+        } else {
+            selectionService->Clear();
+        }
+    } catch (const std::exception& ex) {
+        Engine::Core::RegularError::ShowErrorFromException(ex);
+    }
 }
 
 void StudioQuickActions::FocusOnSelection() const {
@@ -550,38 +773,14 @@ void StudioQuickActions::FocusOnSelection() const {
         return;
     }
 
-    std::shared_ptr<Engine::Objects::BasePart> firstPart;
-    Engine::Math::AABB combined{};
-    bool hasBounds = false;
-
-    for (const auto& inst : selectionService->Get()) {
-        const auto part = std::dynamic_pointer_cast<Engine::Objects::BasePart>(inst);
-        if (part == nullptr || part->GetParent() == nullptr) {
-            continue;
-        }
-        if (firstPart == nullptr) {
-            firstPart = part;
-        }
-
-        const auto aabb = Engine::Utils::BuildPartWorldAABB(part);
-        if (!hasBounds) {
-            combined = aabb;
-            hasBounds = true;
-        } else {
-            combined.Min.x = std::min(combined.Min.x, aabb.Min.x);
-            combined.Min.y = std::min(combined.Min.y, aabb.Min.y);
-            combined.Min.z = std::min(combined.Min.z, aabb.Min.z);
-            combined.Max.x = std::max(combined.Max.x, aabb.Max.x);
-            combined.Max.y = std::max(combined.Max.y, aabb.Max.y);
-            combined.Max.z = std::max(combined.Max.z, aabb.Max.z);
-        }
-    }
-
-    if (!hasBounds) {
+    const auto topLevelSelected = Engine::Utils::FilterTopLevelInstances(selectionService->Get());
+    const auto parts = Engine::Utils::CollectBasePartsFromInstances(topLevelSelected);
+    const auto bounds = Engine::Utils::ComputeCombinedWorldAABB(parts);
+    if (!bounds.has_value()) {
         return;
     }
 
-    viewport_->FocusOnBounds(combined);
+    viewport_->FocusOnBounds(bounds.value());
 }
 
 void StudioQuickActions::PopulateInsertMenu(
@@ -769,6 +968,45 @@ bool StudioQuickActions::ShowContextMenu(
 
     menu.addSeparator();
 
+    QAction* groupAction = menu.addAction("Group");
+    StudioShortcutManager::ApplyToAction(*groupAction, StudioShortcutAction::Group);
+    {
+        int groupableCount = 0;
+        const auto place = GetCurrentPlace();
+        const auto selectionService = GetSelectionService(place);
+        for (const auto& inst : GetSelectedInstances(selectionService)) {
+            if (inst == nullptr || inst->IsService() || !inst->IsInsertable() || inst->GetParent() == nullptr) {
+                continue;
+            }
+            ++groupableCount;
+            if (groupableCount >= 1) {
+                break;
+            }
+        }
+        groupAction->setEnabled(groupableCount >= 1);
+    }
+    QObject::connect(groupAction, &QAction::triggered, &owner, [this]() { GroupSelection(); });
+
+    QAction* ungroupAction = menu.addAction("Ungroup");
+    StudioShortcutManager::ApplyToAction(*ungroupAction, StudioShortcutAction::Ungroup);
+    {
+        bool canUngroup = false;
+        const auto place = GetCurrentPlace();
+        const auto selectionService = GetSelectionService(place);
+        for (const auto& inst : GetSelectedInstances(selectionService)) {
+            if (inst == nullptr || inst->GetParent() == nullptr) {
+                continue;
+            }
+            const QString cls = inst->GetClassName();
+            if (cls == "Model" || cls == "Folder") {
+                canUngroup = true;
+                break;
+            }
+        }
+        ungroupAction->setEnabled(canUngroup);
+    }
+    QObject::connect(ungroupAction, &QAction::triggered, &owner, [this]() { UngroupSelection(); });
+
     QAction* duplicateAction = menu.addAction("Duplicate");
     StudioShortcutManager::ApplyToAction(*duplicateAction, StudioShortcutAction::Duplicate);
     {
@@ -868,6 +1106,87 @@ void StudioQuickActions::PasteToParent(
                         command->Do();
                     } else {
                         historyService->Record(command);
+                    }
+                }
+            } catch (...) {
+                if (historyService != nullptr && beginGroup) {
+                    historyService->FinishRecording();
+                }
+                throw;
+            }
+            if (historyService != nullptr && beginGroup) {
+                historyService->FinishRecording();
+            }
+        };
+
+        if (historyService == nullptr) {
+            recordAll(false);
+        } else if (historyService->IsRecording()) {
+            recordAll(false);
+        } else {
+            recordAll(true);
+        }
+
+        if (selectionService != nullptr && !clones.empty()) {
+            selectionService->Set(clones);
+        }
+    } catch (const std::exception& ex) {
+        Engine::Core::RegularError::ShowErrorFromException(ex);
+    }
+}
+
+void StudioQuickActions::PasteToParents(
+    const std::vector<std::shared_ptr<Engine::Core::Instance>>& parents,
+    const QString& historyLabel
+) const {
+    try {
+        if (clipboardPrototypes_.empty() || parents.empty()) {
+            return;
+        }
+
+        std::vector<std::shared_ptr<Engine::Core::Instance>> uniqueParents;
+        uniqueParents.reserve(parents.size());
+        std::unordered_set<const Engine::Core::Instance*> seenParents;
+        for (const auto& parent : parents) {
+            if (parent == nullptr) {
+                continue;
+            }
+            if (!seenParents.insert(parent.get()).second) {
+                continue;
+            }
+            uniqueParents.push_back(parent);
+        }
+        if (uniqueParents.empty()) {
+            return;
+        }
+
+        const auto place = GetCurrentPlace();
+        const auto historyService = GetHistoryService(place);
+        const auto selectionService = GetSelectionService(place);
+
+        std::vector<std::shared_ptr<Engine::Core::Instance>> clones;
+
+        auto recordAll = [&](const bool beginGroup) {
+            if (historyService != nullptr && beginGroup) {
+                historyService->BeginRecording(historyLabel);
+            }
+            try {
+                for (const auto& parent : uniqueParents) {
+                    if (parent == nullptr) {
+                        continue;
+                    }
+                    for (const auto& proto : clipboardPrototypes_) {
+                        const auto clone = CloneRecursive(proto);
+                        if (clone == nullptr || !clone->CanParentTo(parent) || !parent->CanAcceptChild(clone)) {
+                            continue;
+                        }
+                        clones.push_back(clone);
+                        auto command = std::make_shared<Engine::Utils::ReparentCommand>(clone, parent);
+                        if (historyService == nullptr) {
+                            command->Do();
+                        } else {
+                            historyService->Record(command);
+                        }
                     }
                 }
             } catch (...) {

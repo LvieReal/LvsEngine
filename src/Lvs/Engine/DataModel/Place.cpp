@@ -21,10 +21,12 @@
 #include "Lvs/Engine/Objects/Camera.hpp"
 #include "Lvs/Engine/Objects/DirectionalLight.hpp"
 #include "Lvs/Engine/Objects/Light.hpp"
+#include "Lvs/Engine/Objects/Model.hpp"
 #include "Lvs/Engine/Objects/MeshPart.hpp"
 #include "Lvs/Engine/Objects/Part.hpp"
 #include "Lvs/Engine/Objects/SelectionBox.hpp"
 #include "Lvs/Engine/Objects/Skybox.hpp"
+#include "Lvs/Engine/Objects/Folder.hpp"
 
 #include <QDir>
 #include <QFile>
@@ -58,6 +60,8 @@ void EnsureBuiltinRegistrations() {
         (void)Objects::DirectionalLight::Descriptor();
         (void)Objects::Skybox::Descriptor();
         (void)Objects::SelectionBox::Descriptor();
+        (void)Objects::Model::Descriptor();
+        (void)Objects::Folder::Descriptor();
         return true;
     }();
     static_cast<void>(initialized);

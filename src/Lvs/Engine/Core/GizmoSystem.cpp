@@ -5,6 +5,7 @@
 #include "Lvs/Engine/Math/CFrame.hpp"
 #include "Lvs/Engine/Objects/BasePart.hpp"
 #include "Lvs/Engine/Objects/Camera.hpp"
+#include "Lvs/Engine/Utils/InstanceSelection.hpp"
 
 #include <QVariant>
 
@@ -71,45 +72,17 @@ void GizmoSystem::Update(const std::shared_ptr<DataModel::Selection>& selection,
     selectionCenter_ = {};
     selectedParts_.clear();
 
-    std::shared_ptr<Objects::BasePart> primaryPart;
-    if (selection != nullptr) {
-        primaryPart = std::dynamic_pointer_cast<Objects::BasePart>(selection->GetPrimary());
-        const auto instances = selection->Get();
-        for (const auto& instance : instances) {
-            const auto part = std::dynamic_pointer_cast<Objects::BasePart>(instance);
-            if (part == nullptr || part->GetParent() == nullptr) {
-                continue;
-            }
-            selectedParts_.push_back(part);
-            const auto aabb = Utils::BuildPartWorldAABB(part);
-            if (!hasSelectionBounds_) {
-                selectionBounds_ = aabb;
-                hasSelectionBounds_ = true;
-            } else {
-                selectionBounds_.Min.x = std::min(selectionBounds_.Min.x, aabb.Min.x);
-                selectionBounds_.Min.y = std::min(selectionBounds_.Min.y, aabb.Min.y);
-                selectionBounds_.Min.z = std::min(selectionBounds_.Min.z, aabb.Min.z);
-                selectionBounds_.Max.x = std::max(selectionBounds_.Max.x, aabb.Max.x);
-                selectionBounds_.Max.y = std::max(selectionBounds_.Max.y, aabb.Max.y);
-                selectionBounds_.Max.z = std::max(selectionBounds_.Max.z, aabb.Max.z);
-            }
-        }
-    }
+    const auto selectedInstances = selection != nullptr ? selection->Get() : std::vector<std::shared_ptr<Instance>>{};
+    const auto topLevelSelected = Utils::FilterTopLevelInstances(selectedInstances);
+    selectedParts_ = Utils::CollectBasePartsFromInstances(topLevelSelected);
 
-    if (hasSelectionBounds_) {
+    if (const auto bounds = Utils::ComputeCombinedWorldAABB(selectedParts_); bounds.has_value()) {
+        selectionBounds_ = bounds.value();
+        hasSelectionBounds_ = true;
         selectionCenter_ = selectionBounds_.Centroid();
     }
 
-    targetPart_ = primaryPart;
-    if (targetPart_ == nullptr && selection != nullptr) {
-        for (const auto& instance : selection->Get()) {
-            const auto part = std::dynamic_pointer_cast<Objects::BasePart>(instance);
-            if (part != nullptr && part->GetParent() != nullptr) {
-                targetPart_ = part;
-                break;
-            }
-        }
-    }
+    targetPart_ = Utils::ResolveLocalSpaceTargetPart(selection != nullptr ? selection->GetPrimary() : nullptr, selectedParts_);
     visible_ = targetPart_ != nullptr && (activeTool_ == Tool::MoveTool || activeTool_ == Tool::SizeTool);
 
     if (!visible_) {

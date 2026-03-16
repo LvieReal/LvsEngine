@@ -44,6 +44,10 @@ QList<QKeySequence> DefaultShortcuts(const StudioShortcutAction action) {
             return ParseShortcuts("Ctrl+D");
         case StudioShortcutAction::Delete:
             return ParseShortcuts("Delete");
+        case StudioShortcutAction::Group:
+            return ParseShortcuts("Ctrl+G");
+        case StudioShortcutAction::Ungroup:
+            return ParseShortcuts("Ctrl+U");
         case StudioShortcutAction::Copy:
             return ParseShortcuts("Ctrl+C");
         case StudioShortcutAction::Cut:

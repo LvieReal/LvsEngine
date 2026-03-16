@@ -31,7 +31,9 @@ const QHash<QString, QString> CLASS_ICON_MAP = {
     {"DirectionalLight", "weather_sun.png"},
     {"Skybox", "picture.png"},
     {"Part", "brick.png"},
-    {"MeshPart", "box.png"}
+    {"MeshPart", "box.png"},
+    {"Model", "bricks.png"},
+    {"Folder", "folder.png"}
 };
 
 QHash<QString, QPixmap>& PixmapCache() {

@@ -25,6 +25,7 @@
 #include <QMimeData>
 #include <QMouseEvent>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QSize>
 #include <QTimer>
 #include <QTreeWidgetItem>
@@ -203,23 +204,40 @@ void ExplorerWidget::leaveEvent(QEvent* event) {
 }
 
 void ExplorerWidget::startDrag(Qt::DropActions supportedActions) {
-    QTreeWidgetItem* item = currentItem();
-    if (item == nullptr) {
-        return;
+    const QList<QTreeWidgetItem*> selected = selectedItems();
+    QStringList instanceIds;
+    instanceIds.reserve(selected.size() > 0 ? selected.size() : 1);
+
+    auto tryAppendItem = [&](QTreeWidgetItem* item) {
+        if (item == nullptr) {
+            return;
+        }
+        const auto instance = ResolveItemInstance(item);
+        if (instance == nullptr || instance->IsService()) {
+            return;
+        }
+        const QString instanceId = instance->GetId();
+        if (instanceId.isEmpty()) {
+            return;
+        }
+        instanceIds.push_back(instanceId);
+    };
+
+    if (!selected.isEmpty()) {
+        for (QTreeWidgetItem* item : selected) {
+            tryAppendItem(item);
+        }
+    } else {
+        tryAppendItem(currentItem());
     }
 
-    const auto instance = ResolveItemInstance(item);
-    if (instance == nullptr) {
-        return;
-    }
-
-    const QString instanceId = instance->GetId();
-    if (instanceId.isEmpty()) {
+    instanceIds.removeDuplicates();
+    if (instanceIds.isEmpty()) {
         return;
     }
 
     auto* mimeData = new QMimeData();
-    mimeData->setText(instanceId);
+    mimeData->setText(instanceIds.join("\n"));
 
     QDrag drag(this);
     drag.setMimeData(mimeData);
@@ -242,14 +260,14 @@ void ExplorerWidget::dragMoveEvent(QDragMoveEvent* event) {
         return;
     }
 
-    const auto instance = ResolveMimeInstance(event->mimeData());
-    if (instance == nullptr) {
+    const auto instances = ResolveMimeInstances(event->mimeData());
+    if (instances.empty()) {
         event->ignore();
         return;
     }
 
     const auto target = DropTargetFromEvent(event);
-    if (CanReparent(instance, target)) {
+    if (CanReparentAll(instances, target)) {
         event->acceptProposedAction();
     } else {
         event->ignore();
@@ -262,15 +280,15 @@ void ExplorerWidget::dropEvent(QDropEvent* event) {
         return;
     }
 
-    const auto instance = ResolveMimeInstance(event->mimeData());
+    const auto instances = ResolveMimeInstances(event->mimeData());
     const auto target = DropTargetFromEvent(event);
 
-    if (!CanReparent(instance, target)) {
+    if (!CanReparentAll(instances, target)) {
         event->ignore();
         return;
     }
 
-    RecordReparentCommand(instance, target);
+    RecordReparentCommands(instances, target);
     event->acceptProposedAction();
 }
 
@@ -640,15 +658,34 @@ std::shared_ptr<Engine::Core::Instance> ExplorerWidget::ResolveItemInstance(cons
     return nullptr;
 }
 
-std::shared_ptr<Engine::Core::Instance> ExplorerWidget::ResolveMimeInstance(const QMimeData* mimeData) const {
+std::vector<std::shared_ptr<Engine::Core::Instance>> ExplorerWidget::ResolveMimeInstances(const QMimeData* mimeData) const {
+    std::vector<std::shared_ptr<Engine::Core::Instance>> out;
     if (mimeData == nullptr || rootInstance_ == nullptr) {
-        return nullptr;
+        return out;
     }
-    if (const auto dataModel = std::dynamic_pointer_cast<Engine::DataModel::DataModel>(rootInstance_);
-        dataModel != nullptr) {
-        return dataModel->FindInstanceById(mimeData->text());
+
+    const auto dataModel = std::dynamic_pointer_cast<Engine::DataModel::DataModel>(rootInstance_);
+    if (dataModel == nullptr) {
+        return out;
     }
-    return nullptr;
+
+    const QString raw = mimeData->text();
+    const QStringList tokens = raw.split(QRegularExpression("[\\r\\n;]+"), Qt::SkipEmptyParts);
+
+    out.reserve(tokens.size());
+    std::unordered_set<const Engine::Core::Instance*> seen;
+    for (const auto& token : tokens) {
+        const auto inst = dataModel->FindInstanceById(token.trimmed());
+        if (inst == nullptr) {
+            continue;
+        }
+        if (!seen.insert(inst.get()).second) {
+            continue;
+        }
+        out.push_back(inst);
+    }
+
+    return out;
 }
 
 std::shared_ptr<Engine::Core::Instance> ExplorerWidget::DropTargetFromEvent(const QDropEvent* event) const {
@@ -693,6 +730,54 @@ bool ExplorerWidget::CanReparent(
     return true;
 }
 
+bool ExplorerWidget::CanReparentAll(
+    const std::vector<std::shared_ptr<Engine::Core::Instance>>& instances,
+    const std::shared_ptr<Engine::Core::Instance>& target
+) const {
+    if (instances.empty() || target == nullptr) {
+        return false;
+    }
+
+    std::unordered_set<const Engine::Core::Instance*> dragged;
+    dragged.reserve(instances.size());
+    for (const auto& inst : instances) {
+        if (inst != nullptr) {
+            dragged.insert(inst.get());
+        }
+    }
+
+    std::vector<std::shared_ptr<Engine::Core::Instance>> topLevel;
+    topLevel.reserve(instances.size());
+    for (const auto& inst : instances) {
+        if (inst == nullptr) {
+            continue;
+        }
+        bool hasAncestorDragged = false;
+        auto parent = inst->GetParent();
+        while (parent != nullptr) {
+            if (dragged.contains(parent.get())) {
+                hasAncestorDragged = true;
+                break;
+            }
+            parent = parent->GetParent();
+        }
+        if (!hasAncestorDragged) {
+            topLevel.push_back(inst);
+        }
+    }
+
+    if (topLevel.empty()) {
+        return false;
+    }
+
+    for (const auto& inst : topLevel) {
+        if (!CanReparent(inst, target)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 void ExplorerWidget::RecordReparentCommand(
     const std::shared_ptr<Engine::Core::Instance>& instance,
     const std::shared_ptr<Engine::Core::Instance>& target
@@ -712,6 +797,78 @@ void ExplorerWidget::RecordReparentCommand(
         historyService_->BeginRecording("Reparent");
         try {
             historyService_->Record(command);
+            historyService_->FinishRecording();
+        } catch (...) {
+            historyService_->FinishRecording();
+            throw;
+        }
+    } catch (const std::exception& ex) {
+        Engine::Core::RegularError::ShowErrorFromException(ex);
+    }
+}
+
+void ExplorerWidget::RecordReparentCommands(
+    const std::vector<std::shared_ptr<Engine::Core::Instance>>& instances,
+    const std::shared_ptr<Engine::Core::Instance>& target
+) const {
+    try {
+        if (target == nullptr || instances.empty()) {
+            return;
+        }
+
+        std::unordered_set<const Engine::Core::Instance*> dragged;
+        dragged.reserve(instances.size());
+        for (const auto& inst : instances) {
+            if (inst != nullptr) {
+                dragged.insert(inst.get());
+            }
+        }
+
+        std::vector<std::shared_ptr<Engine::Core::Instance>> topLevel;
+        topLevel.reserve(instances.size());
+        for (const auto& inst : instances) {
+            if (inst == nullptr) {
+                continue;
+            }
+            bool hasAncestorDragged = false;
+            auto parent = inst->GetParent();
+            while (parent != nullptr) {
+                if (dragged.contains(parent.get())) {
+                    hasAncestorDragged = true;
+                    break;
+                }
+                parent = parent->GetParent();
+            }
+            if (!hasAncestorDragged) {
+                topLevel.push_back(inst);
+            }
+        }
+
+        if (topLevel.empty()) {
+            return;
+        }
+
+        if (historyService_ == nullptr) {
+            for (const auto& inst : topLevel) {
+                RecordReparentCommand(inst, target);
+            }
+            return;
+        }
+
+        if (historyService_->IsRecording()) {
+            for (const auto& inst : topLevel) {
+                auto command = std::make_shared<Engine::Utils::ReparentCommand>(inst, target);
+                historyService_->Record(command);
+            }
+            return;
+        }
+
+        historyService_->BeginRecording("Reparent");
+        try {
+            for (const auto& inst : topLevel) {
+                auto command = std::make_shared<Engine::Utils::ReparentCommand>(inst, target);
+                historyService_->Record(command);
+            }
             historyService_->FinishRecording();
         } catch (...) {
             historyService_->FinishRecording();

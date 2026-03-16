@@ -14,6 +14,7 @@
 #include "Lvs/Engine/Objects/Camera.hpp"
 #include "Lvs/Engine/Objects/SelectionBox.hpp"
 #include "Lvs/Engine/Utils/Command.hpp"
+#include "Lvs/Engine/Utils/InstanceSelection.hpp"
 #include "Lvs/Engine/Utils/Raycast.hpp"
 
 #include <QMouseEvent>
@@ -74,6 +75,20 @@ HitFace FindClosestHitFace(const Engine::Math::AABB& aabb, const Engine::Math::V
         case 5: return HitFace{.Axis = 2, .Sign = 1.0};
         default: return HitFace{};
     }
+}
+
+std::shared_ptr<Engine::Core::Instance> FindAncestorModel(const std::shared_ptr<Engine::Objects::BasePart>& part) {
+    if (part == nullptr) {
+        return nullptr;
+    }
+    auto parent = part->GetParent();
+    while (parent != nullptr) {
+        if (parent->GetClassName() == "Model") {
+            return parent;
+        }
+        parent = parent->GetParent();
+    }
+    return nullptr;
 }
 
 } // namespace
@@ -270,23 +285,28 @@ void StudioViewportToolLayer::PickSelection(const Engine::Utils::Ray& ray, const
         return;
     }
 
+    const auto hitModel = FindAncestorModel(hitPart);
+    const std::shared_ptr<Engine::Core::Instance> selectTarget = hitModel != nullptr
+        ? hitModel
+        : std::static_pointer_cast<Engine::Core::Instance>(hitPart);
+
     if (modifiers & (Qt::ControlModifier | Qt::ShiftModifier)) {
         auto current = selection_->Get();
 
-        const auto it = std::find(current.begin(), current.end(), hitPart);
+        const auto it = std::find(current.begin(), current.end(), selectTarget);
         if ((modifiers & Qt::ControlModifier) && it != current.end()) {
             current.erase(it);
             selection_->Set(current);
             return;
         }
 
-        current.erase(std::remove(current.begin(), current.end(), hitPart), current.end());
-        current.insert(current.begin(), hitPart);
+        current.erase(std::remove(current.begin(), current.end(), selectTarget), current.end());
+        current.insert(current.begin(), selectTarget);
         selection_->Set(current);
         return;
     }
 
-    selection_->Set(hitPart);
+    selection_->Set(selectTarget);
 }
 
 bool StudioViewportToolLayer::CanDragGizmo() const {
@@ -328,8 +348,9 @@ bool StudioViewportToolLayer::CanDragPart() const {
     if (context_ == nullptr || context_->EditorToolState == nullptr || selection_ == nullptr) {
         return false;
     }
-    for (const auto& inst : selection_->Get()) {
-        const auto part = std::dynamic_pointer_cast<Engine::Objects::BasePart>(inst);
+    const auto topLevelSelected = Engine::Utils::FilterTopLevelInstances(selection_->Get());
+    const auto selectedParts = Engine::Utils::CollectBasePartsFromInstances(topLevelSelected);
+    for (const auto& part : selectedParts) {
         if (part != nullptr && part->GetParent() != nullptr) {
             return true;
         }
@@ -350,8 +371,10 @@ bool StudioViewportToolLayer::TryBeginPartDrag(const Engine::Utils::Ray& ray) {
 
     bool hitIsSelected = false;
     if (selection_ != nullptr) {
-        for (const auto& inst : selection_->Get()) {
-            if (hitPart == std::dynamic_pointer_cast<Engine::Objects::BasePart>(inst)) {
+        const auto topLevelSelected = Engine::Utils::FilterTopLevelInstances(selection_->Get());
+        const auto selectedParts = Engine::Utils::CollectBasePartsFromInstances(topLevelSelected);
+        for (const auto& part : selectedParts) {
+            if (hitPart == part) {
                 hitIsSelected = true;
                 break;
             }
@@ -383,8 +406,10 @@ bool StudioViewportToolLayer::TryBeginPartDrag(const Engine::Utils::Ray& ray) {
     };
 
     if (selection_ != nullptr) {
-        for (const auto& inst : selection_->Get()) {
-            const auto part = std::dynamic_pointer_cast<Engine::Objects::BasePart>(inst);
+        const auto topLevelSelected = Engine::Utils::FilterTopLevelInstances(selection_->Get());
+        const auto selectedParts = Engine::Utils::CollectBasePartsFromInstances(topLevelSelected);
+        state.Targets.reserve(selectedParts.size());
+        for (const auto& part : selectedParts) {
             if (part == nullptr || part->GetParent() == nullptr) {
                 continue;
             }
@@ -558,16 +583,11 @@ void StudioViewportToolLayer::AppendGizmoSelectionBox(
     const Engine::Math::Color3 selectionColor{0.0, 0.5, 1.0};
 
     if (selection_ != nullptr) {
-        const auto selectedInstances = selection_->Get();
+        const auto selectedInstances = Engine::Utils::FilterTopLevelInstances(selection_->Get());
         for (const auto& instance : selectedInstances) {
-            const auto selected = std::dynamic_pointer_cast<Engine::Objects::BasePart>(instance);
-            if (selected == nullptr || selected->GetParent() == nullptr) {
+            if (instance == nullptr) {
                 continue;
             }
-
-            const auto aabb = Engine::Utils::BuildPartWorldAABB(selected);
-            const Engine::Math::Vector3 center = (aabb.Min + aabb.Max) * 0.5;
-            const double distance = (center - cameraPos).Magnitude();
 
             const bool ignoreLighting = gizmoIgnoreDiffuseSpecular_;
             const Engine::Core::SelectionBoxStyle style{
@@ -582,25 +602,49 @@ void StudioViewportToolLayer::AppendGizmoSelectionBox(
                 .ScaleWithDistance = true
             };
 
-            if (localSpace) {
-                Engine::Core::AppendSelectionBoxOutlinePrimitivesRotated(
-                    selected->GetWorldCFrame(),
-                    selected->GetProperty("Size").value<Engine::Math::Vector3>(),
-                    style,
-                    overlay,
-                    distance
-                );
-            } else {
-                Engine::Core::AppendSelectionBoxOutlinePrimitives(aabb, style, overlay, distance);
+            if (const auto selected = std::dynamic_pointer_cast<Engine::Objects::BasePart>(instance);
+                selected != nullptr) {
+                if (selected->GetParent() == nullptr) {
+                    continue;
+                }
+
+                const auto aabb = Engine::Utils::BuildPartWorldAABB(selected);
+                const Engine::Math::Vector3 center = (aabb.Min + aabb.Max) * 0.5;
+                const double distance = (center - cameraPos).Magnitude();
+
+                if (localSpace) {
+                    Engine::Core::AppendSelectionBoxOutlinePrimitivesRotated(
+                        selected->GetWorldCFrame(),
+                        selected->GetProperty("Size").value<Engine::Math::Vector3>(),
+                        style,
+                        overlay,
+                        distance
+                    );
+                } else {
+                    Engine::Core::AppendSelectionBoxOutlinePrimitives(aabb, style, overlay, distance);
+                }
+                continue;
             }
+
+            const auto parts = Engine::Utils::CollectDescendantBaseParts(instance);
+            const auto bounds = Engine::Utils::ComputeCombinedWorldAABB(parts);
+            if (!bounds.has_value()) {
+                continue;
+            }
+
+            const Engine::Math::Vector3 center = bounds.value().Centroid();
+            const double distance = (center - cameraPos).Magnitude();
+            Engine::Core::AppendSelectionBoxOutlinePrimitives(bounds.value(), style, overlay, distance);
         }
     }
 
     if (hoveredPart_ != nullptr && hoveredPart_->GetParent() != nullptr) {
         bool isHoveredSelected = false;
         if (selection_ != nullptr) {
-            for (const auto& instance : selection_->Get()) {
-                if (hoveredPart_ == std::dynamic_pointer_cast<Engine::Objects::BasePart>(instance)) {
+            const auto topLevelSelected = Engine::Utils::FilterTopLevelInstances(selection_->Get());
+            const auto selectedParts = Engine::Utils::CollectBasePartsFromInstances(topLevelSelected);
+            for (const auto& part : selectedParts) {
+                if (hoveredPart_ == part) {
                     isHoveredSelected = true;
                     break;
                 }
@@ -608,8 +652,17 @@ void StudioViewportToolLayer::AppendGizmoSelectionBox(
         }
 
         if (!isHoveredSelected) {
-            const auto aabb = Engine::Utils::BuildPartWorldAABB(hoveredPart_);
-            const Engine::Math::Vector3 center = (aabb.Min + aabb.Max) * 0.5;
+            const auto hoveredModel = FindAncestorModel(hoveredPart_);
+            const auto parts = hoveredModel != nullptr
+                ? Engine::Utils::CollectDescendantBaseParts(hoveredModel)
+                : std::vector<std::shared_ptr<Engine::Objects::BasePart>>{hoveredPart_};
+
+            const auto bounds = Engine::Utils::ComputeCombinedWorldAABB(parts);
+            if (!bounds.has_value()) {
+                return;
+            }
+
+            const Engine::Math::Vector3 center = bounds.value().Centroid();
             const double distance = (center - cameraPos).Magnitude();
 
             const bool ignoreLighting = gizmoIgnoreDiffuseSpecular_;
@@ -625,7 +678,7 @@ void StudioViewportToolLayer::AppendGizmoSelectionBox(
                 .ScaleWithDistance = true
             };
 
-            if (localSpace) {
+            if (localSpace && hoveredModel == nullptr) {
                 Engine::Core::AppendSelectionBoxOutlinePrimitivesRotated(
                     hoveredPart_->GetWorldCFrame(),
                     hoveredPart_->GetProperty("Size").value<Engine::Math::Vector3>(),
@@ -634,7 +687,7 @@ void StudioViewportToolLayer::AppendGizmoSelectionBox(
                     distance
                 );
             } else {
-                Engine::Core::AppendSelectionBoxOutlinePrimitives(aabb, style, overlay, distance);
+                Engine::Core::AppendSelectionBoxOutlinePrimitives(bounds.value(), style, overlay, distance);
             }
         }
     }
@@ -712,8 +765,10 @@ void StudioViewportToolLayer::BeginGizmoHistory(const std::shared_ptr<Engine::Ob
     GizmoHistorySnapshot snapshot;
 
     if (selection_ != nullptr) {
-        for (const auto& inst : selection_->Get()) {
-            const auto part = std::dynamic_pointer_cast<Engine::Objects::BasePart>(inst);
+        const auto topLevelSelected = Engine::Utils::FilterTopLevelInstances(selection_->Get());
+        const auto parts = Engine::Utils::CollectBasePartsFromInstances(topLevelSelected);
+        snapshot.Instances.reserve(parts.size());
+        for (const auto& part : parts) {
             if (part == nullptr || part->GetParent() == nullptr) {
                 continue;
             }

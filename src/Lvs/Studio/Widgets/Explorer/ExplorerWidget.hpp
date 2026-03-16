@@ -66,14 +66,22 @@ private:
     void QueueRecomputeColumnWidth();
     void RecomputeColumnWidth();
     std::shared_ptr<Engine::Core::Instance> ResolveItemInstance(const QTreeWidgetItem* item) const;
-    std::shared_ptr<Engine::Core::Instance> ResolveMimeInstance(const QMimeData* mimeData) const;
+    std::vector<std::shared_ptr<Engine::Core::Instance>> ResolveMimeInstances(const QMimeData* mimeData) const;
     std::shared_ptr<Engine::Core::Instance> DropTargetFromEvent(const QDropEvent* event) const;
     bool CanReparent(
         const std::shared_ptr<Engine::Core::Instance>& instance,
         const std::shared_ptr<Engine::Core::Instance>& target
     ) const;
+    bool CanReparentAll(
+        const std::vector<std::shared_ptr<Engine::Core::Instance>>& instances,
+        const std::shared_ptr<Engine::Core::Instance>& target
+    ) const;
     void RecordReparentCommand(
         const std::shared_ptr<Engine::Core::Instance>& instance,
+        const std::shared_ptr<Engine::Core::Instance>& target
+    ) const;
+    void RecordReparentCommands(
+        const std::vector<std::shared_ptr<Engine::Core::Instance>>& instances,
         const std::shared_ptr<Engine::Core::Instance>& target
     ) const;
     void ShowInsertPopup(const std::shared_ptr<Engine::Core::Instance>& parent, QTreeWidgetItem* item);

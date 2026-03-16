@@ -18,6 +18,8 @@ enum class StudioShortcutAction {
     Redo,
     Duplicate,
     Delete,
+    Group,
+    Ungroup,
     Copy,
     Cut,
     Paste,
