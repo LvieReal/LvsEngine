@@ -67,11 +67,9 @@ void ShadowPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBuffer&
             }
             cmd.BindVertexBuffer(0, *mesh->VertexBuffer, mesh->VertexOffset);
             cmd.BindIndexBuffer(*mesh->IndexBuffer, mesh->IndexBufferType, mesh->IndexOffset);
-            Common::ShadowPushConstants push{};
-            push.Model = draw.PushConstants.Model;
-            push.Cascade = {static_cast<float>(cascadeIndex), 0.0F, 0.0F, 0.0F};
+            const Common::ShadowDrawCallPushConstants push{.Data = {draw.BaseInstance, cascadeIndex, 0U, 0U}};
             cmd.PushConstants(&push, sizeof(push));
-            cmd.DrawIndexed(mesh->IndexCount);
+            cmd.Draw(RHI::ICommandBuffer::DrawInfo{.vertexCount = 0, .indexCount = mesh->IndexCount, .instanceCount = draw.InstanceCount});
         }
         cmd.EndRenderPass();
     }

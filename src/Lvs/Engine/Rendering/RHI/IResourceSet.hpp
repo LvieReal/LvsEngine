@@ -10,7 +10,8 @@ enum class ResourceBindingKind {
     Texture2D,
     Texture3D,
     TextureCube,
-    UniformBuffer
+    UniformBuffer,
+    StorageBuffer
 };
 
 struct ResourceBinding {

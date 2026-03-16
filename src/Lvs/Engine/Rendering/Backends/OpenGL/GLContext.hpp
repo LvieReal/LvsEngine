@@ -41,8 +41,7 @@ public:
     void BindIndexBuffer(const RHI::IBuffer& buffer, RHI::IndexType indexType, std::size_t offset);
     void BindResourceSet(RHI::u32 slot, const RHI::IResourceSet& set);
     void PushConstants(const void* data, std::size_t size);
-    void Draw(RHI::u32 vertexCount);
-    void DrawIndexed(RHI::u32 indexCount);
+    void Draw(const RHI::ICommandBuffer::DrawInfo& info);
 
 private:
     bool EnsureNativeContext();

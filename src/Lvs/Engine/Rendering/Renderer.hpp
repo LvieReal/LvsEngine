@@ -41,10 +41,12 @@ struct SceneData {
 
     struct DrawPacket {
         const MeshRef* Mesh{nullptr};
-        Common::DrawPushConstants PushConstants{};
+        RHI::u32 BaseInstance{0};
+        RHI::u32 InstanceCount{1};
         RHI::CullMode CullMode{RHI::CullMode::Back};
         bool Transparent{false};
         bool AlwaysOnTop{false};
+        bool IgnoreLighting{false};
         float SortDepth{0.0F};
     };
 

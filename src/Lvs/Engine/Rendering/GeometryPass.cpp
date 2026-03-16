@@ -46,14 +46,15 @@ void GeometryPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBuffe
         if (const auto* drawPipeline =
                 renderer_->GetOrCreateGeometryPipeline(ctx, draw.CullMode, draw.Transparent, draw.AlwaysOnTop);
             drawPipeline != nullptr) {
-            cmd.BindPipeline(*drawPipeline);
+        cmd.BindPipeline(*drawPipeline);
         } else {
             return;
         }
         cmd.BindVertexBuffer(0, *mesh->VertexBuffer, mesh->VertexOffset);
         cmd.BindIndexBuffer(*mesh->IndexBuffer, mesh->IndexBufferType, mesh->IndexOffset);
-        cmd.PushConstants(&draw.PushConstants, sizeof(draw.PushConstants));
-        cmd.DrawIndexed(mesh->IndexCount);
+        const Common::DrawCallPushConstants push{.Data = {draw.BaseInstance, 0U, 0U, 0U}};
+        cmd.PushConstants(&push, sizeof(push));
+        cmd.Draw(RHI::ICommandBuffer::DrawInfo{.vertexCount = 0, .indexCount = mesh->IndexCount, .instanceCount = draw.InstanceCount});
     };
 
     std::vector<const SceneData::DrawPacket*> opaqueDraws{};

@@ -7,6 +7,7 @@ layout(location = 3) in vec4 fragMaterial;
 layout(location = 4) in vec3 fragVertexLighting;
 layout(location = 5) in vec3 fragLocalPos;
 layout(location = 6) in vec3 fragLocalNormal;
+layout(location = 7) flat in uint fragInstanceIndex;
 
 layout(set = 0, binding = 0) uniform CameraUBO {
     mat4 view;
@@ -34,13 +35,19 @@ layout(set = 0, binding = 6) uniform sampler2D neonTexture;
 layout(set = 0, binding = 7) uniform sampler3D directionalShadowJitter;
 layout(set = 0, binding = 8) uniform sampler2D surfaceNormalAtlas;
 
-layout(push_constant) uniform PushConstants {
+struct InstanceData {
     mat4 model;
     vec4 baseColor;
     vec4 material;
     vec4 surfaceData0;
     vec4 surfaceData1;
-} pushData;
+};
+
+layout(set = 0, binding = 9, std430) readonly buffer InstanceSSBO {
+    InstanceData instances[];
+} instanceData;
+
+InstanceData inst;
 
 layout(location = 0) out vec4 outSceneColor;
 layout(location = 1) out vec4 outGlowColor;
@@ -83,19 +90,19 @@ vec3 FresnelSchlick(float cosTheta, vec3 F0) {
     return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
 }
 
-int GetTopSurfaceType() { return int(pushData.surfaceData0.x + 0.5); }
-int GetBottomSurfaceType() { return int(pushData.surfaceData0.y + 0.5); }
-int GetFrontSurfaceType() { return int(pushData.surfaceData0.z + 0.5); }
-int GetBackSurfaceType() { return int(pushData.surfaceData0.w + 0.5); }
-int GetLeftSurfaceType() { return int(pushData.surfaceData1.x + 0.5); }
-int GetRightSurfaceType() { return int(pushData.surfaceData1.y + 0.5); }
-bool IsSurfaceEnabled() { return pushData.surfaceData1.z > 0.5; }
-bool IsSurfaceNormalEnabled() { return pushData.surfaceData1.w > 0.5; }
+int GetTopSurfaceType() { return int(inst.surfaceData0.x + 0.5); }
+int GetBottomSurfaceType() { return int(inst.surfaceData0.y + 0.5); }
+int GetFrontSurfaceType() { return int(inst.surfaceData0.z + 0.5); }
+int GetBackSurfaceType() { return int(inst.surfaceData0.w + 0.5); }
+int GetLeftSurfaceType() { return int(inst.surfaceData1.x + 0.5); }
+int GetRightSurfaceType() { return int(inst.surfaceData1.y + 0.5); }
+bool IsSurfaceEnabled() { return inst.surfaceData1.z > 0.5; }
+bool IsSurfaceNormalEnabled() { return inst.surfaceData1.w > 0.5; }
 
 vec3 GetMeshSizeFromModel() {
-    vec3 xAxis = vec3(pushData.model[0][0], pushData.model[0][1], pushData.model[0][2]);
-    vec3 yAxis = vec3(pushData.model[1][0], pushData.model[1][1], pushData.model[1][2]);
-    vec3 zAxis = vec3(pushData.model[2][0], pushData.model[2][1], pushData.model[2][2]);
+    vec3 xAxis = vec3(inst.model[0][0], inst.model[0][1], inst.model[0][2]);
+    vec3 yAxis = vec3(inst.model[1][0], inst.model[1][1], inst.model[1][2]);
+    vec3 zAxis = vec3(inst.model[2][0], inst.model[2][1], inst.model[2][2]);
     return vec3(length(xAxis), length(yAxis), length(zAxis));
 }
 
@@ -161,7 +168,7 @@ vec3 SampleSurfaceColor(int surfaceType, vec2 uv) {
 
 vec3 GetSurfaceMappedNormal(vec3 localNormal, int surfaceType, vec2 uv) {
     if (!IsSurfaceEnabled() || !IsSurfaceNormalEnabled() || surfaceType == SMOOTH) {
-        return normalize(mat3(pushData.model) * localNormal);
+        return normalize(mat3(inst.model) * localNormal);
     }
 
     vec3 n = normalize(localNormal);
@@ -186,7 +193,7 @@ vec3 GetSurfaceMappedNormal(vec3 localNormal, int surfaceType, vec2 uv) {
         bitangentLocal * tangentSpaceNormal.y +
         n * tangentSpaceNormal.z
     );
-    return normalize(mat3(pushData.model) * mappedLocal);
+    return normalize(mat3(inst.model) * mappedLocal);
 }
 
 const int SHADOW_SAMPLES_COUNT = 64;
@@ -323,6 +330,8 @@ float ComputeShadowFactor(vec3 normal, vec3 lightDir) {
 }
 
 void main() {
+    inst = instanceData.instances[fragInstanceIndex];
+
     vec3 albedo = fragBaseColor.rgb;
     float alpha = fragBaseColor.a;
     int surfaceType = GetSurfaceType(fragLocalNormal);

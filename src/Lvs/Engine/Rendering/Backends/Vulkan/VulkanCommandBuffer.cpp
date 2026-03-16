@@ -40,12 +40,8 @@ void VulkanCommandBuffer::PushConstants(const void* data, const std::size_t size
     context_.PushConstants(handle_, data, size);
 }
 
-void VulkanCommandBuffer::Draw(const RHI::u32 vertexCount) {
-    context_.Draw(handle_, vertexCount);
-}
-
-void VulkanCommandBuffer::DrawIndexed(const RHI::u32 indexCount) {
-    context_.DrawIndexed(handle_, indexCount);
+void VulkanCommandBuffer::Draw(const RHI::ICommandBuffer::DrawInfo& info) {
+    context_.Draw(handle_, info);
 }
 
 VkCommandBuffer VulkanCommandBuffer::GetHandle() const {

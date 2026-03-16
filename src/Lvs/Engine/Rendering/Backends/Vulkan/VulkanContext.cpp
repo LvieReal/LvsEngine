@@ -740,7 +740,7 @@ void VulkanContext::InitializeBackendObjects() {
 
     if (api_.DescriptorSetLayout == VK_NULL_HANDLE) {
         std::vector<VkDescriptorSetLayoutBinding> bindings;
-        bindings.reserve(9);
+        bindings.reserve(10);
         bindings.push_back(VkDescriptorSetLayoutBinding{
             .binding = 0,
             .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -757,6 +757,13 @@ void VulkanContext::InitializeBackendObjects() {
                 .pImmutableSamplers = nullptr
             });
         }
+        bindings.push_back(VkDescriptorSetLayoutBinding{
+            .binding = 9,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr
+        });
         const VkDescriptorSetLayoutCreateInfo layoutInfo{
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
             .pNext = nullptr,
@@ -775,6 +782,10 @@ void VulkanContext::InitializeBackendObjects() {
             },
             VkDescriptorPoolSize{
                 .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                .descriptorCount = 128
+            },
+            VkDescriptorPoolSize{
+                .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                 .descriptorCount = 128
             }
         };
@@ -2031,6 +2042,9 @@ std::unique_ptr<RHI::IBuffer> VulkanContext::CreateBuffer(const RHI::BufferDesc&
         case RHI::BufferType::Uniform:
             usageFlags = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
             break;
+        case RHI::BufferType::Storage:
+            usageFlags = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+            break;
         case RHI::BufferType::Staging:
             usageFlags = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
             break;
@@ -2118,7 +2132,7 @@ std::unique_ptr<RHI::IResourceSet> VulkanContext::CreateResourceSet(const RHI::R
     writes.reserve(desc.bindingCount);
     for (RHI::u32 i = 0; i < desc.bindingCount; ++i) {
         const auto& binding = desc.bindings[i];
-        if (binding.kind == RHI::ResourceBindingKind::UniformBuffer) {
+        if (binding.kind == RHI::ResourceBindingKind::UniformBuffer || binding.kind == RHI::ResourceBindingKind::StorageBuffer) {
             bufferInfos.push_back(VkDescriptorBufferInfo{
                 .buffer = binding.buffer != nullptr ? reinterpret_cast<VkBuffer>(binding.buffer->GetNativeHandle()) : VK_NULL_HANDLE,
                 .offset = 0,
@@ -2131,7 +2145,8 @@ std::unique_ptr<RHI::IResourceSet> VulkanContext::CreateResourceSet(const RHI::R
                 .dstBinding = binding.slot,
                 .dstArrayElement = 0,
                 .descriptorCount = 1,
-                .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                .descriptorType = binding.kind == RHI::ResourceBindingKind::StorageBuffer ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER
+                                                                                         : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
                 .pImageInfo = nullptr,
                 .pBufferInfo = &bufferInfos.back(),
                 .pTexelBufferView = nullptr
@@ -3298,28 +3313,14 @@ void VulkanContext::Render(const ::Lvs::Engine::Rendering::SceneData& sceneData)
     };
 
     if (inFlightFence_ != VK_NULL_HANDLE) {
-        const VkResult waitResult = vkWaitForFences(api_.Device, 1, &inFlightFence_, VK_TRUE, 100'000'000ULL);
-        if (waitResult == VK_TIMEOUT) {
-            // Recover from a potentially stuck unsignaled fence to avoid
-            // permanent frozen output after backend/API switches.
-            recreateInFlightFenceSignaled();
-            return;
-        }
+        const VkResult waitResult = vkWaitForFences(api_.Device, 1, &inFlightFence_, VK_TRUE, UINT64_MAX);
         if (waitResult != VK_SUCCESS) {
+            // If we cannot safely determine completion, force idle so higher layers can
+            // retire/free per-frame resources without "in use" errors.
+            vkDeviceWaitIdle(api_.Device);
             recreateInFlightFenceSignaled();
             return;
         }
-    }
-
-    auto cmd = AllocateCommandBuffer();
-    auto* vkCmd = dynamic_cast<VulkanCommandBuffer*>(cmd.release());
-    if (vkCmd == nullptr) {
-        return;
-    }
-    cmdBuffer_.reset(vkCmd);
-    const VkCommandBuffer handle = cmdBuffer_->GetHandle();
-    if (handle == VK_NULL_HANDLE) {
-        return;
     }
 
     std::uint32_t imageIndex = 0;
@@ -3350,11 +3351,72 @@ void VulkanContext::Render(const ::Lvs::Engine::Rendering::SceneData& sceneData)
     if (currentSwapchainImage_ >= renderFinishedSemaphores_.size()) {
         RecreateRenderFinishedSemaphores();
         if (currentSwapchainImage_ >= renderFinishedSemaphores_.size()) {
+            // We already acquired an image; recover to avoid leaving the acquire semaphore pending.
+            vkDeviceWaitIdle(api_.Device);
+            if (imageAvailableSemaphore_ != VK_NULL_HANDLE) {
+                vkDestroySemaphore(api_.Device, imageAvailableSemaphore_, nullptr);
+                imageAvailableSemaphore_ = VK_NULL_HANDLE;
+            }
+            const VkSemaphoreCreateInfo semaphoreInfo{
+                .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+                .pNext = nullptr,
+                .flags = 0
+            };
+            static_cast<void>(vkCreateSemaphore(api_.Device, &semaphoreInfo, nullptr, &imageAvailableSemaphore_));
+            static_cast<void>(RecreateSurfaceAndSwapchain());
             return;
         }
     }
     const VkSemaphore renderFinishedSemaphore = renderFinishedSemaphores_[currentSwapchainImage_];
     if (renderFinishedSemaphore == VK_NULL_HANDLE) {
+        vkDeviceWaitIdle(api_.Device);
+        if (imageAvailableSemaphore_ != VK_NULL_HANDLE) {
+            vkDestroySemaphore(api_.Device, imageAvailableSemaphore_, nullptr);
+            imageAvailableSemaphore_ = VK_NULL_HANDLE;
+        }
+        const VkSemaphoreCreateInfo semaphoreInfo{
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0
+        };
+        static_cast<void>(vkCreateSemaphore(api_.Device, &semaphoreInfo, nullptr, &imageAvailableSemaphore_));
+        static_cast<void>(RecreateSurfaceAndSwapchain());
+        return;
+    }
+
+    auto cmd = AllocateCommandBuffer();
+    auto* vkCmd = dynamic_cast<VulkanCommandBuffer*>(cmd.release());
+    if (vkCmd == nullptr) {
+        vkDeviceWaitIdle(api_.Device);
+        if (imageAvailableSemaphore_ != VK_NULL_HANDLE) {
+            vkDestroySemaphore(api_.Device, imageAvailableSemaphore_, nullptr);
+            imageAvailableSemaphore_ = VK_NULL_HANDLE;
+        }
+        const VkSemaphoreCreateInfo semaphoreInfo{
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0
+        };
+        static_cast<void>(vkCreateSemaphore(api_.Device, &semaphoreInfo, nullptr, &imageAvailableSemaphore_));
+        static_cast<void>(RecreateSurfaceAndSwapchain());
+        return;
+    }
+    cmdBuffer_.reset(vkCmd);
+    const VkCommandBuffer handle = cmdBuffer_->GetHandle();
+    if (handle == VK_NULL_HANDLE) {
+        cmdBuffer_.reset();
+        vkDeviceWaitIdle(api_.Device);
+        if (imageAvailableSemaphore_ != VK_NULL_HANDLE) {
+            vkDestroySemaphore(api_.Device, imageAvailableSemaphore_, nullptr);
+            imageAvailableSemaphore_ = VK_NULL_HANDLE;
+        }
+        const VkSemaphoreCreateInfo semaphoreInfo{
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0
+        };
+        static_cast<void>(vkCreateSemaphore(api_.Device, &semaphoreInfo, nullptr, &imageAvailableSemaphore_));
+        static_cast<void>(RecreateSurfaceAndSwapchain());
         return;
     }
 
@@ -3362,17 +3424,62 @@ void VulkanContext::Render(const ::Lvs::Engine::Rendering::SceneData& sceneData)
 
     const VkResult endResult = vkEndCommandBuffer(handle);
     if (endResult != VK_SUCCESS || api_.GraphicsQueue == VK_NULL_HANDLE || api_.PresentQueue == VK_NULL_HANDLE) {
-        static_cast<void>(RecreateSurfaceAndSwapchain());
-        if (endResult != VK_SUCCESS) {
-        } else {
+        // Fall back to an empty submit+present to ensure the acquire semaphore is waited on.
+        if (api_.GraphicsQueue != VK_NULL_HANDLE && api_.PresentQueue != VK_NULL_HANDLE && inFlightFence_ != VK_NULL_HANDLE) {
+            const VkResult resetFenceResult = vkResetFences(api_.Device, 1, &inFlightFence_);
+            if (resetFenceResult == VK_SUCCESS) {
+                const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+                const VkSubmitInfo submitInfo{
+                    .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                    .pNext = nullptr,
+                    .waitSemaphoreCount = 1,
+                    .pWaitSemaphores = &imageAvailableSemaphore_,
+                    .pWaitDstStageMask = &waitStage,
+                    .commandBufferCount = 0,
+                    .pCommandBuffers = nullptr,
+                    .signalSemaphoreCount = 1,
+                    .pSignalSemaphores = &renderFinishedSemaphore
+                };
+                static_cast<void>(vkQueueSubmit(api_.GraphicsQueue, 1, &submitInfo, inFlightFence_));
+                const VkPresentInfoKHR presentInfo{
+                    .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+                    .pNext = nullptr,
+                    .waitSemaphoreCount = 1,
+                    .pWaitSemaphores = &renderFinishedSemaphore,
+                    .swapchainCount = 1,
+                    .pSwapchains = &api_.Swapchain,
+                    .pImageIndices = &currentSwapchainImage_,
+                    .pResults = nullptr
+                };
+                static_cast<void>(vkQueuePresentKHR(api_.PresentQueue, &presentInfo));
+            } else {
+                vkDeviceWaitIdle(api_.Device);
+            }
+        } else if (api_.Device != VK_NULL_HANDLE) {
+            vkDeviceWaitIdle(api_.Device);
         }
+        cmdBuffer_.reset();
+        static_cast<void>(RecreateSurfaceAndSwapchain());
         return;
     }
 
     {
         const VkResult resetFenceResult = vkResetFences(api_.Device, 1, &inFlightFence_);
         if (resetFenceResult != VK_SUCCESS) {
+            vkDeviceWaitIdle(api_.Device);
             recreateInFlightFenceSignaled();
+            cmdBuffer_.reset();
+            if (imageAvailableSemaphore_ != VK_NULL_HANDLE) {
+                vkDestroySemaphore(api_.Device, imageAvailableSemaphore_, nullptr);
+                imageAvailableSemaphore_ = VK_NULL_HANDLE;
+            }
+            const VkSemaphoreCreateInfo semaphoreInfo{
+                .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+                .pNext = nullptr,
+                .flags = 0
+            };
+            static_cast<void>(vkCreateSemaphore(api_.Device, &semaphoreInfo, nullptr, &imageAvailableSemaphore_));
+            static_cast<void>(RecreateSurfaceAndSwapchain());
             return;
         }
         const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -3408,7 +3515,19 @@ void VulkanContext::Render(const ::Lvs::Engine::Rendering::SceneData& sceneData)
             } else {
             }
         } else {
+            // If submission fails, the acquire semaphore may remain pending; idle to recover.
+            vkDeviceWaitIdle(api_.Device);
             recreateInFlightFenceSignaled();
+            if (imageAvailableSemaphore_ != VK_NULL_HANDLE) {
+                vkDestroySemaphore(api_.Device, imageAvailableSemaphore_, nullptr);
+                imageAvailableSemaphore_ = VK_NULL_HANDLE;
+            }
+            const VkSemaphoreCreateInfo semaphoreInfo{
+                .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+                .pNext = nullptr,
+                .flags = 0
+            };
+            static_cast<void>(vkCreateSemaphore(api_.Device, &semaphoreInfo, nullptr, &imageAvailableSemaphore_));
             static_cast<void>(RecreateSurfaceAndSwapchain());
         }
     }
@@ -3590,18 +3709,16 @@ void VulkanContext::PushConstants(const VkCommandBuffer commandBuffer, const voi
     );
 }
 
-void VulkanContext::Draw(const VkCommandBuffer commandBuffer, const RHI::u32 vertexCount) const {
-    if (commandBuffer == VK_NULL_HANDLE || vertexCount == 0) {
+void VulkanContext::Draw(const VkCommandBuffer commandBuffer, const RHI::ICommandBuffer::DrawInfo& info) const {
+    if (commandBuffer == VK_NULL_HANDLE) {
         return;
     }
-    vkCmdDraw(commandBuffer, vertexCount, 1, 0, 0);
-}
-
-void VulkanContext::DrawIndexed(const VkCommandBuffer commandBuffer, const RHI::u32 indexCount) const {
-    if (commandBuffer == VK_NULL_HANDLE || indexCount == 0) {
-        return;
+    const std::uint32_t instanceCount = std::max<RHI::u32>(1U, info.instanceCount);
+    if (info.indexCount > 0U) {
+        vkCmdDrawIndexed(commandBuffer, info.indexCount, instanceCount, 0, 0, 0);
+    } else if (info.vertexCount > 0U) {
+        vkCmdDraw(commandBuffer, info.vertexCount, instanceCount, 0, 0);
     }
-    vkCmdDrawIndexed(commandBuffer, indexCount, 1, 0, 0, 0);
 }
 
 } // namespace Lvs::Engine::Rendering::Backends::Vulkan

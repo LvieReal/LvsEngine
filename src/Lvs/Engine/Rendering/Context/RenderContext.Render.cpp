@@ -64,7 +64,11 @@ void RenderContext::Render() {
     EnsureFallbackShadowTarget();
     EnsureShadowJitterTexture();
     UpdateSkyboxTexture();
+    const bool hadSurfaceAtlas = hasSurfaceAtlas_;
     UpdateSurfaceAtlasTexture();
+    if (hadSurfaceAtlas != hasSurfaceAtlas_) {
+        MarkGeometryDataDirty();
+    }
     SceneData scene{};
     scene.ClearColor = true;
     scene.ClearColorValue[0] = clearColor_[0];
@@ -218,16 +222,19 @@ void RenderContext::Render() {
         };
     }
 
-    frameMeshRefs_.clear();
-
     scene.ShadowDraw = {};
     scene.SkyboxDraw = {};
     if (scene.EnableSkybox) {
         if (GpuMesh* skyboxMesh = GetOrCreatePrimitiveMesh(Enums::PartShape::Cube); skyboxMesh != nullptr) {
-            if (const SceneData::MeshRef* skyboxMeshRef = PushFrameMeshRef(*skyboxMesh); skyboxMeshRef != nullptr) {
+            const SceneData::MeshRef* skyboxMeshRef = GetOrCreateMeshRef(
+                "primitive:" + std::to_string(static_cast<int>(Enums::PartShape::Cube)),
+                *skyboxMesh
+            );
+            if (skyboxMeshRef != nullptr) {
                 scene.SkyboxDraw = SceneData::DrawPacket{
                     .Mesh = skyboxMeshRef,
-                    .PushConstants = {},
+                    .BaseInstance = 0U,
+                    .InstanceCount = 1U,
                     .CullMode = RHI::CullMode::Front
                 };
             } else {
@@ -254,7 +261,7 @@ void RenderContext::Render() {
             if (draw.Transparent || draw.AlwaysOnTop) {
                 continue;
             }
-            if (draw.PushConstants.Material[3] > 0.5F) { // ignore lighting (gizmos/overlays)
+            if (draw.IgnoreLighting) { // ignore lighting (gizmos/overlays)
                 continue;
             }
             scene.ShadowCasters.push_back(draw);
@@ -282,6 +289,19 @@ void RenderContext::Render() {
         .size = sizeof(Common::CameraUniformData),
         .initialData = &cameraUniforms
     });
+    if (instanceBufferDirty_ || frameInstanceBuffer_ == nullptr) {
+        if (frameInstanceBuffer_ != nullptr) {
+            retiredFrameUniformBuffers_.push_back(std::move(frameInstanceBuffer_));
+        }
+        const Common::DrawInstanceData dummyInstance{};
+        frameInstanceBuffer_ = GetRhiContext().CreateBuffer(RHI::BufferDesc{
+            .type = RHI::BufferType::Storage,
+            .usage = RHI::BufferUsage::Dynamic,
+            .size = std::max<std::size_t>(static_cast<std::size_t>(1), cachedInstanceData_.size()) * sizeof(Common::DrawInstanceData),
+            .initialData = cachedInstanceData_.empty() ? &dummyInstance : cachedInstanceData_.data()
+        });
+        instanceBufferDirty_ = false;
+    }
     scene.ShadowResources = nullptr;
     if (cameraUniforms.ShadowState[0] > 0.5F && scene.ShadowCascadeCount > 0U && !scene.ShadowCasters.empty()) {
         Common::ShadowUniformData shadowUniforms{};
@@ -298,12 +318,20 @@ void RenderContext::Render() {
             .size = sizeof(Common::ShadowUniformData),
             .initialData = &shadowUniforms
         });
-        const std::array<RHI::ResourceBinding, 1> shadowBindings{RHI::ResourceBinding{
-            .slot = 0,
-            .kind = RHI::ResourceBindingKind::UniformBuffer,
-            .texture = {},
-            .buffer = frameShadowUniformBuffer_.get()
-        }};
+        const std::array<RHI::ResourceBinding, 2> shadowBindings{
+            RHI::ResourceBinding{
+                .slot = 0,
+                .kind = RHI::ResourceBindingKind::UniformBuffer,
+                .texture = {},
+                .buffer = frameShadowUniformBuffer_.get()
+            },
+            RHI::ResourceBinding{
+                .slot = 9,
+                .kind = RHI::ResourceBindingKind::StorageBuffer,
+                .texture = {},
+                .buffer = frameInstanceBuffer_.get()
+            }
+        };
         frameShadowResourceSet_ = GetRhiContext().CreateResourceSet(RHI::ResourceSetDesc{
             .bindings = shadowBindings.data(),
             .bindingCount = static_cast<RHI::u32>(shadowBindings.size()),
@@ -312,7 +340,7 @@ void RenderContext::Render() {
         scene.ShadowResources = frameShadowResourceSet_.get();
     }
 
-    std::array<RHI::ResourceBinding, 10> frameBindings{};
+    std::array<RHI::ResourceBinding, 11> frameBindings{};
     RHI::u32 frameBindingCount = 0;
     frameBindings[frameBindingCount++] = RHI::ResourceBinding{
         .slot = 0,
@@ -377,6 +405,12 @@ void RenderContext::Render() {
         .kind = RHI::ResourceBindingKind::Texture2D,
         .texture = fallbackBlackTexture_, // Normal atlas is currently optional.
         .buffer = nullptr
+    };
+    frameBindings[frameBindingCount++] = RHI::ResourceBinding{
+        .slot = 9,
+        .kind = RHI::ResourceBindingKind::StorageBuffer,
+        .texture = {},
+        .buffer = frameInstanceBuffer_.get()
     };
     frameResourceSet_ = GetRhiContext().CreateResourceSet(RHI::ResourceSetDesc{
         .bindings = frameBindings.data(),

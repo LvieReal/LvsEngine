@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 
 namespace Lvs::Engine::Rendering::Common {
 
@@ -31,6 +32,22 @@ struct DrawPushConstants {
     std::array<float, 4> Material{};
     std::array<float, 4> SurfaceData0{};
     std::array<float, 4> SurfaceData1{};
+};
+
+struct DrawInstanceData {
+    std::array<float, 16> Model{};
+    std::array<float, 4> BaseColor{};
+    std::array<float, 4> Material{};
+    std::array<float, 4> SurfaceData0{};
+    std::array<float, 4> SurfaceData1{};
+};
+
+struct DrawCallPushConstants {
+    std::array<std::uint32_t, 4> Data{}; // x: base instance
+};
+
+struct ShadowDrawCallPushConstants {
+    std::array<std::uint32_t, 4> Data{}; // x: base instance, y: cascade index
 };
 
 struct ShadowPushConstants {

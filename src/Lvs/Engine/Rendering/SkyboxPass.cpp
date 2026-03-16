@@ -40,7 +40,7 @@ void SkyboxPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBuffer&
     cmd.BindIndexBuffer(*mesh->IndexBuffer, mesh->IndexBufferType, mesh->IndexOffset);
     cmd.BindResourceSet(0, *resources_);
     cmd.PushConstants(&scene_->SkyboxPush, sizeof(scene_->SkyboxPush));
-    cmd.DrawIndexed(mesh->IndexCount);
+    cmd.Draw(RHI::ICommandBuffer::DrawInfo{.vertexCount = 0, .indexCount = mesh->IndexCount, .instanceCount = 1});
     cmd.EndRenderPass();
 }
 

@@ -10,6 +10,7 @@ enum class BufferType {
     Vertex,
     Index,
     Uniform,
+    Storage,
     Staging
 };
 

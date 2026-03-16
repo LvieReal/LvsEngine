@@ -48,8 +48,7 @@ public:
     void BindIndexBuffer(VkCommandBuffer commandBuffer, const RHI::IBuffer& buffer, RHI::IndexType indexType, std::size_t offset) const;
     void BindResourceSet(VkCommandBuffer commandBuffer, RHI::u32 slot, const RHI::IResourceSet& set) const;
     void PushConstants(VkCommandBuffer commandBuffer, const void* data, std::size_t size) const;
-    void Draw(VkCommandBuffer commandBuffer, RHI::u32 vertexCount) const;
-    void DrawIndexed(VkCommandBuffer commandBuffer, RHI::u32 indexCount) const;
+    void Draw(VkCommandBuffer commandBuffer, const RHI::ICommandBuffer::DrawInfo& info) const;
 
 private:
     [[nodiscard]] VkShaderModule CreateShaderModule(const std::vector<std::uint32_t>& spirv) const;

@@ -1,4 +1,21 @@
 #version 450
+#ifdef GL_ARB_shader_draw_parameters
+#extension GL_ARB_shader_draw_parameters : enable
+#endif
+
+struct InstanceData
+{
+    mat4 model;
+    vec4 baseColor;
+    vec4 material;
+    vec4 surfaceData0;
+    vec4 surfaceData1;
+};
+
+layout(binding = 9, std430) readonly buffer InstanceSSBO
+{
+    InstanceData instances[];
+} instanceData;
 
 layout(binding = 0, std140) uniform CameraUBO
 {
@@ -20,15 +37,16 @@ layout(binding = 0, std140) uniform CameraUBO
 
 struct PushConstants
 {
-    mat4 model;
-    vec4 baseColor;
-    vec4 material;
-    vec4 surfaceData0;
-    vec4 surfaceData1;
+    uvec4 data;
 };
 
 uniform PushConstants pushData;
 
+#ifdef GL_ARB_shader_draw_parameters
+#define SPIRV_Cross_BaseInstance gl_BaseInstanceARB
+#else
+uniform int SPIRV_Cross_BaseInstance;
+#endif
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inNormal;
 layout(location = 0) out vec3 fragNormal;
@@ -38,6 +56,7 @@ layout(location = 3) out vec4 fragMaterial;
 layout(location = 4) out vec3 fragVertexLighting;
 layout(location = 5) out vec3 fragLocalPos;
 layout(location = 6) out vec3 fragLocalNormal;
+layout(location = 7) flat out uint fragInstanceIndex;
 
 float DistributionGGX(vec3 N, vec3 H, float roughness)
 {
@@ -80,13 +99,20 @@ vec3 FresnelSchlick(float cosTheta, vec3 F0)
 
 void main()
 {
-    vec4 worldPos = pushData.model * vec4(inPosition, 1.0);
+    uint instanceIndex = pushData.data.x + uint((gl_InstanceID + SPIRV_Cross_BaseInstance));
+    InstanceData inst;
+    inst.model = instanceData.instances[instanceIndex].model;
+    inst.baseColor = instanceData.instances[instanceIndex].baseColor;
+    inst.material = instanceData.instances[instanceIndex].material;
+    inst.surfaceData0 = instanceData.instances[instanceIndex].surfaceData0;
+    inst.surfaceData1 = instanceData.instances[instanceIndex].surfaceData1;
+    vec4 worldPos = inst.model * vec4(inPosition, 1.0);
     gl_Position = (camera.projection * camera.view) * worldPos;
-    vec3 albedo = pushData.baseColor.xyz;
-    float metalness = clamp(pushData.material.x, 0.0, 1.0);
-    float roughness = clamp(pushData.material.y, 0.0, 1.0);
-    float emissive = max(pushData.material.z, 0.0);
-    vec3 N = normalize(mat3(pushData.model[0].xyz, pushData.model[1].xyz, pushData.model[2].xyz) * inNormal);
+    vec3 albedo = inst.baseColor.xyz;
+    float metalness = clamp(inst.material.x, 0.0, 1.0);
+    float roughness = clamp(inst.material.y, 0.0, 1.0);
+    float emissive = max(inst.material.z, 0.0);
+    vec3 N = normalize(mat3(inst.model[0].xyz, inst.model[1].xyz, inst.model[2].xyz) * inNormal);
     vec3 V = normalize(camera.cameraPosition.xyz - worldPos.xyz);
     vec3 L = normalize(-camera.lightDirection.xyz);
     vec3 H = normalize(V + L);
@@ -120,10 +146,11 @@ void main()
     directLight += (((diffuse + specular) * lightColor) * NdotL);
     fragNormal = N;
     fragWorldPos = worldPos.xyz;
-    fragBaseColor = pushData.baseColor;
-    fragMaterial = pushData.material;
+    fragBaseColor = inst.baseColor;
+    fragMaterial = inst.material;
     fragVertexLighting = directLight;
     fragLocalPos = inPosition;
     fragLocalNormal = inNormal;
+    fragInstanceIndex = instanceIndex;
 }
 

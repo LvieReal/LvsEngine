@@ -1,5 +1,14 @@
 #version 450
 
+struct InstanceData
+{
+    mat4 model;
+    vec4 baseColor;
+    vec4 material;
+    vec4 surfaceData0;
+    vec4 surfaceData1;
+};
+
 layout(binding = 0, std140) uniform CameraUBO
 {
     mat4 view;
@@ -18,16 +27,10 @@ layout(binding = 0, std140) uniform CameraUBO
     vec4 cameraForward;
 } camera;
 
-struct PushConstants
+layout(binding = 9, std430) readonly buffer InstanceSSBO
 {
-    mat4 model;
-    vec4 baseColor;
-    vec4 material;
-    vec4 surfaceData0;
-    vec4 surfaceData1;
-};
-
-uniform PushConstants pushData;
+    InstanceData instances[];
+} instanceData;
 
 layout(binding = 2) uniform sampler2D surfaceAtlas;
 layout(binding = 8) uniform sampler2D surfaceNormalAtlas;
@@ -39,6 +42,7 @@ layout(binding = 6) uniform sampler2D neonTexture;
 layout(binding = 1) uniform samplerCube skyboxTex;
 
 layout(location = 1) in vec3 fragWorldPos;
+layout(location = 7) flat in uint fragInstanceIndex;
 layout(location = 2) in vec4 fragBaseColor;
 layout(location = 6) in vec3 fragLocalNormal;
 layout(location = 5) in vec3 fragLocalPos;
@@ -47,35 +51,36 @@ layout(location = 0) out vec4 outSceneColor;
 layout(location = 1) out vec4 outGlowColor;
 layout(location = 4) in vec3 fragVertexLighting;
 layout(location = 0) in vec3 fragNormal;
+InstanceData inst;
 
 int GetTopSurfaceType()
 {
-    return int(pushData.surfaceData0.x + 0.5);
+    return int(inst.surfaceData0.x + 0.5);
 }
 
 int GetBottomSurfaceType()
 {
-    return int(pushData.surfaceData0.y + 0.5);
+    return int(inst.surfaceData0.y + 0.5);
 }
 
 int GetRightSurfaceType()
 {
-    return int(pushData.surfaceData1.y + 0.5);
+    return int(inst.surfaceData1.y + 0.5);
 }
 
 int GetLeftSurfaceType()
 {
-    return int(pushData.surfaceData1.x + 0.5);
+    return int(inst.surfaceData1.x + 0.5);
 }
 
 int GetFrontSurfaceType()
 {
-    return int(pushData.surfaceData0.z + 0.5);
+    return int(inst.surfaceData0.z + 0.5);
 }
 
 int GetBackSurfaceType()
 {
-    return int(pushData.surfaceData0.w + 0.5);
+    return int(inst.surfaceData0.w + 0.5);
 }
 
 int GetSurfaceType(vec3 normal)
@@ -142,9 +147,9 @@ int GetSurfaceType(vec3 normal)
 
 vec3 GetMeshSizeFromModel()
 {
-    vec3 xAxis = vec3(pushData.model[0].x, pushData.model[0].y, pushData.model[0].z);
-    vec3 yAxis = vec3(pushData.model[1].x, pushData.model[1].y, pushData.model[1].z);
-    vec3 zAxis = vec3(pushData.model[2].x, pushData.model[2].y, pushData.model[2].z);
+    vec3 xAxis = vec3(inst.model[0].x, inst.model[0].y, inst.model[0].z);
+    vec3 yAxis = vec3(inst.model[1].x, inst.model[1].y, inst.model[1].z);
+    vec3 zAxis = vec3(inst.model[2].x, inst.model[2].y, inst.model[2].z);
     return vec3(length(xAxis), length(yAxis), length(zAxis));
 }
 
@@ -196,7 +201,7 @@ vec2 GetFaceUV(vec3 localPos, vec3 localNormal)
 
 bool IsSurfaceEnabled()
 {
-    return pushData.surfaceData1.z > 0.5;
+    return inst.surfaceData1.z > 0.5;
 }
 
 vec2 GetSurfaceAtlasGrid()
@@ -244,7 +249,7 @@ vec3 SampleSurfaceColor(int surfaceType, vec2 uv)
 
 bool IsSurfaceNormalEnabled()
 {
-    return pushData.surfaceData1.w > 0.5;
+    return inst.surfaceData1.w > 0.5;
 }
 
 vec3 GetSurfaceMappedNormal(vec3 localNormal, int surfaceType, vec2 uv)
@@ -261,7 +266,7 @@ vec3 GetSurfaceMappedNormal(vec3 localNormal, int surfaceType, vec2 uv)
     }
     if (_557 || (surfaceType == 0))
     {
-        return normalize(mat3(pushData.model[0].xyz, pushData.model[1].xyz, pushData.model[2].xyz) * localNormal);
+        return normalize(mat3(inst.model[0].xyz, inst.model[1].xyz, inst.model[2].xyz) * localNormal);
     }
     vec3 n = normalize(localNormal);
     vec3 a = abs(n);
@@ -310,7 +315,7 @@ vec3 GetSurfaceMappedNormal(vec3 localNormal, int surfaceType, vec2 uv)
     vec3 sampled = texture(surfaceNormalAtlas, GetSurfaceAtlasUV(param, param_1)).xyz;
     vec3 tangentSpaceNormal = normalize((sampled * 2.0) - vec3(1.0));
     vec3 mappedLocal = normalize(((tangentLocal * tangentSpaceNormal.x) + (bitangentLocal * tangentSpaceNormal.y)) + (n * tangentSpaceNormal.z));
-    return normalize(mat3(pushData.model[0].xyz, pushData.model[1].xyz, pushData.model[2].xyz) * mappedLocal);
+    return normalize(mat3(inst.model[0].xyz, inst.model[1].xyz, inst.model[2].xyz) * mappedLocal);
 }
 
 vec2 GetDirectionalShadowTexelSize(int cascadeIndex)
@@ -581,6 +586,11 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
 
 void main()
 {
+    inst.model = instanceData.instances[fragInstanceIndex].model;
+    inst.baseColor = instanceData.instances[fragInstanceIndex].baseColor;
+    inst.material = instanceData.instances[fragInstanceIndex].material;
+    inst.surfaceData0 = instanceData.instances[fragInstanceIndex].surfaceData0;
+    inst.surfaceData1 = instanceData.instances[fragInstanceIndex].surfaceData1;
     vec3 albedo = fragBaseColor.xyz;
     float alpha = fragBaseColor.w;
     vec3 param = fragLocalNormal;
@@ -614,16 +624,16 @@ void main()
     vec3 emissiveScene = (albedo * emissive) * 4.0;
     vec3 glowColor = (((glowBase * emissive) * 8.0) * blackNeonGlowBoost) * glowMask;
     vec2 neonUv = gl_FragCoord.xy / vec2(max(textureSize(neonTexture, 0), ivec2(1)));
-    vec3 _1307;
+    vec3 _1329;
     if (neonEnabled)
     {
-        _1307 = texture(neonTexture, neonUv).xyz;
+        _1329 = texture(neonTexture, neonUv).xyz;
     }
     else
     {
-        _1307 = vec3(0.0);
+        _1329 = vec3(0.0);
     }
-    vec3 neonSample = _1307;
+    vec3 neonSample = _1329;
     if (ignoreLighting > 0.5)
     {
         outSceneColor = vec4((albedo + emissiveScene) + ((neonSample * 0.100000001490116119384765625) * glowMask), alpha);

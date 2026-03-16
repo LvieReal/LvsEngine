@@ -29,8 +29,14 @@ public:
     virtual void BindIndexBuffer(const IBuffer& buffer, IndexType indexType, std::size_t offset) = 0;
     virtual void BindResourceSet(u32 slot, const IResourceSet& set) = 0;
     virtual void PushConstants(const void* data, std::size_t size) = 0;
-    virtual void Draw(u32 vertexCount) = 0;
-    virtual void DrawIndexed(u32 indexCount) = 0;
+
+    struct DrawInfo {
+        u32 vertexCount{0};
+        u32 indexCount{0};
+        u32 instanceCount{1};
+    };
+
+    virtual void Draw(const DrawInfo& info) = 0;
 };
 
 } // namespace Lvs::Engine::Rendering::RHI

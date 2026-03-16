@@ -7,13 +7,27 @@ layout(set = 0, binding = 0) uniform ShadowUBO {
     mat4 lightViewProjection[3];
 } shadow;
 
-layout(push_constant) uniform ShadowPush {
+struct InstanceData {
     mat4 model;
-    vec4 cascade; // cascade.x stores cascade index for this pass
+    vec4 baseColor;
+    vec4 material;
+    vec4 surfaceData0;
+    vec4 surfaceData1;
+};
+
+layout(set = 0, binding = 9, std430) readonly buffer InstanceSSBO {
+    InstanceData instances[];
+} instanceData;
+
+layout(push_constant) uniform ShadowPush {
+    uvec4 data; // x: base instance, y: cascade index
 } pushData;
 
 void main() {
-    int cascadeIndex = int(pushData.cascade.x + 0.5);
+    uint instanceIndex = pushData.data.x + gl_InstanceIndex;
+    InstanceData inst = instanceData.instances[instanceIndex];
+
+    int cascadeIndex = int(pushData.data.y);
     cascadeIndex = clamp(cascadeIndex, 0, 2);
-    gl_Position = shadow.lightViewProjection[cascadeIndex] * pushData.model * vec4(inPosition, 1.0);
+    gl_Position = shadow.lightViewProjection[cascadeIndex] * inst.model * vec4(inPosition, 1.0);
 }

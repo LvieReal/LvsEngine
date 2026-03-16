@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Lvs/Engine/Enums/PartShape.hpp"
+#include "Lvs/Engine/Core/Instance.hpp"
 #include "Lvs/Engine/Math/Color3.hpp"
 #include "Lvs/Engine/Rendering/Backends/OpenGL/GLApi.hpp"
 #include "Lvs/Engine/Rendering/Backends/Vulkan/VulkanApi.hpp"
@@ -54,6 +55,56 @@ private:
         RHI::IndexType IndexType{RHI::IndexType::UInt32};
     };
 
+    struct WatchedNode {
+        std::weak_ptr<Core::Instance> Instance{};
+        Core::Instance::InstanceConnection ChildAdded{};
+        Core::Instance::InstanceConnection ChildRemoved{};
+        Utils::Signal<>::Connection Destroying{};
+    };
+
+    struct CachedRenderable {
+        std::weak_ptr<Core::Instance> Instance{};
+        Core::Instance::PropertyChangedConnection PropertyChanged{};
+        Core::Instance::InstanceConnection AncestryChanged{};
+        Utils::Signal<>::Connection Destroying{};
+
+        bool UnderWorkspace{false};
+        bool Visible{false};
+        bool Transparent{false};
+        bool AlwaysOnTop{false};
+        bool IgnoreLighting{false};
+        float Alpha{1.0F};
+        float SortDepth{0.0F};
+        RHI::CullMode CullMode{RHI::CullMode::Back};
+        const SceneData::MeshRef* Mesh{nullptr};
+        std::string MeshKey{};
+
+        bool LayoutDirty{true};
+        bool DataDirty{true};
+        std::size_t PackedInstanceIndex{0};
+
+        Common::DrawInstanceData InstanceData{};
+    };
+
+    struct BatchKey {
+        const SceneData::MeshRef* Mesh{nullptr};
+        RHI::CullMode CullMode{RHI::CullMode::Back};
+        bool AlwaysOnTop{false};
+
+        friend bool operator==(const BatchKey& lhs, const BatchKey& rhs) {
+            return lhs.Mesh == rhs.Mesh && lhs.CullMode == rhs.CullMode && lhs.AlwaysOnTop == rhs.AlwaysOnTop;
+        }
+    };
+
+    struct BatchKeyHash {
+        std::size_t operator()(const BatchKey& key) const noexcept {
+            const std::size_t ptrHash = std::hash<const void*>{}(key.Mesh);
+            const std::size_t cullHash = std::hash<std::size_t>{}(static_cast<std::size_t>(key.CullMode));
+            const std::size_t topHash = std::hash<bool>{}(key.AlwaysOnTop);
+            return ptrHash ^ (cullHash << 1U) ^ (topHash << 2U);
+        }
+    };
+
     void WaitForBackendIdle();
     void ReleaseGpuResources();
     void EnsureShadowTargets(const Common::ShadowSettings& settings);
@@ -67,10 +118,22 @@ private:
     void InitializeGeometryBuffers();
     GpuMesh* GetOrCreatePrimitiveMesh(Enums::PartShape shape);
     GpuMesh* GetOrCreateMeshPartMesh(const std::string& contentId, bool smoothNormals);
-    SceneData::MeshRef* PushFrameMeshRef(const GpuMesh& mesh);
     void TrimRetiredFrameResources();
     void UpdateSkyboxTexture();
     void UpdateSurfaceAtlasTexture();
+    void ClearGeometryCache();
+    void EnsureGeometryCache();
+    void WatchNodeRecursive(const std::shared_ptr<Core::Instance>& node);
+    void UnwatchNodeRecursive(const std::shared_ptr<Core::Instance>& node);
+    void TrackRenderable(const std::shared_ptr<Core::Instance>& instance);
+    void UntrackRenderable(const Core::Instance* instance);
+    void MarkGeometryLayoutDirty();
+    void MarkGeometryDataDirty();
+    [[nodiscard]] bool IsUnderWorkspace(const std::shared_ptr<Core::Instance>& instance) const;
+    [[nodiscard]] const SceneData::MeshRef* GetOrCreateMeshRef(const std::string& key, const GpuMesh& mesh);
+    void RebuildGeometryBatchesAndInstances();
+    void UpdateDirtyInstanceData();
+    void UpdateTransparentSortDepths();
     [[nodiscard]] std::vector<SceneData::DrawPacket> BuildGeometryDraws();
     [[nodiscard]] Common::CameraUniformData BuildCameraUniforms();
     [[nodiscard]] Common::SkyboxPushConstants BuildSkyboxPushConstants() const;
@@ -89,14 +152,33 @@ private:
     std::shared_ptr<DataModel::Place> place_{};
 
     std::vector<Common::OverlayPrimitive> overlayPrimitives_{};
+    std::size_t overlayCacheKey_{0};
+    bool overlayDirty_{true};
+
     std::unordered_map<Enums::PartShape, GpuMesh> primitiveMeshCache_{};
     std::unordered_map<std::string, GpuMesh> meshPartCache_{};
-    std::deque<SceneData::MeshRef> frameMeshRefs_{};
+    std::unordered_map<std::string, const SceneData::MeshRef*> meshRefCache_{};
+    std::deque<SceneData::MeshRef> meshRefStorage_{};
+
+    std::weak_ptr<Core::Instance> workspaceRoot_{};
+    std::unordered_map<const Core::Instance*, WatchedNode> watchedNodes_{};
+    std::unordered_map<const Core::Instance*, CachedRenderable> renderables_{};
+
+    bool geometryLayoutDirty_{true};
+    bool geometryDataDirty_{true};
+    bool instanceBufferDirty_{true};
+    bool geometryCacheInitialized_{false};
+
+    std::vector<Common::DrawInstanceData> cachedInstanceData_{};
+    std::vector<SceneData::DrawPacket> cachedOpaqueDraws_{};
+    std::vector<SceneData::DrawPacket> cachedTransparentDraws_{};
+    std::vector<SceneData::DrawPacket> cachedAlwaysOnTopDraws_{};
 
     std::unique_ptr<RHI::IBuffer> frameUniformBuffer_{};
     std::unique_ptr<RHI::IResourceSet> frameResourceSet_{};
     std::unique_ptr<RHI::IBuffer> frameShadowUniformBuffer_{};
     std::unique_ptr<RHI::IResourceSet> frameShadowResourceSet_{};
+    std::unique_ptr<RHI::IBuffer> frameInstanceBuffer_{};
 
     std::array<std::unique_ptr<RHI::IResourceSet>, SceneData::MaxPostBlurLevels> postBlurDownLevelResourceSets_{};
     std::array<std::unique_ptr<RHI::IResourceSet>, SceneData::MaxPostBlurLevels> postBlurUpLevelResourceSets_{};

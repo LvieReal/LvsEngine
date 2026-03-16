@@ -51,11 +51,14 @@ void RenderContext::ReleaseGpuResources() {
     frameShadowResourceSet_.reset();
     frameUniformBuffer_.reset();
     frameShadowUniformBuffer_.reset();
+    frameInstanceBuffer_.reset();
     retiredFrameResourceSets_.clear();
     retiredFrameUniformBuffers_.clear();
     primitiveMeshCache_.clear();
     meshPartCache_.clear();
-    frameMeshRefs_.clear();
+    meshRefCache_.clear();
+    meshRefStorage_.clear();
+    ClearGeometryCache();
     geometryTarget_.reset();
     for (auto& target : blurDownTargets_) {
         target.reset();
@@ -325,8 +328,15 @@ RenderContext::GpuMesh* RenderContext::GetOrCreateMeshPartMesh(const std::string
     return &it->second;
 }
 
-SceneData::MeshRef* RenderContext::PushFrameMeshRef(const GpuMesh& mesh) {
-    frameMeshRefs_.push_back(SceneData::MeshRef{
+const SceneData::MeshRef* RenderContext::GetOrCreateMeshRef(const std::string& key, const GpuMesh& mesh) {
+    if (mesh.VertexBuffer == nullptr || mesh.IndexBuffer == nullptr || mesh.IndexCount == 0) {
+        return nullptr;
+    }
+    if (const auto it = meshRefCache_.find(key); it != meshRefCache_.end()) {
+        return it->second;
+    }
+
+    meshRefStorage_.push_back(SceneData::MeshRef{
         .VertexBuffer = mesh.VertexBuffer.get(),
         .IndexBuffer = mesh.IndexBuffer.get(),
         .IndexBufferType = mesh.IndexType,
@@ -334,7 +344,9 @@ SceneData::MeshRef* RenderContext::PushFrameMeshRef(const GpuMesh& mesh) {
         .VertexOffset = 0,
         .IndexOffset = 0
     });
-    return &frameMeshRefs_.back();
+    const SceneData::MeshRef* ref = &meshRefStorage_.back();
+    meshRefCache_.emplace(key, ref);
+    return ref;
 }
 
 void RenderContext::TrimRetiredFrameResources() {

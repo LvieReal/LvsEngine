@@ -20,7 +20,7 @@ void RecordFullScreenPass(
     if (pushData != nullptr && pushDataSize > 0) {
         cmd.PushConstants(pushData, pushDataSize);
     }
-    cmd.Draw(3);
+    cmd.Draw(RHI::ICommandBuffer::DrawInfo{.vertexCount = 3, .indexCount = 0, .instanceCount = 1});
     cmd.EndRenderPass();
 }
 

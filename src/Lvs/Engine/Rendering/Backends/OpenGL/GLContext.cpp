@@ -891,6 +891,13 @@ void GLContext::BindResourceSet(const RHI::u32 slot, const RHI::IResourceSet& se
                 );
                 glBindBufferBase(GL_UNIFORM_BUFFER, binding.slot, handle);
             }
+        } else if (binding.kind == RHI::ResourceBindingKind::StorageBuffer) {
+            if (binding.buffer != nullptr) {
+                const auto handle = static_cast<unsigned int>(
+                    reinterpret_cast<std::uintptr_t>(binding.buffer->GetNativeHandle())
+                );
+                glBindBufferBase(GL_SHADER_STORAGE_BUFFER, binding.slot, handle);
+            }
         } else {
             BindTexture(binding.slot, binding.texture);
         }
@@ -1001,6 +1008,24 @@ void GLContext::PushConstants(const void* data, const std::size_t size) {
         }
     }
 
+    if (size == sizeof(Common::DrawCallPushConstants)) {
+        const auto& push = *static_cast<const Common::DrawCallPushConstants*>(data);
+        const GLint location = glGetUniformLocation(currentProgram_, "pushData.data");
+        if (location >= 0) {
+            glUniform4uiv(location, 1, push.Data.data());
+            return;
+        }
+    }
+
+    if (size == sizeof(Common::ShadowDrawCallPushConstants)) {
+        const auto& push = *static_cast<const Common::ShadowDrawCallPushConstants*>(data);
+        const GLint location = glGetUniformLocation(currentProgram_, "pushData.data");
+        if (location >= 0) {
+            glUniform4uiv(location, 1, push.Data.data());
+            return;
+        }
+    }
+
     if (size < sizeof(Common::DrawPushConstants)) {
         return;
     }
@@ -1026,19 +1051,17 @@ void GLContext::PushConstants(const void* data, const std::size_t size) {
     }
 }
 
-void GLContext::DrawIndexed(const RHI::u32 indexCount) {
-    if (!api_.GladLoaded || indexCount == 0) {
+void GLContext::Draw(const RHI::ICommandBuffer::DrawInfo& info) {
+    if (!api_.GladLoaded) {
         return;
     }
-    const GLenum type = currentIndexType_ == RHI::IndexType::UInt16 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT;
-    glDrawElements(GL_TRIANGLES, static_cast<int>(indexCount), type, nullptr);
-}
-
-void GLContext::Draw(const RHI::u32 vertexCount) {
-    if (!api_.GladLoaded || vertexCount == 0U) {
-        return;
+    const auto instanceCount = static_cast<GLsizei>(std::max<RHI::u32>(1U, info.instanceCount));
+    if (info.indexCount > 0U) {
+        const GLenum type = currentIndexType_ == RHI::IndexType::UInt16 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT;
+        glDrawElementsInstanced(GL_TRIANGLES, static_cast<int>(info.indexCount), type, nullptr, instanceCount);
+    } else if (info.vertexCount > 0U) {
+        glDrawArraysInstanced(GL_TRIANGLES, 0, static_cast<GLsizei>(info.vertexCount), instanceCount);
     }
-    glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(vertexCount));
 }
 
 } // namespace Lvs::Engine::Rendering::Backends::OpenGL

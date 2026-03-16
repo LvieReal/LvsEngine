@@ -17,8 +17,10 @@
 
 namespace Lvs::Engine::Rendering {
 
-std::vector<SceneData::DrawPacket> RenderContext::BuildGeometryDraws() {
+#if 0
+std::vector<SceneData::DrawPacket> RenderContext::BuildGeometryDraws(std::vector<Common::DrawInstanceData>& outInstances) {
     std::vector<SceneData::DrawPacket> draws;
+    outInstances.clear();
     bool hasCameraPosition = false;
     Math::Vector3 cameraPosition{};
     if (place_ != nullptr) {
@@ -43,35 +45,42 @@ std::vector<SceneData::DrawPacket> RenderContext::BuildGeometryDraws() {
         return static_cast<float>(dx * dx + dy * dy + dz * dz);
     };
 
-    const auto pushOverlayDraw = [this, &draws, &computeSortDepth](const Common::OverlayPrimitive& overlay) {
+    const auto pushOverlayDraw = [this, &draws, &computeSortDepth, &outInstances](const Common::OverlayPrimitive& overlay) {
         GpuMesh* gpuMesh = GetOrCreatePrimitiveMesh(overlay.Shape);
         if (gpuMesh == nullptr) {
             return;
         }
-        const SceneData::MeshRef* meshRef = PushFrameMeshRef(*gpuMesh);
+        const SceneData::MeshRef* meshRef = GetOrCreateMeshRef(
+            "primitive:" + std::to_string(static_cast<int>(overlay.Shape)),
+            *gpuMesh
+        );
         if (meshRef == nullptr) {
             return;
         }
-        Common::DrawPushConstants push{};
-        push.Model = Context::ToFloatMat4ColumnMajor(overlay.Model);
-        push.BaseColor = Context::ToVec4(overlay.Color, std::clamp(overlay.Alpha, 0.0F, 1.0F));
-        push.Material = {
+        Common::DrawInstanceData drawInstance{};
+        drawInstance.Model = Context::ToFloatMat4ColumnMajor(overlay.Model);
+        drawInstance.BaseColor = Context::ToVec4(overlay.Color, std::clamp(overlay.Alpha, 0.0F, 1.0F));
+        drawInstance.Material = {
             std::clamp(overlay.Metalness, 0.0F, 1.0F),
             std::clamp(overlay.Roughness, 0.0F, 1.0F),
             std::max(0.0F, overlay.Emissive),
             overlay.IgnoreLighting ? 1.0F : 0.0F
         };
-        push.SurfaceData0 = {0.0F, 0.0F, 0.0F, overlay.AlwaysOnTop ? 1.0F : 0.0F};
-        push.SurfaceData1 = {0.0F, 0.0F, 0.0F, 0.0F};
+        drawInstance.SurfaceData0 = {0.0F, 0.0F, 0.0F, overlay.AlwaysOnTop ? 1.0F : 0.0F};
+        drawInstance.SurfaceData1 = {0.0F, 0.0F, 0.0F, 0.0F};
         const auto rows = overlay.Model.Rows();
         const Math::Vector3 worldPosition{rows[0][3], rows[1][3], rows[2][3]};
         const float alpha = std::clamp(overlay.Alpha, 0.0F, 1.0F);
+        const RHI::u32 baseInstance = static_cast<RHI::u32>(outInstances.size());
+        outInstances.push_back(drawInstance);
         draws.push_back(SceneData::DrawPacket{
             .Mesh = meshRef,
-            .PushConstants = push,
+            .BaseInstance = baseInstance,
+            .InstanceCount = 1U,
             .CullMode = RHI::CullMode::Back,
             .Transparent = alpha < 1.0F || overlay.AlwaysOnTop,
             .AlwaysOnTop = overlay.AlwaysOnTop,
+            .IgnoreLighting = overlay.IgnoreLighting,
             .SortDepth = computeSortDepth(worldPosition)
         });
     };
@@ -103,63 +112,98 @@ std::vector<SceneData::DrawPacket> RenderContext::BuildGeometryDraws() {
                 const Math::Matrix4 model = part->GetWorldCFrame().ToMatrix4() * Math::Matrix4::Scale(size);
                 const Math::Color3 color = part->GetProperty("Color").value<Math::Color3>();
 
-                Common::DrawPushConstants push{};
-                push.Model = Context::ToFloatMat4ColumnMajor(model);
+                Common::DrawInstanceData drawInstance{};
+                drawInstance.Model = Context::ToFloatMat4ColumnMajor(model);
                 const float alpha = static_cast<float>(1.0 - std::clamp(transparency, 0.0, 1.0));
-                push.BaseColor = Context::ToVec4(color, alpha);
-                push.Material = {
+                drawInstance.BaseColor = Context::ToVec4(color, alpha);
+                drawInstance.Material = {
                     static_cast<float>(std::clamp(part->GetProperty("Metalness").toDouble(), 0.0, 1.0)),
                     static_cast<float>(std::clamp(part->GetProperty("Roughness").toDouble(), 0.0, 1.0)),
                     static_cast<float>(std::max(0.0, part->GetProperty("Emissive").toDouble())),
                     0.0F
                 };
-                push.SurfaceData0 = {0.0F, 0.0F, 0.0F, 0.0F};
-                push.SurfaceData1 = {0.0F, 0.0F, hasSurfaceAtlas_ ? 1.0F : 0.0F, 0.0F};
+                drawInstance.SurfaceData0 = {0.0F, 0.0F, 0.0F, 0.0F};
+                drawInstance.SurfaceData1 = {0.0F, 0.0F, hasSurfaceAtlas_ ? 1.0F : 0.0F, 0.0F};
                 if (const auto partInstance = std::dynamic_pointer_cast<Objects::Part>(instance); partInstance != nullptr) {
-                    push.SurfaceData0 = {
+                    drawInstance.SurfaceData0 = {
                         static_cast<float>(partInstance->GetProperty("TopSurface").value<Enums::PartSurfaceType>()),
                         static_cast<float>(partInstance->GetProperty("BottomSurface").value<Enums::PartSurfaceType>()),
                         static_cast<float>(partInstance->GetProperty("FrontSurface").value<Enums::PartSurfaceType>()),
                         static_cast<float>(partInstance->GetProperty("BackSurface").value<Enums::PartSurfaceType>())
                     };
-                    push.SurfaceData1[0] = static_cast<float>(
+                    drawInstance.SurfaceData1[0] = static_cast<float>(
                         partInstance->GetProperty("LeftSurface").value<Enums::PartSurfaceType>()
                     );
-                    push.SurfaceData1[1] = static_cast<float>(
+                    drawInstance.SurfaceData1[1] = static_cast<float>(
                         partInstance->GetProperty("RightSurface").value<Enums::PartSurfaceType>()
                     );
                 }
 
                 GpuMesh* gpuMesh = nullptr;
                 if (const auto meshPart = std::dynamic_pointer_cast<Objects::MeshPart>(instance); meshPart != nullptr) {
+                    const std::string contentId = meshPart->GetProperty("ContentId").toString().toStdString();
+                    const bool smoothNormals = meshPart->GetProperty("SmoothNormals").toBool();
+                    const auto resolvedPath = Context::ResolveContentPath(contentId);
+                    if (resolvedPath.empty()) {
+                        continue;
+                    }
+                    const std::string key = resolvedPath.string() + (smoothNormals ? "|smooth" : "|flat");
                     gpuMesh = GetOrCreateMeshPartMesh(
-                        meshPart->GetProperty("ContentId").toString().toStdString(),
-                        meshPart->GetProperty("SmoothNormals").toBool()
+                        contentId,
+                        smoothNormals
                     );
+                    if (gpuMesh != nullptr) {
+                        const SceneData::MeshRef* meshRef = GetOrCreateMeshRef("meshpart:" + key, *gpuMesh);
+                        if (meshRef == nullptr) {
+                            continue;
+                        }
+                        const bool alwaysOnTop = part->GetProperty("AlwaysOnTop").toBool();
+                        const RHI::u32 baseInstance = static_cast<RHI::u32>(outInstances.size());
+                        outInstances.push_back(drawInstance);
+                        draws.push_back(SceneData::DrawPacket{
+                            .Mesh = meshRef,
+                            .BaseInstance = baseInstance,
+                            .InstanceCount = 1U,
+                            .CullMode = Context::ToRhiCullMode(part->GetProperty("CullMode").value<Enums::MeshCullMode>()),
+                            .Transparent = alpha < 1.0F || alwaysOnTop,
+                            .AlwaysOnTop = alwaysOnTop,
+                            .IgnoreLighting = false,
+                            .SortDepth = computeSortDepth(part->GetWorldPosition())
+                        });
+                    }
+                    continue;
                 } else {
                     Enums::PartShape shape = Enums::PartShape::Cube;
                     if (const auto partInstance = std::dynamic_pointer_cast<Objects::Part>(instance); partInstance != nullptr) {
                         shape = partInstance->GetProperty("Shape").value<Enums::PartShape>();
                     }
                     gpuMesh = GetOrCreatePrimitiveMesh(shape);
-                }
-                if (gpuMesh == nullptr) {
-                    continue;
-                }
-                const SceneData::MeshRef* meshRef = PushFrameMeshRef(*gpuMesh);
-                if (meshRef == nullptr) {
-                    continue;
-                }
+                    if (gpuMesh == nullptr) {
+                        continue;
+                    }
+                    const SceneData::MeshRef* meshRef = GetOrCreateMeshRef(
+                        "primitive:" + std::to_string(static_cast<int>(shape)),
+                        *gpuMesh
+                    );
+                    if (meshRef == nullptr) {
+                        continue;
+                    }
 
-                const bool alwaysOnTop = part->GetProperty("AlwaysOnTop").toBool();
-                draws.push_back(SceneData::DrawPacket{
-                    .Mesh = meshRef,
-                    .PushConstants = push,
-                    .CullMode = Context::ToRhiCullMode(part->GetProperty("CullMode").value<Enums::MeshCullMode>()),
-                    .Transparent = alpha < 1.0F || alwaysOnTop,
-                    .AlwaysOnTop = alwaysOnTop,
-                    .SortDepth = computeSortDepth(part->GetWorldPosition())
-                });
+                    const bool alwaysOnTop = part->GetProperty("AlwaysOnTop").toBool();
+                    const RHI::u32 baseInstance = static_cast<RHI::u32>(outInstances.size());
+                    outInstances.push_back(drawInstance);
+                    draws.push_back(SceneData::DrawPacket{
+                        .Mesh = meshRef,
+                        .BaseInstance = baseInstance,
+                        .InstanceCount = 1U,
+                        .CullMode = Context::ToRhiCullMode(part->GetProperty("CullMode").value<Enums::MeshCullMode>()),
+                        .Transparent = alpha < 1.0F || alwaysOnTop,
+                        .AlwaysOnTop = alwaysOnTop,
+                        .IgnoreLighting = false,
+                        .SortDepth = computeSortDepth(part->GetWorldPosition())
+                    });
+                    continue;
+                }
             }
         }
     }
@@ -169,6 +213,7 @@ std::vector<SceneData::DrawPacket> RenderContext::BuildGeometryDraws() {
     }
     return draws;
 }
+#endif
 
 Common::CameraUniformData RenderContext::BuildCameraUniforms() {
     Common::CameraUniformData uniforms{};
