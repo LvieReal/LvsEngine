@@ -2,6 +2,7 @@
 
 #include "Lvs/Engine/Core/ViewportToolLayer.hpp"
 
+#include "Lvs/Engine/Core/Instance.hpp"
 #include "Lvs/Engine/Core/GizmoSystem.hpp"
 #include "Lvs/Engine/Rendering/Common/OverlayPrimitive.hpp"
 
@@ -38,6 +39,7 @@ namespace Lvs::Studio::Core {
 class StudioViewportToolLayer final : public Engine::Core::ViewportToolLayer {
 public:
     StudioViewportToolLayer(Engine::Core::Viewport& viewport, const Engine::EngineContextPtr& context);
+    ~StudioViewportToolLayer() override;
 
     void BindToPlace(const std::shared_ptr<Engine::DataModel::Place>& place) override;
     void Unbind() override;
@@ -56,6 +58,9 @@ public:
     void SetSnapIncrement(double value);
 
 private:
+    void InvalidateWorkspaceRaycastCache();
+    [[nodiscard]] const Engine::Utils::PartBVH* GetWorkspaceRaycastBVH();
+
     void PickSelection(const Engine::Utils::Ray& ray, Qt::KeyboardModifiers modifiers = Qt::NoModifier);
     bool CanDragGizmo() const;
     void EnsureGizmoSystem();
@@ -104,6 +109,16 @@ private:
     };
     std::optional<PartDragState> partDragState_;
     std::shared_ptr<Engine::Objects::BasePart> hoveredPart_;
+    struct WorkspaceRaycastCache {
+        Engine::Utils::PartBVH Bvh;
+        Engine::Core::Instance::InstanceConnection WorkspaceChildAdded;
+        Engine::Core::Instance::InstanceConnection WorkspaceChildRemoved;
+        Engine::Core::Instance::InstanceConnection WorkspaceAncestryChanged;
+        std::vector<Engine::Core::Instance::PropertyChangedConnection> PartPropertyChanged;
+        std::vector<Engine::Core::Instance::InstanceConnection> PartAncestryChanged;
+    };
+    std::optional<WorkspaceRaycastCache> workspaceRaycastCache_;
+    bool workspaceRaycastCacheDirty_{false};
     struct GizmoHistorySnapshot {
         struct TransformSnapshot {
             std::shared_ptr<Engine::Objects::BasePart> Instance;

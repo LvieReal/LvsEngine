@@ -8,7 +8,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <limits>
+#include <unordered_set>
 
 namespace Lvs::Engine::Utils {
 
@@ -67,28 +69,98 @@ std::optional<double> RaycastPartAABB(const Ray& ray, const std::shared_ptr<Obje
     return Math::IntersectRayAABB(ray.Origin, ray.Direction, BuildPartWorldAABB(part));
 }
 
-std::pair<std::shared_ptr<Objects::BasePart>, double> RaycastParts(
-    const Ray& ray,
-    const std::vector<std::shared_ptr<Objects::BasePart>>& parts
-) {
-    std::shared_ptr<Objects::BasePart> closestPart;
-    double closestDistance = std::numeric_limits<double>::infinity();
+PartBVH BuildPartBVH(const std::vector<std::shared_ptr<Objects::BasePart>>& parts) {
+    PartBVH out;
+    out.Parts.reserve(parts.size());
+    out.Bounds.reserve(parts.size());
+
+    std::vector<Math::BVH::Primitive> primitives;
+    primitives.reserve(parts.size());
 
     for (const auto& part : parts) {
         if (part == nullptr) {
             continue;
         }
-        const auto distance = RaycastPartAABB(ray, part);
-        if (!distance.has_value()) {
-            continue;
-        }
-        if (distance.value() < closestDistance) {
-            closestDistance = distance.value();
-            closestPart = part;
+
+        const Math::AABB aabb = BuildPartWorldAABB(part);
+        const std::uint32_t payload = static_cast<std::uint32_t>(out.Parts.size());
+        out.Parts.push_back(part);
+        out.Bounds.push_back(aabb);
+        primitives.push_back(Math::BVH::Primitive{
+            .Bounds = aabb,
+            .Centroid = aabb.Centroid(),
+            .Payload = payload
+        });
+    }
+
+    out.Bvh.Build(std::move(primitives));
+    return out;
+}
+
+std::pair<std::shared_ptr<Objects::BasePart>, double> RaycastPartBVH(const Ray& ray, const PartBVH& bvh) {
+    if (bvh.Parts.empty() || bvh.Bvh.Empty()) {
+        return {nullptr, std::numeric_limits<double>::infinity()};
+    }
+
+    const auto hit = bvh.Bvh.RaycastClosest(ray.Origin, ray.Direction);
+    if (!hit.has_value()) {
+        return {nullptr, std::numeric_limits<double>::infinity()};
+    }
+    if (hit->Payload >= bvh.Parts.size()) {
+        return {nullptr, std::numeric_limits<double>::infinity()};
+    }
+
+    return {bvh.Parts[hit->Payload], hit->Distance};
+}
+
+std::pair<std::shared_ptr<Objects::BasePart>, double> RaycastPartBVHWithFilter(
+    const Ray& ray,
+    const PartBVH& bvh,
+    const std::vector<std::shared_ptr<Objects::BasePart>>& descendantFilterList,
+    const DescendantFilterType filterType
+) {
+    if (bvh.Parts.empty() || bvh.Bvh.Empty()) {
+        return {nullptr, std::numeric_limits<double>::infinity()};
+    }
+
+    if (descendantFilterList.empty()) {
+        return RaycastPartBVH(ray, bvh);
+    }
+
+    std::unordered_set<const Objects::BasePart*> filterSet;
+    filterSet.reserve(descendantFilterList.size());
+    for (const auto& entry : descendantFilterList) {
+        if (entry != nullptr) {
+            filterSet.insert(entry.get());
         }
     }
 
-    return {closestPart, closestDistance};
+    const auto hit = bvh.Bvh.RaycastClosestIf(
+        ray.Origin,
+        ray.Direction,
+        [&](const std::uint32_t payload) {
+            if (payload >= bvh.Parts.size()) {
+                return false;
+            }
+            const auto& part = bvh.Parts[payload];
+            const bool inFilter = part != nullptr && filterSet.contains(part.get());
+            return (filterType == DescendantFilterType::Include) ? inFilter : !inFilter;
+        }
+    );
+
+    if (!hit.has_value() || hit->Payload >= bvh.Parts.size()) {
+        return {nullptr, std::numeric_limits<double>::infinity()};
+    }
+
+    return {bvh.Parts[hit->Payload], hit->Distance};
+}
+
+std::pair<std::shared_ptr<Objects::BasePart>, double> RaycastParts(
+    const Ray& ray,
+    const std::vector<std::shared_ptr<Objects::BasePart>>& parts
+) {
+    const auto bvh = BuildPartBVH(parts);
+    return RaycastPartBVH(ray, bvh);
 }
 
 std::pair<std::shared_ptr<Objects::BasePart>, double> RaycastPartsWithFilter(
@@ -97,32 +169,8 @@ std::pair<std::shared_ptr<Objects::BasePart>, double> RaycastPartsWithFilter(
     const std::vector<std::shared_ptr<Objects::BasePart>>& descendantFilterList,
     DescendantFilterType filterType
 ) {
-    std::shared_ptr<Objects::BasePart> closestPart;
-    double closestDistance = std::numeric_limits<double>::infinity();
-
-    for (const auto& part : parts) {
-        if (part == nullptr) {
-            continue;
-        }
-
-        // Check filter
-        bool inFilter = std::find(descendantFilterList.begin(), descendantFilterList.end(), part) != descendantFilterList.end();
-        bool shouldInclude = (filterType == DescendantFilterType::Include) ? inFilter : !inFilter;
-        if (!shouldInclude) {
-            continue;
-        }
-
-        const auto distance = RaycastPartAABB(ray, part);
-        if (!distance.has_value()) {
-            continue;
-        }
-        if (distance.value() < closestDistance) {
-            closestDistance = distance.value();
-            closestPart = part;
-        }
-    }
-
-    return {closestPart, closestDistance};
+    const auto bvh = BuildPartBVH(parts);
+    return RaycastPartBVHWithFilter(ray, bvh, descendantFilterList, filterType);
 }
 
 } // namespace Lvs::Engine::Utils

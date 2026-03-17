@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 
 namespace Lvs::Studio::Core {
 
@@ -97,6 +98,84 @@ StudioViewportToolLayer::StudioViewportToolLayer(Engine::Core::Viewport& viewpor
     : context_(context),
       viewport_(&viewport) {}
 
+StudioViewportToolLayer::~StudioViewportToolLayer() {
+    InvalidateWorkspaceRaycastCache();
+}
+
+void StudioViewportToolLayer::InvalidateWorkspaceRaycastCache() {
+    if (!workspaceRaycastCache_.has_value()) {
+        workspaceRaycastCacheDirty_ = false;
+        return;
+    }
+
+    auto& cache = workspaceRaycastCache_.value();
+    cache.WorkspaceChildAdded.Disconnect();
+    cache.WorkspaceChildRemoved.Disconnect();
+    cache.WorkspaceAncestryChanged.Disconnect();
+    for (auto& conn : cache.PartPropertyChanged) {
+        conn.Disconnect();
+    }
+    for (auto& conn : cache.PartAncestryChanged) {
+        conn.Disconnect();
+    }
+    workspaceRaycastCache_.reset();
+    workspaceRaycastCacheDirty_ = false;
+}
+
+const Engine::Utils::PartBVH* StudioViewportToolLayer::GetWorkspaceRaycastBVH() {
+    if (workspace_ == nullptr) {
+        return nullptr;
+    }
+    if (workspaceRaycastCache_.has_value() && !workspaceRaycastCacheDirty_) {
+        return &workspaceRaycastCache_->Bvh;
+    }
+
+    InvalidateWorkspaceRaycastCache();
+
+    WorkspaceRaycastCache cache;
+    cache.Bvh = Engine::Utils::BuildPartBVH(CollectWorkspaceParts());
+
+    auto markDirty = [this]() {
+        workspaceRaycastCacheDirty_ = true;
+        if (!gizmoDragging_ && !partDragging_) {
+            InvalidateWorkspaceRaycastCache();
+        }
+    };
+
+    cache.WorkspaceChildAdded = workspace_->ChildAdded.Connect([markDirty](const std::shared_ptr<Engine::Core::Instance>&) {
+        markDirty();
+    });
+    cache.WorkspaceChildRemoved = workspace_->ChildRemoved.Connect([markDirty](const std::shared_ptr<Engine::Core::Instance>&) {
+        markDirty();
+    });
+    cache.WorkspaceAncestryChanged = workspace_->AncestryChanged.Connect([markDirty](const std::shared_ptr<Engine::Core::Instance>&) {
+        markDirty();
+    });
+
+    cache.PartPropertyChanged.reserve(cache.Bvh.Parts.size());
+    cache.PartAncestryChanged.reserve(cache.Bvh.Parts.size());
+
+    for (const auto& part : cache.Bvh.Parts) {
+        if (part == nullptr) {
+            continue;
+        }
+
+        cache.PartPropertyChanged.push_back(part->PropertyChanged.Connect([markDirty](const QString& name, const QVariant&) {
+            if (name == "CFrame" || name == "Size") {
+                markDirty();
+            }
+        }));
+
+        cache.PartAncestryChanged.push_back(part->AncestryChanged.Connect([markDirty](const std::shared_ptr<Engine::Core::Instance>&) {
+            markDirty();
+        }));
+    }
+
+    workspaceRaycastCache_ = std::move(cache);
+    workspaceRaycastCacheDirty_ = false;
+    return &workspaceRaycastCache_->Bvh;
+}
+
 void StudioViewportToolLayer::BindToPlace(const std::shared_ptr<Engine::DataModel::Place>& place) {
     place_ = place;
     workspace_ = place != nullptr
@@ -114,6 +193,7 @@ void StudioViewportToolLayer::BindToPlace(const std::shared_ptr<Engine::DataMode
     gizmoDragging_ = false;
     partDragging_ = false;
     leftMouseDown_ = false;
+    InvalidateWorkspaceRaycastCache();
 
     EnsureGizmoSystem();
 }
@@ -129,6 +209,7 @@ void StudioViewportToolLayer::Unbind() {
     partDragging_ = false;
     partDragState_.reset();
     hoveredPart_.reset();
+    InvalidateWorkspaceRaycastCache();
     if (gizmoSystem_ != nullptr) {
         gizmoSystem_->Unbind();
         gizmoSystem_.reset();
@@ -170,10 +251,13 @@ void StudioViewportToolLayer::OnFrame(const double deltaSeconds, const std::opti
 
     if (!leftMouseDown_ && !gizmoDragging_ && !partDragging_ && workspace_ != nullptr) {
         if (cursorRay.has_value()) {
-            const auto parts = CollectWorkspaceParts();
-            const auto [hitPart, distance] = Engine::Utils::RaycastParts(cursorRay.value(), parts);
-            static_cast<void>(distance);
-            hoveredPart_ = hitPart;
+            if (const auto* bvh = GetWorkspaceRaycastBVH(); bvh != nullptr) {
+                const auto [hitPart, distance] = Engine::Utils::RaycastPartBVH(cursorRay.value(), *bvh);
+                static_cast<void>(distance);
+                hoveredPart_ = hitPart;
+            } else {
+                hoveredPart_.reset();
+            }
         } else {
             hoveredPart_.reset();
         }
@@ -230,6 +314,7 @@ void StudioViewportToolLayer::OnMouseRelease(QMouseEvent* event) {
     }
 
     leftMouseDown_ = false;
+    const bool wasDragging = gizmoDragging_ || partDragging_;
     if (gizmoDragging_ && gizmoSystem_ != nullptr) {
         CommitGizmoHistory();
         gizmoSystem_->EndDrag();
@@ -238,6 +323,9 @@ void StudioViewportToolLayer::OnMouseRelease(QMouseEvent* event) {
     if (partDragging_) {
         CommitGizmoHistory();
         EndPartDrag();
+    }
+    if (wasDragging) {
+        InvalidateWorkspaceRaycastCache();
     }
 }
 
@@ -273,9 +361,10 @@ void StudioViewportToolLayer::PickSelection(const Engine::Utils::Ray& ray, const
         return;
     }
 
-    const auto parts = CollectWorkspaceParts();
-
-    const auto [hitPart, distance] = Engine::Utils::RaycastParts(ray, parts);
+    const auto* bvh = GetWorkspaceRaycastBVH();
+    const auto [hitPart, distance] = bvh != nullptr
+        ? Engine::Utils::RaycastPartBVH(ray, *bvh)
+        : std::pair<std::shared_ptr<Engine::Objects::BasePart>, double>{nullptr, std::numeric_limits<double>::infinity()};
     static_cast<void>(distance);
 
     if (hitPart == nullptr) {
@@ -363,8 +452,10 @@ bool StudioViewportToolLayer::TryBeginPartDrag(const Engine::Utils::Ray& ray) {
         return false;
     }
 
-    const auto parts = CollectWorkspaceParts();
-    const auto [hitPart, hitDistance] = Engine::Utils::RaycastParts(ray, parts);
+    const auto* bvh = GetWorkspaceRaycastBVH();
+    const auto [hitPart, hitDistance] = bvh != nullptr
+        ? Engine::Utils::RaycastPartBVH(ray, *bvh)
+        : std::pair<std::shared_ptr<Engine::Objects::BasePart>, double>{nullptr, std::numeric_limits<double>::infinity()};
     if (hitPart == nullptr || !std::isfinite(hitDistance)) {
         return false;
     }
@@ -446,8 +537,7 @@ void StudioViewportToolLayer::UpdatePartDrag(const Engine::Utils::Ray& ray) {
     Engine::Math::Vector3 newPosition = fallbackHitPoint - state.GrabOffset;
     bool hasHitPlacement = false;
 
-    const auto parts = CollectWorkspaceParts();
-    if (!parts.empty()) {
+    if (const auto* bvh = GetWorkspaceRaycastBVH(); bvh != nullptr && !bvh->Parts.empty()) {
         std::vector<std::shared_ptr<Engine::Objects::BasePart>> descendantsToExclude;
         descendantsToExclude.reserve(state.Targets.size() * 2);
 
@@ -465,9 +555,9 @@ void StudioViewportToolLayer::UpdatePartDrag(const Engine::Utils::Ray& ray) {
             }
         }
 
-        const auto [hitPart, hitDistance] = Engine::Utils::RaycastPartsWithFilter(
+        const auto [hitPart, hitDistance] = Engine::Utils::RaycastPartBVHWithFilter(
             ray,
-            parts,
+            *bvh,
             descendantsToExclude,
             Engine::Utils::DescendantFilterType::Exclude
         );
