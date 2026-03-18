@@ -7,6 +7,7 @@
 #include "Lvs/Engine/Core/Window.hpp"
 #include "Lvs/Engine/Rendering/IRenderContext.hpp"
 #include "Lvs/Engine/Utils/SourcePath.hpp"
+#include "Lvs/Engine/Utils/Benchmark.hpp"
 #include "Lvs/Studio/Bootstrap.hpp"
 
 #include <QApplication>
@@ -21,6 +22,9 @@ int Run(int argc, char* argv[], const BuildType buildType, const char* appName, 
     QApplication app(argc, argv);
     app.setApplicationDisplayName(appName);
     app.setApplicationName(appName);
+
+    const QStringList args = app.arguments();
+    Engine::Utils::Benchmark::SetEnabled(args.contains("--bench"));
 
     Engine::Core::CrashHandler::Install();
     Engine::Core::SessionLog::Start(QString::fromUtf8(appName));
@@ -45,7 +49,9 @@ int Run(int argc, char* argv[], const BuildType buildType, const char* appName, 
             window.showMaximized();
         }
 
-        return app.exec();
+        const int code = app.exec();
+        Engine::Utils::Benchmark::DumpToStdout();
+        return code;
     } catch (const Engine::Rendering::RenderingInitializationError& ex) {
         Engine::Core::CrashHandler::WriteCrashLog("Rendering initialization error (Exit)", QString::fromUtf8(ex.what()));
         Engine::Core::CriticalError::ShowGraphicsUnsupportedError(QString::fromUtf8(ex.what()));
@@ -57,6 +63,7 @@ int Run(int argc, char* argv[], const BuildType buildType, const char* appName, 
         Engine::Core::CriticalError::ShowUnknownCriticalError();
     }
 
+    Engine::Utils::Benchmark::DumpToStdout();
     return 1;
 }
 

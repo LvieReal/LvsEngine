@@ -4,10 +4,13 @@
 
 #include "Lvs/Engine/Core/Instance.hpp"
 #include "Lvs/Engine/Core/GizmoSystem.hpp"
+#include "Lvs/Engine/Math/AABB.hpp"
 #include "Lvs/Engine/Rendering/Common/OverlayPrimitive.hpp"
+#include "Lvs/Engine/Utils/Signal.hpp"
 
 #include <memory>
 #include <optional>
+#include <unordered_set>
 #include <vector>
 
 #include <Qt>
@@ -32,6 +35,7 @@ class Workspace;
 
 namespace Lvs::Engine::Objects {
 class BasePart;
+class SelectionBox;
 }
 
 namespace Lvs::Studio::Core {
@@ -60,6 +64,13 @@ public:
 private:
     void InvalidateWorkspaceRaycastCache();
     [[nodiscard]] const Engine::Utils::PartBVH* GetWorkspaceRaycastBVH();
+
+    void RebuildHoveredBoundsCache();
+    void DisconnectSelectionCacheSignals();
+    void RebuildSelectionCache();
+    void RefreshSelectionCacheBoundsIfDirty();
+    void InvalidateSelectionBoxCache();
+    void RescanSelectionBoxCache();
 
     void PickSelection(const Engine::Utils::Ray& ray, Qt::KeyboardModifiers modifiers = Qt::NoModifier);
     bool CanDragGizmo() const;
@@ -109,6 +120,25 @@ private:
     };
     std::optional<PartDragState> partDragState_;
     std::shared_ptr<Engine::Objects::BasePart> hoveredPart_;
+    std::weak_ptr<Engine::Core::Instance> hoveredBoundsKey_;
+    std::optional<Engine::Math::AABB> hoveredBoundsCache_;
+
+    struct CachedSelectionEntry {
+        std::shared_ptr<Engine::Core::Instance> Instance;
+        bool IsBasePart{false};
+        std::vector<std::shared_ptr<Engine::Objects::BasePart>> Parts;
+        std::optional<Engine::Math::AABB> Bounds;
+    };
+    std::vector<CachedSelectionEntry> cachedTopLevelSelection_;
+    std::unordered_set<const Engine::Objects::BasePart*> cachedSelectedParts_;
+    bool cachedSelectionBoundsDirty_{true};
+    Engine::Utils::Signal<const std::vector<std::shared_ptr<Engine::Core::Instance>>&>::Connection selectionChangedConnection_;
+    std::vector<Engine::Core::Instance::PropertyChangedConnection> cachedSelectionPartPropertyChanged_;
+    std::vector<Engine::Core::Instance::InstanceConnection> cachedSelectionPartAncestryChanged_;
+
+    bool selectionBoxCacheDirty_{true};
+    double selectionBoxRescanSeconds_{0.0};
+    std::vector<std::weak_ptr<Engine::Objects::SelectionBox>> selectionBoxCache_;
     struct WorkspaceRaycastCache {
         Engine::Utils::PartBVH Bvh;
         Engine::Core::Instance::InstanceConnection WorkspaceChildAdded;

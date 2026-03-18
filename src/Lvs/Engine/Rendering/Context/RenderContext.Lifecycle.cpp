@@ -3,6 +3,7 @@
 #include "Lvs/Engine/Rendering/Backends/OpenGL/GLContext.hpp"
 #include "Lvs/Engine/Rendering/Backends/Vulkan/VulkanContext.hpp"
 #include "Lvs/Engine/Rendering/Context/RenderContextUtils.hpp"
+#include "Lvs/Engine/Utils/Benchmark.hpp"
 
 #include <cstring>
 
@@ -81,6 +82,7 @@ void RenderContext::Unbind() {
 }
 
 void RenderContext::SetOverlayPrimitives(std::vector<Common::OverlayPrimitive> primitives) {
+    LVS_BENCH_SCOPE("RenderContext::SetOverlayPrimitives");
     overlayPrimitives_ = std::move(primitives);
 
     auto hashCombine = [](std::size_t& seed, const std::size_t value) {
@@ -88,54 +90,57 @@ void RenderContext::SetOverlayPrimitives(std::vector<Common::OverlayPrimitive> p
     };
 
     std::size_t key = 0U;
-    hashCombine(key, overlayPrimitives_.size());
-    for (const auto& overlay : overlayPrimitives_) {
-        const auto rows = overlay.Model.Rows();
-        for (int r = 0; r < 4; ++r) {
-            for (int c = 0; c < 4; ++c) {
-                const float v = static_cast<float>(rows[r][c]);
-                std::uint32_t bits = 0U;
-                static_assert(sizeof(bits) == sizeof(v));
-                std::memcpy(&bits, &v, sizeof(bits));
-                hashCombine(key, static_cast<std::size_t>(bits));
+    {
+        LVS_BENCH_SCOPE("RenderContext::SetOverlayPrimitives(Hash)");
+        hashCombine(key, overlayPrimitives_.size());
+        for (const auto& overlay : overlayPrimitives_) {
+            const auto rows = overlay.Model.Rows();
+            for (int r = 0; r < 4; ++r) {
+                for (int c = 0; c < 4; ++c) {
+                    const float v = static_cast<float>(rows[r][c]);
+                    std::uint32_t bits = 0U;
+                    static_assert(sizeof(bits) == sizeof(v));
+                    std::memcpy(&bits, &v, sizeof(bits));
+                    hashCombine(key, static_cast<std::size_t>(bits));
+                }
             }
+            hashCombine(key, static_cast<std::size_t>(overlay.Shape));
+            hashCombine(key, static_cast<std::size_t>(overlay.AlwaysOnTop));
+            hashCombine(key, static_cast<std::size_t>(overlay.IgnoreLighting));
+
+            const float cr = static_cast<float>(overlay.Color.r);
+            const float cg = static_cast<float>(overlay.Color.g);
+            const float cb = static_cast<float>(overlay.Color.b);
+            std::uint32_t cBits = 0U;
+            std::memcpy(&cBits, &cr, sizeof(cBits));
+            hashCombine(key, static_cast<std::size_t>(cBits));
+            std::memcpy(&cBits, &cg, sizeof(cBits));
+            hashCombine(key, static_cast<std::size_t>(cBits));
+            std::memcpy(&cBits, &cb, sizeof(cBits));
+            hashCombine(key, static_cast<std::size_t>(cBits));
+
+            const float metalness = overlay.Metalness;
+            const float roughness = overlay.Roughness;
+            const float emissive = overlay.Emissive;
+            std::uint32_t mBits = 0U;
+            std::memcpy(&mBits, &metalness, sizeof(mBits));
+            hashCombine(key, static_cast<std::size_t>(mBits));
+            std::memcpy(&mBits, &roughness, sizeof(mBits));
+            hashCombine(key, static_cast<std::size_t>(mBits));
+            std::memcpy(&mBits, &emissive, sizeof(mBits));
+            hashCombine(key, static_cast<std::size_t>(mBits));
+
+            const float alpha = overlay.Alpha;
+            std::uint32_t alphaBits = 0U;
+            std::memcpy(&alphaBits, &alpha, sizeof(alphaBits));
+            hashCombine(key, static_cast<std::size_t>(alphaBits));
         }
-        hashCombine(key, static_cast<std::size_t>(overlay.Shape));
-        hashCombine(key, static_cast<std::size_t>(overlay.AlwaysOnTop));
-        hashCombine(key, static_cast<std::size_t>(overlay.IgnoreLighting));
-
-        const float cr = static_cast<float>(overlay.Color.r);
-        const float cg = static_cast<float>(overlay.Color.g);
-        const float cb = static_cast<float>(overlay.Color.b);
-        std::uint32_t cBits = 0U;
-        std::memcpy(&cBits, &cr, sizeof(cBits));
-        hashCombine(key, static_cast<std::size_t>(cBits));
-        std::memcpy(&cBits, &cg, sizeof(cBits));
-        hashCombine(key, static_cast<std::size_t>(cBits));
-        std::memcpy(&cBits, &cb, sizeof(cBits));
-        hashCombine(key, static_cast<std::size_t>(cBits));
-
-        const float metalness = overlay.Metalness;
-        const float roughness = overlay.Roughness;
-        const float emissive = overlay.Emissive;
-        std::uint32_t mBits = 0U;
-        std::memcpy(&mBits, &metalness, sizeof(mBits));
-        hashCombine(key, static_cast<std::size_t>(mBits));
-        std::memcpy(&mBits, &roughness, sizeof(mBits));
-        hashCombine(key, static_cast<std::size_t>(mBits));
-        std::memcpy(&mBits, &emissive, sizeof(mBits));
-        hashCombine(key, static_cast<std::size_t>(mBits));
-
-        const float alpha = overlay.Alpha;
-        std::uint32_t alphaBits = 0U;
-        std::memcpy(&alphaBits, &alpha, sizeof(alphaBits));
-        hashCombine(key, static_cast<std::size_t>(alphaBits));
     }
 
     if (key != overlayCacheKey_) {
         overlayCacheKey_ = key;
         overlayDirty_ = true;
-        MarkGeometryLayoutDirty();
+        instanceBufferDirty_ = true;
     }
 }
 

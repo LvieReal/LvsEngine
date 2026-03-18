@@ -132,6 +132,7 @@ private:
     [[nodiscard]] bool IsUnderWorkspace(const std::shared_ptr<Core::Instance>& instance) const;
     [[nodiscard]] const SceneData::MeshRef* GetOrCreateMeshRef(const std::string& key, const GpuMesh& mesh);
     void RebuildGeometryBatchesAndInstances();
+    void RebuildOverlayBatchesAndInstances();
     void UpdateDirtyInstanceData();
     void UpdateTransparentSortDepths();
     [[nodiscard]] std::vector<SceneData::DrawPacket> BuildGeometryDraws();
@@ -173,6 +174,11 @@ private:
     std::vector<SceneData::DrawPacket> cachedOpaqueDraws_{};
     std::vector<SceneData::DrawPacket> cachedTransparentDraws_{};
     std::vector<SceneData::DrawPacket> cachedAlwaysOnTopDraws_{};
+
+    std::size_t cachedGeometryInstanceCount_{0};
+    std::size_t cachedGeometryOpaqueDrawCount_{0};
+    std::size_t cachedGeometryTransparentDrawCount_{0};
+    std::size_t cachedGeometryAlwaysOnTopDrawCount_{0};
 
     std::unique_ptr<RHI::IBuffer> frameUniformBuffer_{};
     std::unique_ptr<RHI::IResourceSet> frameResourceSet_{};

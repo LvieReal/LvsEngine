@@ -39,6 +39,7 @@ Math::AABB BuildPartWorldAABB(const std::shared_ptr<Objects::BasePart>& part);
 std::optional<double> RaycastPartAABB(const Ray& ray, const std::shared_ptr<Objects::BasePart>& part);
 
 [[nodiscard]] PartBVH BuildPartBVH(const std::vector<std::shared_ptr<Objects::BasePart>>& parts);
+void RebuildPartBVH(PartBVH& bvh);
 std::pair<std::shared_ptr<Objects::BasePart>, double> RaycastPartBVH(const Ray& ray, const PartBVH& bvh);
 std::pair<std::shared_ptr<Objects::BasePart>, double> RaycastPartBVHWithFilter(
     const Ray& ray,

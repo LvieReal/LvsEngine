@@ -1,6 +1,7 @@
 #include "Lvs/Engine/Core/Instance.hpp"
 
 #include "Lvs/Engine/DataModel/DataModel.hpp"
+#include "Lvs/Engine/Utils/Benchmark.hpp"
 
 #include <QUuid>
 
@@ -99,6 +100,9 @@ std::shared_ptr<Instance> Instance::GetParent() const {
 }
 
 void Instance::SetParent(const std::shared_ptr<Instance>& newParent) {
+    if (Utils::Benchmark::Enabled()) {
+        LVS_BENCH_SCOPE("Instance::SetParent");
+    }
     const auto currentParent = GetParent();
     if (currentParent == newParent) {
         return;
@@ -146,6 +150,9 @@ std::vector<std::shared_ptr<Instance>> Instance::GetChildren() const {
 }
 
 std::vector<std::shared_ptr<Instance>> Instance::GetDescendants() const {
+    if (Utils::Benchmark::Enabled()) {
+        LVS_BENCH_SCOPE("Instance::GetDescendants");
+    }
     std::vector<std::shared_ptr<Instance>> result;
 
     struct Frame {
@@ -184,6 +191,9 @@ std::vector<std::shared_ptr<Instance>> Instance::GetDescendants() const {
 }
 
 void Instance::ForEachDescendant(const std::function<void(const std::shared_ptr<Instance>&)>& visitor) const {
+    if (Utils::Benchmark::Enabled()) {
+        LVS_BENCH_SCOPE("Instance::ForEachDescendant");
+    }
     if (!visitor) {
         return;
     }

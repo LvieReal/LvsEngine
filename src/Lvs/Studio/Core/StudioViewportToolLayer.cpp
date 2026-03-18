@@ -16,6 +16,7 @@
 #include "Lvs/Engine/Utils/Command.hpp"
 #include "Lvs/Engine/Utils/InstanceSelection.hpp"
 #include "Lvs/Engine/Utils/Raycast.hpp"
+#include "Lvs/Engine/Utils/Benchmark.hpp"
 
 #include <QMouseEvent>
 #include <QVariant>
@@ -100,6 +101,7 @@ StudioViewportToolLayer::StudioViewportToolLayer(Engine::Core::Viewport& viewpor
 
 StudioViewportToolLayer::~StudioViewportToolLayer() {
     InvalidateWorkspaceRaycastCache();
+    DisconnectSelectionCacheSignals();
 }
 
 void StudioViewportToolLayer::InvalidateWorkspaceRaycastCache() {
@@ -123,10 +125,17 @@ void StudioViewportToolLayer::InvalidateWorkspaceRaycastCache() {
 }
 
 const Engine::Utils::PartBVH* StudioViewportToolLayer::GetWorkspaceRaycastBVH() {
+    if (Engine::Utils::Benchmark::Enabled()) {
+        LVS_BENCH_SCOPE("StudioViewportToolLayer::GetWorkspaceRaycastBVH");
+    }
     if (workspace_ == nullptr) {
         return nullptr;
     }
-    if (workspaceRaycastCache_.has_value() && !workspaceRaycastCacheDirty_) {
+    if (workspaceRaycastCache_.has_value()) {
+        if (workspaceRaycastCacheDirty_) {
+            Engine::Utils::RebuildPartBVH(workspaceRaycastCache_->Bvh);
+            workspaceRaycastCacheDirty_ = false;
+        }
         return &workspaceRaycastCache_->Bvh;
     }
 
@@ -135,21 +144,26 @@ const Engine::Utils::PartBVH* StudioViewportToolLayer::GetWorkspaceRaycastBVH() 
     WorkspaceRaycastCache cache;
     cache.Bvh = Engine::Utils::BuildPartBVH(CollectWorkspaceParts());
 
-    auto markDirty = [this]() {
+    auto markTransformDirty = [this]() {
         workspaceRaycastCacheDirty_ = true;
-        if (!gizmoDragging_ && !partDragging_) {
-            InvalidateWorkspaceRaycastCache();
-        }
     };
 
-    cache.WorkspaceChildAdded = workspace_->ChildAdded.Connect([markDirty](const std::shared_ptr<Engine::Core::Instance>&) {
-        markDirty();
+    auto markStructureDirty = [this]() {
+        workspaceRaycastCacheDirty_ = true;
+        if (gizmoDragging_ || partDragging_) {
+            return;
+        }
+        InvalidateWorkspaceRaycastCache();
+    };
+
+    cache.WorkspaceChildAdded = workspace_->ChildAdded.Connect([markStructureDirty](const std::shared_ptr<Engine::Core::Instance>&) {
+        markStructureDirty();
     });
-    cache.WorkspaceChildRemoved = workspace_->ChildRemoved.Connect([markDirty](const std::shared_ptr<Engine::Core::Instance>&) {
-        markDirty();
+    cache.WorkspaceChildRemoved = workspace_->ChildRemoved.Connect([markStructureDirty](const std::shared_ptr<Engine::Core::Instance>&) {
+        markStructureDirty();
     });
-    cache.WorkspaceAncestryChanged = workspace_->AncestryChanged.Connect([markDirty](const std::shared_ptr<Engine::Core::Instance>&) {
-        markDirty();
+    cache.WorkspaceAncestryChanged = workspace_->AncestryChanged.Connect([markStructureDirty](const std::shared_ptr<Engine::Core::Instance>&) {
+        markStructureDirty();
     });
 
     cache.PartPropertyChanged.reserve(cache.Bvh.Parts.size());
@@ -160,14 +174,14 @@ const Engine::Utils::PartBVH* StudioViewportToolLayer::GetWorkspaceRaycastBVH() 
             continue;
         }
 
-        cache.PartPropertyChanged.push_back(part->PropertyChanged.Connect([markDirty](const QString& name, const QVariant&) {
+        cache.PartPropertyChanged.push_back(part->PropertyChanged.Connect([markTransformDirty](const QString& name, const QVariant&) {
             if (name == "CFrame" || name == "Size") {
-                markDirty();
+                markTransformDirty();
             }
         }));
 
-        cache.PartAncestryChanged.push_back(part->AncestryChanged.Connect([markDirty](const std::shared_ptr<Engine::Core::Instance>&) {
-            markDirty();
+        cache.PartAncestryChanged.push_back(part->AncestryChanged.Connect([markStructureDirty](const std::shared_ptr<Engine::Core::Instance>&) {
+            markStructureDirty();
         }));
     }
 
@@ -194,6 +208,22 @@ void StudioViewportToolLayer::BindToPlace(const std::shared_ptr<Engine::DataMode
     partDragging_ = false;
     leftMouseDown_ = false;
     InvalidateWorkspaceRaycastCache();
+    hoveredBoundsKey_.reset();
+    hoveredBoundsCache_.reset();
+    DisconnectSelectionCacheSignals();
+    cachedTopLevelSelection_.clear();
+    cachedSelectedParts_.clear();
+    cachedSelectionBoundsDirty_ = true;
+    selectionBoxCache_.clear();
+    selectionBoxCacheDirty_ = true;
+    selectionBoxRescanSeconds_ = 0.0;
+
+    if (selection_ != nullptr) {
+        selectionChangedConnection_ = selection_->SelectionChanged.Connect([this](const auto&) {
+            RebuildSelectionCache();
+        });
+        RebuildSelectionCache();
+    }
 
     EnsureGizmoSystem();
 }
@@ -209,7 +239,16 @@ void StudioViewportToolLayer::Unbind() {
     partDragging_ = false;
     partDragState_.reset();
     hoveredPart_.reset();
+    hoveredBoundsKey_.reset();
+    hoveredBoundsCache_.reset();
     InvalidateWorkspaceRaycastCache();
+    DisconnectSelectionCacheSignals();
+    cachedTopLevelSelection_.clear();
+    cachedSelectedParts_.clear();
+    cachedSelectionBoundsDirty_ = true;
+    selectionBoxCache_.clear();
+    selectionBoxCacheDirty_ = true;
+    selectionBoxRescanSeconds_ = 0.0;
     if (gizmoSystem_ != nullptr) {
         gizmoSystem_->Unbind();
         gizmoSystem_.reset();
@@ -245,11 +284,21 @@ void StudioViewportToolLayer::SetSnapIncrement(const double value) {
 }
 
 void StudioViewportToolLayer::OnFrame(const double deltaSeconds, const std::optional<Engine::Utils::Ray>& cursorRay) {
-    static_cast<void>(deltaSeconds);
+    if (Engine::Utils::Benchmark::Enabled()) {
+        LVS_BENCH_SCOPE("StudioViewportToolLayer::OnFrame");
+    }
+    selectionBoxRescanSeconds_ += std::max(0.0, deltaSeconds);
+    const double rescanInterval = selectionBoxCache_.empty() ? 15.0 : 1.0;
+    if (selectionBoxCacheDirty_ || selectionBoxRescanSeconds_ >= rescanInterval) {
+        RescanSelectionBoxCache();
+        selectionBoxRescanSeconds_ = 0.0;
+    }
+    RefreshSelectionCacheBoundsIfDirty();
 
     UpdateGizmo(cursorRay);
 
     if (!leftMouseDown_ && !gizmoDragging_ && !partDragging_ && workspace_ != nullptr) {
+        const auto previousHovered = hoveredPart_;
         if (cursorRay.has_value()) {
             if (const auto* bvh = GetWorkspaceRaycastBVH(); bvh != nullptr) {
                 const auto [hitPart, distance] = Engine::Utils::RaycastPartBVH(cursorRay.value(), *bvh);
@@ -260,6 +309,9 @@ void StudioViewportToolLayer::OnFrame(const double deltaSeconds, const std::opti
             }
         } else {
             hoveredPart_.reset();
+        }
+        if (hoveredPart_ != previousHovered) {
+            RebuildHoveredBoundsCache();
         }
     }
 
@@ -345,9 +397,13 @@ void StudioViewportToolLayer::OnMouseMove(QMouseEvent* event, const std::optiona
 
 void StudioViewportToolLayer::OnFocusOut() {
     hoveredPart_.reset();
+    RebuildHoveredBoundsCache();
 }
 
 void StudioViewportToolLayer::AppendOverlay(std::vector<Engine::Rendering::Common::OverlayPrimitive>& overlay) {
+    if (Engine::Utils::Benchmark::Enabled()) {
+        LVS_BENCH_SCOPE("StudioViewportToolLayer::AppendOverlay");
+    }
     if (gizmoSystem_ != nullptr) {
         const auto gizmoPrimitives = gizmoSystem_->GetRenderPrimitives();
         overlay.insert(overlay.end(), gizmoPrimitives.begin(), gizmoPrimitives.end());
@@ -641,6 +697,9 @@ Engine::Math::Vector3 StudioViewportToolLayer::SnapPosition(const Engine::Math::
 std::vector<std::shared_ptr<Engine::Objects::BasePart>> StudioViewportToolLayer::CollectWorkspaceParts(
     const std::shared_ptr<Engine::Objects::BasePart>& ignore
 ) const {
+    if (Engine::Utils::Benchmark::Enabled()) {
+        LVS_BENCH_SCOPE("StudioViewportToolLayer::CollectWorkspaceParts");
+    }
     std::vector<std::shared_ptr<Engine::Objects::BasePart>> parts;
     if (workspace_ == nullptr) {
         return parts;
@@ -658,6 +717,9 @@ std::vector<std::shared_ptr<Engine::Objects::BasePart>> StudioViewportToolLayer:
 void StudioViewportToolLayer::AppendGizmoSelectionBox(
     std::vector<Engine::Rendering::Common::OverlayPrimitive>& overlay
 ) const {
+    if (Engine::Utils::Benchmark::Enabled()) {
+        LVS_BENCH_SCOPE("StudioViewportToolLayer::AppendGizmoSelectionBox");
+    }
     if (workspace_ == nullptr) {
         return;
     }
@@ -671,33 +733,33 @@ void StudioViewportToolLayer::AppendGizmoSelectionBox(
     const bool localSpace = context_ != nullptr && context_->EditorToolState != nullptr && context_->EditorToolState->GetLocalSpace();
     const Engine::Math::Color3 selectionColor{0.0, 0.5, 1.0};
 
-    if (selection_ != nullptr) {
-        const auto selectedInstances = Engine::Utils::FilterTopLevelInstances(selection_->Get());
-        for (const auto& instance : selectedInstances) {
+    if (!cachedTopLevelSelection_.empty()) {
+        const bool ignoreLighting = gizmoIgnoreDiffuseSpecular_;
+        const Engine::Core::SelectionBoxStyle style{
+            .Color = selectionColor,
+            .Alpha = 1.0F,
+            .Metalness = 0.0F,
+            .Roughness = 1.0F,
+            .Emissive = ignoreLighting ? 1.0F : 0.0F,
+            .IgnoreLighting = ignoreLighting,
+            .AlwaysOnTop = true,
+            .Thickness = 0.001,
+            .ScaleWithDistance = true
+        };
+
+        for (const auto& entry : cachedTopLevelSelection_) {
+            const auto& instance = entry.Instance;
             if (instance == nullptr) {
                 continue;
             }
 
-            const bool ignoreLighting = gizmoIgnoreDiffuseSpecular_;
-            const Engine::Core::SelectionBoxStyle style{
-                .Color = selectionColor,
-                .Alpha = 1.0F,
-                .Metalness = 0.0F,
-                .Roughness = 1.0F,
-                .Emissive = ignoreLighting ? 1.0F : 0.0F,
-                .IgnoreLighting = ignoreLighting,
-                .AlwaysOnTop = true,
-                .Thickness = 0.001,
-                .ScaleWithDistance = true
-            };
-
-            if (const auto selected = std::dynamic_pointer_cast<Engine::Objects::BasePart>(instance);
-                selected != nullptr) {
-                if (selected->GetParent() == nullptr) {
+            if (entry.IsBasePart) {
+                const auto selected = std::dynamic_pointer_cast<Engine::Objects::BasePart>(instance);
+                if (selected == nullptr || selected->GetParent() == nullptr) {
                     continue;
                 }
 
-                const auto aabb = Engine::Utils::BuildPartWorldAABB(selected);
+                const Engine::Math::AABB aabb = Engine::Utils::BuildPartWorldAABB(selected);
                 const Engine::Math::Vector3 center = (aabb.Min + aabb.Max) * 0.5;
                 const double distance = (center - cameraPos).Magnitude();
 
@@ -715,43 +777,27 @@ void StudioViewportToolLayer::AppendGizmoSelectionBox(
                 continue;
             }
 
-            const auto parts = Engine::Utils::CollectDescendantBaseParts(instance);
-            const auto bounds = Engine::Utils::ComputeCombinedWorldAABB(parts);
-            if (!bounds.has_value()) {
+            if (!entry.Bounds.has_value()) {
                 continue;
             }
 
-            const Engine::Math::Vector3 center = bounds.value().Centroid();
+            const Engine::Math::AABB bounds = entry.Bounds.value();
+            const Engine::Math::Vector3 center = bounds.Centroid();
             const double distance = (center - cameraPos).Magnitude();
-            Engine::Core::AppendSelectionBoxOutlinePrimitives(bounds.value(), style, overlay, distance);
+            Engine::Core::AppendSelectionBoxOutlinePrimitives(bounds, style, overlay, distance);
         }
     }
 
     if (hoveredPart_ != nullptr && hoveredPart_->GetParent() != nullptr) {
-        bool isHoveredSelected = false;
-        if (selection_ != nullptr) {
-            const auto topLevelSelected = Engine::Utils::FilterTopLevelInstances(selection_->Get());
-            const auto selectedParts = Engine::Utils::CollectBasePartsFromInstances(topLevelSelected);
-            for (const auto& part : selectedParts) {
-                if (hoveredPart_ == part) {
-                    isHoveredSelected = true;
-                    break;
-                }
-            }
-        }
+        const bool isHoveredSelected = cachedSelectedParts_.contains(hoveredPart_.get());
 
         if (!isHoveredSelected) {
             const auto hoveredModel = FindAncestorModel(hoveredPart_);
-            const auto parts = hoveredModel != nullptr
-                ? Engine::Utils::CollectDescendantBaseParts(hoveredModel)
-                : std::vector<std::shared_ptr<Engine::Objects::BasePart>>{hoveredPart_};
-
-            const auto bounds = Engine::Utils::ComputeCombinedWorldAABB(parts);
-            if (!bounds.has_value()) {
+            if (!hoveredBoundsCache_.has_value()) {
                 return;
             }
-
-            const Engine::Math::Vector3 center = bounds.value().Centroid();
+            const Engine::Math::AABB bounds = hoveredBoundsCache_.value();
+            const Engine::Math::Vector3 center = bounds.Centroid();
             const double distance = (center - cameraPos).Magnitude();
 
             const bool ignoreLighting = gizmoIgnoreDiffuseSpecular_;
@@ -776,15 +822,38 @@ void StudioViewportToolLayer::AppendGizmoSelectionBox(
                     distance
                 );
             } else {
-                Engine::Core::AppendSelectionBoxOutlinePrimitives(bounds.value(), style, overlay, distance);
+                Engine::Core::AppendSelectionBoxOutlinePrimitives(bounds, style, overlay, distance);
             }
         }
     }
 }
 
+void StudioViewportToolLayer::RebuildHoveredBoundsCache() {
+    hoveredBoundsKey_.reset();
+    hoveredBoundsCache_.reset();
+
+    if (hoveredPart_ == nullptr || hoveredPart_->GetParent() == nullptr) {
+        return;
+    }
+
+    const auto hoveredModel = FindAncestorModel(hoveredPart_);
+    if (hoveredModel != nullptr) {
+        hoveredBoundsKey_ = hoveredModel;
+        const auto parts = Engine::Utils::CollectDescendantBaseParts(hoveredModel);
+        hoveredBoundsCache_ = Engine::Utils::ComputeCombinedWorldAABB(parts);
+        return;
+    }
+
+    hoveredBoundsKey_ = hoveredPart_;
+    hoveredBoundsCache_ = Engine::Utils::ComputeCombinedWorldAABB({hoveredPart_});
+}
+
 void StudioViewportToolLayer::AppendSelectionBoxInstances(
     std::vector<Engine::Rendering::Common::OverlayPrimitive>& overlay
 ) const {
+    if (Engine::Utils::Benchmark::Enabled()) {
+        LVS_BENCH_SCOPE("StudioViewportToolLayer::AppendSelectionBoxInstances");
+    }
     if (workspace_ == nullptr) {
         return;
     }
@@ -797,10 +866,13 @@ void StudioViewportToolLayer::AppendSelectionBoxInstances(
 
     const bool localSpace = context_ != nullptr && context_->EditorToolState != nullptr && context_->EditorToolState->GetLocalSpace();
 
-    workspace_->ForEachDescendant([&](const std::shared_ptr<Engine::Core::Instance>& descendant) {
-        const auto box = std::dynamic_pointer_cast<Engine::Objects::SelectionBox>(descendant);
-        if (box == nullptr || !box->GetProperty("Visible").toBool()) {
-            return;
+    for (const auto& weakBox : selectionBoxCache_) {
+        const auto box = weakBox.lock();
+        if (box == nullptr) {
+            continue;
+        }
+        if (!box->GetProperty("Visible").toBool()) {
+            continue;
         }
 
         std::shared_ptr<Engine::Core::Instance> adorneeInstance = box->GetProperty("Adornee").value<std::shared_ptr<Engine::Core::Instance>>();
@@ -847,7 +919,7 @@ void StudioViewportToolLayer::AppendSelectionBoxInstances(
         } else {
             Engine::Core::AppendSelectionBoxOutlinePrimitives(aabb, style, overlay, distance);
         }
-    });
+    }
 }
 
 void StudioViewportToolLayer::BeginGizmoHistory(const std::shared_ptr<Engine::Objects::BasePart>& targetOverride) {
@@ -888,6 +960,129 @@ void StudioViewportToolLayer::BeginGizmoHistory(const std::shared_ptr<Engine::Ob
         return;
     }
     gizmoHistorySnapshot_ = snapshot;
+}
+
+void StudioViewportToolLayer::DisconnectSelectionCacheSignals() {
+    selectionChangedConnection_.Disconnect();
+
+    for (auto& conn : cachedSelectionPartPropertyChanged_) {
+        conn.Disconnect();
+    }
+    cachedSelectionPartPropertyChanged_.clear();
+
+    for (auto& conn : cachedSelectionPartAncestryChanged_) {
+        conn.Disconnect();
+    }
+    cachedSelectionPartAncestryChanged_.clear();
+}
+
+void StudioViewportToolLayer::RebuildSelectionCache() {
+    if (Engine::Utils::Benchmark::Enabled()) {
+        LVS_BENCH_SCOPE("StudioViewportToolLayer::RebuildSelectionCache");
+    }
+    cachedTopLevelSelection_.clear();
+    cachedSelectedParts_.clear();
+    cachedSelectionBoundsDirty_ = false;
+
+    DisconnectSelectionCacheSignals();
+    if (selection_ == nullptr) {
+        return;
+    }
+
+    // Reconnect after clear (DisconnectSelectionCacheSignals() nukes SelectionChanged too).
+    selectionChangedConnection_ = selection_->SelectionChanged.Connect([this](const auto&) {
+        RebuildSelectionCache();
+    });
+
+    const auto selectedInstances = Engine::Utils::FilterTopLevelInstances(selection_->Get());
+    cachedTopLevelSelection_.reserve(selectedInstances.size());
+
+    for (const auto& instance : selectedInstances) {
+        if (instance == nullptr) {
+            continue;
+        }
+
+        CachedSelectionEntry entry;
+        entry.Instance = instance;
+
+        if (const auto asPart = std::dynamic_pointer_cast<Engine::Objects::BasePart>(instance); asPart != nullptr) {
+            entry.IsBasePart = true;
+            entry.Parts.push_back(asPart);
+            cachedSelectedParts_.insert(asPart.get());
+            cachedTopLevelSelection_.push_back(std::move(entry));
+            continue;
+        }
+
+        entry.IsBasePart = false;
+        entry.Parts = Engine::Utils::CollectDescendantBaseParts(instance);
+        for (const auto& part : entry.Parts) {
+            if (part != nullptr) {
+                cachedSelectedParts_.insert(part.get());
+            }
+        }
+        entry.Bounds = Engine::Utils::ComputeCombinedWorldAABB(entry.Parts);
+        cachedTopLevelSelection_.push_back(std::move(entry));
+    }
+
+    // Track transform changes so cached bounds update without per-frame descendant scans.
+    cachedSelectionPartPropertyChanged_.reserve(cachedSelectedParts_.size());
+    cachedSelectionPartAncestryChanged_.reserve(cachedSelectedParts_.size());
+    for (const auto& entry : cachedTopLevelSelection_) {
+        for (const auto& part : entry.Parts) {
+            if (part == nullptr) {
+                continue;
+            }
+            cachedSelectionPartPropertyChanged_.push_back(part->PropertyChanged.Connect([this](const QString& name, const QVariant&) {
+                if (name == "CFrame" || name == "Size" || name == "Position" || name == "Rotation") {
+                    cachedSelectionBoundsDirty_ = true;
+                }
+            }));
+            cachedSelectionPartAncestryChanged_.push_back(part->AncestryChanged.Connect([this](const std::shared_ptr<Engine::Core::Instance>&) {
+                cachedSelectionBoundsDirty_ = true;
+            }));
+        }
+    }
+}
+
+void StudioViewportToolLayer::RefreshSelectionCacheBoundsIfDirty() {
+    if (Engine::Utils::Benchmark::Enabled()) {
+        LVS_BENCH_SCOPE("StudioViewportToolLayer::RefreshSelectionCacheBoundsIfDirty");
+    }
+    if (!cachedSelectionBoundsDirty_) {
+        return;
+    }
+
+    for (auto& entry : cachedTopLevelSelection_) {
+        if (entry.IsBasePart) {
+            continue;
+        }
+        entry.Bounds = Engine::Utils::ComputeCombinedWorldAABB(entry.Parts);
+    }
+    cachedSelectionBoundsDirty_ = false;
+}
+
+void StudioViewportToolLayer::InvalidateSelectionBoxCache() {
+    selectionBoxCacheDirty_ = true;
+}
+
+void StudioViewportToolLayer::RescanSelectionBoxCache() {
+    if (Engine::Utils::Benchmark::Enabled()) {
+        LVS_BENCH_SCOPE("StudioViewportToolLayer::RescanSelectionBoxCache");
+    }
+    selectionBoxCache_.clear();
+    selectionBoxCacheDirty_ = false;
+
+    if (workspace_ == nullptr) {
+        return;
+    }
+
+    workspace_->ForEachDescendant([this](const std::shared_ptr<Engine::Core::Instance>& descendant) {
+        const auto box = std::dynamic_pointer_cast<Engine::Objects::SelectionBox>(descendant);
+        if (box == nullptr) {
+            return;
+        }
+        selectionBoxCache_.push_back(box);
+    });
 }
 
 void StudioViewportToolLayer::CommitGizmoHistory() {

@@ -4,6 +4,7 @@
 #include "Lvs/Engine/Math/AABB.hpp"
 #include "Lvs/Engine/Objects/BasePart.hpp"
 #include "Lvs/Engine/Utils/Raycast.hpp"
+#include "Lvs/Engine/Utils/Benchmark.hpp"
 
 #include <algorithm>
 #include <memory>
@@ -33,6 +34,9 @@ inline bool HasAncestorInSet(
 inline std::vector<std::shared_ptr<Core::Instance>> FilterTopLevelInstances(
     const std::vector<std::shared_ptr<Core::Instance>>& instances
 ) {
+    if (Benchmark::Enabled()) {
+        LVS_BENCH_SCOPE("InstanceSelection::FilterTopLevelInstances");
+    }
     std::vector<std::shared_ptr<Core::Instance>> out;
     out.reserve(instances.size());
 
@@ -59,6 +63,9 @@ inline std::vector<std::shared_ptr<Core::Instance>> FilterTopLevelInstances(
 inline std::vector<std::shared_ptr<Objects::BasePart>> CollectDescendantBaseParts(
     const std::shared_ptr<Core::Instance>& instance
 ) {
+    if (Benchmark::Enabled()) {
+        LVS_BENCH_SCOPE("InstanceSelection::CollectDescendantBaseParts");
+    }
     std::vector<std::shared_ptr<Objects::BasePart>> parts;
     if (instance == nullptr) {
         return parts;
@@ -84,6 +91,9 @@ inline std::vector<std::shared_ptr<Objects::BasePart>> CollectDescendantBasePart
 inline std::vector<std::shared_ptr<Objects::BasePart>> CollectBasePartsFromInstances(
     const std::vector<std::shared_ptr<Core::Instance>>& instances
 ) {
+    if (Benchmark::Enabled()) {
+        LVS_BENCH_SCOPE("InstanceSelection::CollectBasePartsFromInstances");
+    }
     std::vector<std::shared_ptr<Objects::BasePart>> out;
     std::unordered_set<const Objects::BasePart*> seen;
 
@@ -106,6 +116,9 @@ inline std::vector<std::shared_ptr<Objects::BasePart>> CollectBasePartsFromInsta
 inline std::optional<Math::AABB> ComputeCombinedWorldAABB(
     const std::vector<std::shared_ptr<Objects::BasePart>>& parts
 ) {
+    if (Benchmark::Enabled()) {
+        LVS_BENCH_SCOPE("InstanceSelection::ComputeCombinedWorldAABB");
+    }
     Math::AABB combined{};
     bool hasBounds = false;
 

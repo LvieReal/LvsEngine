@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Lvs/Engine/Core/EditorToolState.hpp"
+#include "Lvs/Engine/Core/Instance.hpp"
 #include "Lvs/Engine/Enums/PartShape.hpp"
 #include "Lvs/Engine/Math/CFrame.hpp"
 #include "Lvs/Engine/Math/Color3.hpp"
@@ -65,6 +66,7 @@ private:
 
     void RefreshTransforms();
     void RefreshRenderPrimitives();
+    void DisconnectSelectedPartSignals();
 
     [[nodiscard]] double DistanceScale() const;
     [[nodiscard]] Math::Vector3 Center() const;
@@ -98,6 +100,11 @@ private:
     double snapIncrement_{1.0};
     std::shared_ptr<Objects::BasePart> targetPart_;
     std::vector<std::shared_ptr<Objects::BasePart>> selectedParts_;
+    std::vector<const Instance*> lastSelectionRaw_;
+    const Instance* lastSelectionPrimaryRaw_{nullptr};
+    bool selectionDirty_{true};
+    std::vector<Core::Instance::PropertyChangedConnection> selectedPartPropertyChanged_;
+    std::vector<Core::Instance::InstanceConnection> selectedPartAncestryChanged_;
     QString hoveredAxis_;
     QString activeAxis_;
     Math::Vector3 activeAxisDirection_{};

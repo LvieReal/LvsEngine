@@ -53,6 +53,10 @@ void GizmoSystem::Unbind() {
     renderPrimitives_.clear();
     targetPart_.reset();
     selectedParts_.clear();
+    lastSelectionRaw_.clear();
+    lastSelectionPrimaryRaw_ = nullptr;
+    selectionDirty_ = true;
+    DisconnectSelectedPartSignals();
     hoveredAxis_.clear();
     activeAxis_.clear();
     dragStartPoint_.reset();
@@ -67,22 +71,65 @@ void GizmoSystem::Unbind() {
 void GizmoSystem::Update(const std::shared_ptr<DataModel::Selection>& selection, const Tool activeTool) {
     activeTool_ = activeTool;
 
-    hasSelectionBounds_ = false;
-    selectionBounds_ = {};
-    selectionCenter_ = {};
-    selectedParts_.clear();
-
     const auto selectedInstances = selection != nullptr ? selection->Get() : std::vector<std::shared_ptr<Instance>>{};
-    const auto topLevelSelected = Utils::FilterTopLevelInstances(selectedInstances);
-    selectedParts_ = Utils::CollectBasePartsFromInstances(topLevelSelected);
+    std::vector<const Instance*> selectionRaw;
+    selectionRaw.reserve(selectedInstances.size());
+    for (const auto& inst : selectedInstances) {
+        if (inst != nullptr) {
+            selectionRaw.push_back(inst.get());
+        }
+    }
+    const auto selectionPrimary = selection != nullptr ? selection->GetPrimary() : nullptr;
+    const Instance* selectionPrimaryRaw = selectionPrimary != nullptr ? selectionPrimary.get() : nullptr;
 
-    if (const auto bounds = Utils::ComputeCombinedWorldAABB(selectedParts_); bounds.has_value()) {
-        selectionBounds_ = bounds.value();
-        hasSelectionBounds_ = true;
-        selectionCenter_ = selectionBounds_.Centroid();
+    const bool selectionChanged = selectionRaw != lastSelectionRaw_ || selectionPrimaryRaw != lastSelectionPrimaryRaw_;
+    if (selectionChanged) {
+        lastSelectionRaw_ = std::move(selectionRaw);
+        lastSelectionPrimaryRaw_ = selectionPrimaryRaw;
+
+        hasSelectionBounds_ = false;
+        selectionBounds_ = {};
+        selectionCenter_ = {};
+        selectedParts_.clear();
+        DisconnectSelectedPartSignals();
+
+        const auto topLevelSelected = Utils::FilterTopLevelInstances(selectedInstances);
+        selectedParts_ = Utils::CollectBasePartsFromInstances(topLevelSelected);
+
+        selectedPartPropertyChanged_.reserve(selectedParts_.size());
+        selectedPartAncestryChanged_.reserve(selectedParts_.size());
+        for (const auto& part : selectedParts_) {
+            if (part == nullptr) {
+                continue;
+            }
+            selectedPartPropertyChanged_.push_back(part->PropertyChanged.Connect([this](const QString& name, const QVariant&) {
+                if (name == "CFrame" || name == "Size" || name == "Position" || name == "Rotation") {
+                    selectionDirty_ = true;
+                }
+            }));
+            selectedPartAncestryChanged_.push_back(part->AncestryChanged.Connect([this](const std::shared_ptr<Instance>&) {
+                selectionDirty_ = true;
+            }));
+        }
+
+        selectionDirty_ = true;
     }
 
-    targetPart_ = Utils::ResolveLocalSpaceTargetPart(selection != nullptr ? selection->GetPrimary() : nullptr, selectedParts_);
+    if (selectionChanged || selectionDirty_) {
+        hasSelectionBounds_ = false;
+        selectionBounds_ = {};
+        selectionCenter_ = {};
+        if (const auto bounds = Utils::ComputeCombinedWorldAABB(selectedParts_); bounds.has_value()) {
+            selectionBounds_ = bounds.value();
+            hasSelectionBounds_ = true;
+            selectionCenter_ = selectionBounds_.Centroid();
+        }
+        selectionDirty_ = false;
+    }
+
+    if (selectionChanged) {
+        targetPart_ = Utils::ResolveLocalSpaceTargetPart(selectionPrimary, selectedParts_);
+    }
     visible_ = targetPart_ != nullptr && (activeTool_ == Tool::MoveTool || activeTool_ == Tool::SizeTool);
 
     if (!visible_) {
@@ -314,6 +361,18 @@ std::shared_ptr<Objects::BasePart> GizmoSystem::GetTargetPart() const {
 
 const std::vector<GizmoSystem::RenderPrimitive>& GizmoSystem::GetRenderPrimitives() const {
     return renderPrimitives_;
+}
+
+void GizmoSystem::DisconnectSelectedPartSignals() {
+    for (auto& conn : selectedPartPropertyChanged_) {
+        conn.Disconnect();
+    }
+    selectedPartPropertyChanged_.clear();
+
+    for (auto& conn : selectedPartAncestryChanged_) {
+        conn.Disconnect();
+    }
+    selectedPartAncestryChanged_.clear();
 }
 
 void GizmoSystem::RefreshTransforms() {

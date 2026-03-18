@@ -7,6 +7,7 @@
 #include "Lvs/Engine/Rendering/Common/ShadowJitterUtils.hpp"
 #include "Lvs/Engine/Rendering/Context/RenderContextUtils.hpp"
 #include "Lvs/Engine/Utils/FileIO.hpp"
+#include "Lvs/Engine/Utils/Benchmark.hpp"
 #include "Lvs/Engine/Utils/ImageIO.hpp"
 #include "Lvs/Engine/Utils/PathUtils.hpp"
 
@@ -14,6 +15,7 @@
 #include <array>
 #include <cstdint>
 #include <exception>
+#include <optional>
 #include <utility>
 
 namespace Lvs::Engine::Rendering {
@@ -302,6 +304,7 @@ RenderContext::GpuMesh* RenderContext::GetOrCreatePrimitiveMesh(const Enums::Par
 }
 
 RenderContext::GpuMesh* RenderContext::GetOrCreateMeshPartMesh(const std::string& contentId, const bool smoothNormals) {
+    LVS_BENCH_SCOPE("RenderContext::GetOrCreateMeshPartMesh");
     const auto resolvedPath = Context::ResolveContentPath(contentId);
     if (resolvedPath.empty()) {
         return nullptr;
@@ -312,11 +315,20 @@ RenderContext::GpuMesh* RenderContext::GetOrCreateMeshPartMesh(const std::string
         return &it->second;
     }
 
-    const auto loadedMesh = Common::LoadMeshFromFile(resolvedPath, smoothNormals);
+    std::optional<Common::MeshData> loadedMesh;
+    {
+        LVS_BENCH_SCOPE("RenderContext::GetOrCreateMeshPartMesh::LoadMeshFromFile");
+        loadedMesh = Common::LoadMeshFromFile(resolvedPath, smoothNormals);
+    }
     if (!loadedMesh.has_value()) {
         return nullptr;
     }
-    auto uploaded = CreateGpuMeshFromData(*loadedMesh);
+
+    std::optional<GpuMesh> uploaded;
+    {
+        LVS_BENCH_SCOPE("RenderContext::GetOrCreateMeshPartMesh::CreateGpuMeshFromData");
+        uploaded = CreateGpuMeshFromData(*loadedMesh);
+    }
     if (!uploaded.has_value()) {
         return nullptr;
     }

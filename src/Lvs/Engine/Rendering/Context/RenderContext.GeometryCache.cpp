@@ -10,6 +10,7 @@
 #include "Lvs/Engine/Objects/MeshPart.hpp"
 #include "Lvs/Engine/Objects/Part.hpp"
 #include "Lvs/Engine/Rendering/Context/RenderContextUtils.hpp"
+#include "Lvs/Engine/Utils/Benchmark.hpp"
 
 #include <algorithm>
 #include <string>
@@ -48,6 +49,9 @@ void RenderContext::ClearGeometryCache() {
 }
 
 void RenderContext::EnsureGeometryCache() {
+    if (Utils::Benchmark::Enabled()) {
+        LVS_BENCH_SCOPE("RenderContext::EnsureGeometryCache");
+    }
     if (geometryCacheInitialized_) {
         if (!workspaceRoot_.expired()) {
             return;
@@ -99,6 +103,9 @@ bool RenderContext::IsUnderWorkspace(const std::shared_ptr<Core::Instance>& inst
 }
 
 void RenderContext::WatchNodeRecursive(const std::shared_ptr<Core::Instance>& node) {
+    if (Utils::Benchmark::Enabled()) {
+        LVS_BENCH_SCOPE("RenderContext::WatchNodeRecursive");
+    }
     if (node == nullptr) {
         return;
     }
@@ -137,6 +144,9 @@ void RenderContext::WatchNodeRecursive(const std::shared_ptr<Core::Instance>& no
 }
 
 void RenderContext::UnwatchNodeRecursive(const std::shared_ptr<Core::Instance>& node) {
+    if (Utils::Benchmark::Enabled()) {
+        LVS_BENCH_SCOPE("RenderContext::UnwatchNodeRecursive");
+    }
     if (node == nullptr) {
         return;
     }
@@ -164,6 +174,9 @@ void RenderContext::UnwatchNodeRecursive(const std::shared_ptr<Core::Instance>& 
 }
 
 void RenderContext::TrackRenderable(const std::shared_ptr<Core::Instance>& instance) {
+    if (Utils::Benchmark::Enabled()) {
+        LVS_BENCH_SCOPE("RenderContext::TrackRenderable");
+    }
     const auto part = std::dynamic_pointer_cast<Objects::BasePart>(instance);
     if (part == nullptr) {
         return;
@@ -240,6 +253,7 @@ void RenderContext::UntrackRenderable(const Core::Instance* instance) {
 }
 
 void RenderContext::UpdateDirtyInstanceData() {
+    LVS_BENCH_SCOPE("RenderContext::UpdateDirtyInstanceData");
     if (!geometryDataDirty_ || geometryLayoutDirty_) {
         return;
     }
@@ -307,6 +321,7 @@ void RenderContext::UpdateDirtyInstanceData() {
 }
 
 void RenderContext::RebuildGeometryBatchesAndInstances() {
+    LVS_BENCH_SCOPE("RenderContext::RebuildGeometryBatchesAndInstances");
     cachedInstanceData_.clear();
     cachedOpaqueDraws_.clear();
     cachedTransparentDraws_.clear();
@@ -320,15 +335,15 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
         if (const auto meshPart = std::dynamic_pointer_cast<Objects::MeshPart>(inst); meshPart != nullptr) {
             const std::string contentId = meshPart->GetProperty("ContentId").toString().toStdString();
             const bool smoothNormals = meshPart->GetProperty("SmoothNormals").toBool();
+            GpuMesh* gpuMesh = GetOrCreateMeshPartMesh(contentId, smoothNormals);
+            if (gpuMesh == nullptr) {
+                return nullptr;
+            }
             const auto resolvedPath = Context::ResolveContentPath(contentId);
             if (resolvedPath.empty()) {
                 return nullptr;
             }
             const std::string key = resolvedPath.string() + (smoothNormals ? "|smooth" : "|flat");
-            GpuMesh* gpuMesh = GetOrCreateMeshPartMesh(contentId, smoothNormals);
-            if (gpuMesh == nullptr) {
-                return nullptr;
-            }
             return GetOrCreateMeshRef("meshpart:" + key, *gpuMesh);
         }
 
@@ -582,17 +597,6 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
         packBatch(key, opaqueBatches.at(key), cachedOpaqueDraws_, false, false);
     }
 
-    keys.clear();
-    keys.reserve(overlayOpaque.size());
-    for (const auto& [key, items] : overlayOpaque) {
-        static_cast<void>(items);
-        keys.push_back(key);
-    }
-    std::sort(keys.begin(), keys.end(), batchKeyLess);
-    for (const auto& key : keys) {
-        packOverlayBatch(key, overlayOpaque.at(key), cachedOpaqueDraws_, false, false);
-    }
-
     for (auto* item : transparentItems) {
         const RHI::u32 baseInstance = static_cast<RHI::u32>(cachedInstanceData_.size());
         item->PackedInstanceIndex = cachedInstanceData_.size();
@@ -609,6 +613,33 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
         });
     }
 
+    keys.clear();
+    keys.reserve(onTopBatches.size());
+    for (const auto& [key, items] : onTopBatches) {
+        static_cast<void>(items);
+        keys.push_back(key);
+    }
+    std::sort(keys.begin(), keys.end(), batchKeyLess);
+    for (const auto& key : keys) {
+        packBatch(key, onTopBatches.at(key), cachedAlwaysOnTopDraws_, true, true);
+    }
+
+    cachedGeometryInstanceCount_ = cachedInstanceData_.size();
+    cachedGeometryOpaqueDrawCount_ = cachedOpaqueDraws_.size();
+    cachedGeometryTransparentDrawCount_ = cachedTransparentDraws_.size();
+    cachedGeometryAlwaysOnTopDrawCount_ = cachedAlwaysOnTopDraws_.size();
+
+    keys.clear();
+    keys.reserve(overlayOpaque.size());
+    for (const auto& [key, items] : overlayOpaque) {
+        static_cast<void>(items);
+        keys.push_back(key);
+    }
+    std::sort(keys.begin(), keys.end(), batchKeyLess);
+    for (const auto& key : keys) {
+        packOverlayBatch(key, overlayOpaque.at(key), cachedOpaqueDraws_, false, false);
+    }
+
     for (const auto& item : overlayTransparent) {
         const RHI::u32 baseInstance = static_cast<RHI::u32>(cachedInstanceData_.size());
         cachedInstanceData_.push_back(item.Data);
@@ -622,17 +653,6 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
             .IgnoreLighting = item.IgnoreLighting,
             .SortDepth = 0.0F
         });
-    }
-
-    keys.clear();
-    keys.reserve(onTopBatches.size());
-    for (const auto& [key, items] : onTopBatches) {
-        static_cast<void>(items);
-        keys.push_back(key);
-    }
-    std::sort(keys.begin(), keys.end(), batchKeyLess);
-    for (const auto& key : keys) {
-        packBatch(key, onTopBatches.at(key), cachedAlwaysOnTopDraws_, true, true);
     }
 
     keys.clear();
@@ -653,6 +673,7 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
 }
 
 void RenderContext::UpdateTransparentSortDepths() {
+    LVS_BENCH_SCOPE("RenderContext::UpdateTransparentSortDepths");
     bool hasCameraPosition = false;
     Math::Vector3 cameraPosition{};
     if (place_ != nullptr) {
@@ -689,33 +710,201 @@ void RenderContext::UpdateTransparentSortDepths() {
     }
 }
 
+void RenderContext::RebuildOverlayBatchesAndInstances() {
+    LVS_BENCH_SCOPE("RenderContext::RebuildOverlayBatchesAndInstances");
+
+    // If geometry is dirty, fall back to full rebuild.
+    if (geometryLayoutDirty_) {
+        RebuildGeometryBatchesAndInstances();
+        return;
+    }
+
+    cachedInstanceData_.resize(cachedGeometryInstanceCount_);
+    cachedOpaqueDraws_.resize(cachedGeometryOpaqueDrawCount_);
+    cachedTransparentDraws_.resize(cachedGeometryTransparentDrawCount_);
+    cachedAlwaysOnTopDraws_.resize(cachedGeometryAlwaysOnTopDrawCount_);
+
+    struct OverlayItem {
+        const SceneData::MeshRef* Mesh{nullptr};
+        RHI::CullMode CullMode{RHI::CullMode::Back};
+        bool AlwaysOnTop{true};
+        bool Transparent{true};
+        bool IgnoreLighting{false};
+        Common::DrawInstanceData Data{};
+    };
+
+    std::unordered_map<BatchKey, std::vector<OverlayItem>, BatchKeyHash> overlayOpaque;
+    std::unordered_map<BatchKey, std::vector<OverlayItem>, BatchKeyHash> overlayOnTop;
+    std::vector<OverlayItem> overlayTransparent;
+
+    for (const auto& overlay : overlayPrimitives_) {
+        const float alpha = std::clamp(overlay.Alpha, 0.0F, 1.0F);
+        if (alpha <= 0.0F) {
+            continue;
+        }
+        GpuMesh* gpuMesh = GetOrCreatePrimitiveMesh(overlay.Shape);
+        if (gpuMesh == nullptr) {
+            continue;
+        }
+        const SceneData::MeshRef* meshRef = GetOrCreateMeshRef(
+            "primitive:" + std::to_string(static_cast<int>(overlay.Shape)),
+            *gpuMesh
+        );
+        if (meshRef == nullptr) {
+            continue;
+        }
+
+        OverlayItem item{};
+        item.Mesh = meshRef;
+        item.CullMode = RHI::CullMode::Back;
+        item.AlwaysOnTop = overlay.AlwaysOnTop;
+        item.Transparent = alpha < 1.0F || overlay.AlwaysOnTop;
+        item.IgnoreLighting = overlay.IgnoreLighting;
+        item.Data.Model = Context::ToFloatMat4ColumnMajor(overlay.Model);
+        item.Data.BaseColor = Context::ToVec4(overlay.Color, alpha);
+        item.Data.Material = {
+            std::clamp(overlay.Metalness, 0.0F, 1.0F),
+            std::clamp(overlay.Roughness, 0.0F, 1.0F),
+            std::max(0.0F, overlay.Emissive),
+            overlay.IgnoreLighting ? 1.0F : 0.0F
+        };
+        item.Data.SurfaceData0 = {0.0F, 0.0F, 0.0F, overlay.AlwaysOnTop ? 1.0F : 0.0F};
+        item.Data.SurfaceData1 = {0.0F, 0.0F, 0.0F, 0.0F};
+
+        if (item.AlwaysOnTop) {
+            overlayOnTop[BatchKey{meshRef, item.CullMode, true}].push_back(item);
+        } else if (item.Transparent) {
+            overlayTransparent.push_back(item);
+        } else {
+            overlayOpaque[BatchKey{meshRef, item.CullMode, false}].push_back(item);
+        }
+    }
+
+    const auto packOverlayBatch = [this](
+                                      const BatchKey& key,
+                                      const std::vector<OverlayItem>& items,
+                                      std::vector<SceneData::DrawPacket>& outDraws,
+                                      const bool transparentFlag,
+                                      const bool alwaysOnTopFlag
+                                  ) {
+        if (items.empty()) {
+            return;
+        }
+        const RHI::u32 baseInstance = static_cast<RHI::u32>(cachedInstanceData_.size());
+        bool ignoreLighting = false;
+        for (const auto& item : items) {
+            ignoreLighting = ignoreLighting || item.IgnoreLighting;
+            cachedInstanceData_.push_back(item.Data);
+        }
+        outDraws.push_back(SceneData::DrawPacket{
+            .Mesh = key.Mesh,
+            .BaseInstance = baseInstance,
+            .InstanceCount = static_cast<RHI::u32>(items.size()),
+            .CullMode = key.CullMode,
+            .Transparent = transparentFlag,
+            .AlwaysOnTop = alwaysOnTopFlag,
+            .IgnoreLighting = ignoreLighting,
+            .SortDepth = 0.0F
+        });
+    };
+
+    auto batchKeyLess = [](const BatchKey& lhs, const BatchKey& rhs) {
+        if (lhs.Mesh != rhs.Mesh) {
+            return lhs.Mesh < rhs.Mesh;
+        }
+        if (lhs.CullMode != rhs.CullMode) {
+            return static_cast<std::size_t>(lhs.CullMode) < static_cast<std::size_t>(rhs.CullMode);
+        }
+        return lhs.AlwaysOnTop < rhs.AlwaysOnTop;
+    };
+
+    std::vector<BatchKey> keys;
+    keys.reserve(overlayOpaque.size());
+    for (const auto& [key, items] : overlayOpaque) {
+        static_cast<void>(items);
+        keys.push_back(key);
+    }
+    std::sort(keys.begin(), keys.end(), batchKeyLess);
+    for (const auto& key : keys) {
+        packOverlayBatch(key, overlayOpaque.at(key), cachedOpaqueDraws_, false, false);
+    }
+
+    for (const auto& item : overlayTransparent) {
+        const RHI::u32 baseInstance = static_cast<RHI::u32>(cachedInstanceData_.size());
+        cachedInstanceData_.push_back(item.Data);
+        cachedTransparentDraws_.push_back(SceneData::DrawPacket{
+            .Mesh = item.Mesh,
+            .BaseInstance = baseInstance,
+            .InstanceCount = 1U,
+            .CullMode = item.CullMode,
+            .Transparent = true,
+            .AlwaysOnTop = false,
+            .IgnoreLighting = item.IgnoreLighting,
+            .SortDepth = 0.0F
+        });
+    }
+
+    keys.clear();
+    keys.reserve(overlayOnTop.size());
+    for (const auto& [key, items] : overlayOnTop) {
+        static_cast<void>(items);
+        keys.push_back(key);
+    }
+    std::sort(keys.begin(), keys.end(), batchKeyLess);
+    for (const auto& key : keys) {
+        packOverlayBatch(key, overlayOnTop.at(key), cachedAlwaysOnTopDraws_, true, true);
+    }
+
+    overlayDirty_ = false;
+    instanceBufferDirty_ = true;
+}
+
 std::vector<SceneData::DrawPacket> RenderContext::BuildGeometryDraws() {
-    EnsureGeometryCache();
+    LVS_BENCH_SCOPE("RenderContext::BuildGeometryDraws(Internal)");
+    {
+        LVS_BENCH_SCOPE("RenderContext::BuildGeometryDraws::EnsureGeometryCache");
+        EnsureGeometryCache();
+    }
 
     if (geometryLayoutDirty_ || overlayDirty_) {
-        RebuildGeometryBatchesAndInstances();
+        LVS_BENCH_SCOPE("RenderContext::BuildGeometryDraws::RebuildBatches");
+        if (geometryLayoutDirty_) {
+            RebuildGeometryBatchesAndInstances();
+        } else {
+            RebuildOverlayBatchesAndInstances();
+        }
     } else if (geometryDataDirty_) {
+        LVS_BENCH_SCOPE("RenderContext::BuildGeometryDraws::UpdateDirtyInstances");
         UpdateDirtyInstanceData();
     }
 
-    UpdateTransparentSortDepths();
+    {
+        LVS_BENCH_SCOPE("RenderContext::BuildGeometryDraws::UpdateTransparentSortDepths");
+        UpdateTransparentSortDepths();
+    }
 
     std::vector<const SceneData::DrawPacket*> transparentPtrs;
-    transparentPtrs.reserve(cachedTransparentDraws_.size());
-    for (const auto& draw : cachedTransparentDraws_) {
-        transparentPtrs.push_back(&draw);
+    {
+        LVS_BENCH_SCOPE("RenderContext::BuildGeometryDraws::SortTransparent");
+        transparentPtrs.reserve(cachedTransparentDraws_.size());
+        for (const auto& draw : cachedTransparentDraws_) {
+            transparentPtrs.push_back(&draw);
+        }
+        std::sort(transparentPtrs.begin(), transparentPtrs.end(), [](const auto* lhs, const auto* rhs) {
+            return lhs->SortDepth > rhs->SortDepth;
+        });
     }
-    std::sort(transparentPtrs.begin(), transparentPtrs.end(), [](const auto* lhs, const auto* rhs) {
-        return lhs->SortDepth > rhs->SortDepth;
-    });
 
     std::vector<SceneData::DrawPacket> draws;
-    draws.reserve(cachedOpaqueDraws_.size() + cachedTransparentDraws_.size() + cachedAlwaysOnTopDraws_.size());
-    draws.insert(draws.end(), cachedOpaqueDraws_.begin(), cachedOpaqueDraws_.end());
-    for (const auto* draw : transparentPtrs) {
-        draws.push_back(*draw);
+    {
+        LVS_BENCH_SCOPE("RenderContext::BuildGeometryDraws::AssembleDrawList");
+        draws.reserve(cachedOpaqueDraws_.size() + cachedTransparentDraws_.size() + cachedAlwaysOnTopDraws_.size());
+        draws.insert(draws.end(), cachedOpaqueDraws_.begin(), cachedOpaqueDraws_.end());
+        for (const auto* draw : transparentPtrs) {
+            draws.push_back(*draw);
+        }
+        draws.insert(draws.end(), cachedAlwaysOnTopDraws_.begin(), cachedAlwaysOnTopDraws_.end());
     }
-    draws.insert(draws.end(), cachedAlwaysOnTopDraws_.begin(), cachedAlwaysOnTopDraws_.end());
     return draws;
 }
 

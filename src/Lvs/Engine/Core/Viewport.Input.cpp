@@ -2,6 +2,7 @@
 
 #include "Lvs/Engine/Core/CameraController.hpp"
 #include "Lvs/Engine/Core/ViewportToolLayer.hpp"
+#include "Lvs/Engine/Utils/Benchmark.hpp"
 
 #include <QCursor>
 #include <QFocusEvent>
@@ -13,6 +14,7 @@
 namespace Lvs::Engine::Core {
 
 void Viewport::mousePressEvent(QMouseEvent* event) {
+    LVS_BENCH_SCOPE("Viewport::mousePressEvent");
     if (event->button() == Qt::RightButton) {
         rightMouseDown_ = true;
         rightMousePanned_ = false;
@@ -28,11 +30,13 @@ void Viewport::mousePressEvent(QMouseEvent* event) {
 
     setFocus();
     if (toolLayer_ != nullptr) {
+        LVS_BENCH_SCOPE("Viewport::ToolLayer::OnMousePress");
         toolLayer_->OnMousePress(event, BuildRay(event->position().x(), event->position().y()));
     }
 }
 
 void Viewport::mouseReleaseEvent(QMouseEvent* event) {
+    LVS_BENCH_SCOPE("Viewport::mouseReleaseEvent");
     if (event->button() == Qt::RightButton) {
         static_cast<void>(rightMousePanned_);
         rightMouseDown_ = false;
@@ -42,6 +46,7 @@ void Viewport::mouseReleaseEvent(QMouseEvent* event) {
     }
     if (event->button() == Qt::LeftButton) {
         if (toolLayer_ != nullptr) {
+            LVS_BENCH_SCOPE("Viewport::ToolLayer::OnMouseRelease");
             toolLayer_->OnMouseRelease(event);
         }
         event->accept();
@@ -51,12 +56,16 @@ void Viewport::mouseReleaseEvent(QMouseEvent* event) {
 }
 
 void Viewport::mouseMoveEvent(QMouseEvent* event) {
+    LVS_BENCH_SCOPE("Viewport::mouseMoveEvent");
     if (rightMouseDown_ && cameraController_ != nullptr) {
         const QPoint current = event->globalPosition().toPoint();
         const QPoint delta = current - lockedCursorPos_;
         if (delta.manhattanLength() > 0) {
             rightMousePanned_ = true;
-            cameraController_->Rotate(static_cast<double>(delta.x()), static_cast<double>(delta.y()));
+            {
+                LVS_BENCH_SCOPE("Viewport::CameraController::Rotate");
+                cameraController_->Rotate(static_cast<double>(delta.x()), static_cast<double>(delta.y()));
+            }
             QCursor::setPos(lockedCursorPos_);
         }
         event->accept();
@@ -64,6 +73,7 @@ void Viewport::mouseMoveEvent(QMouseEvent* event) {
     }
 
     if (toolLayer_ != nullptr) {
+        LVS_BENCH_SCOPE("Viewport::ToolLayer::OnMouseMove");
         toolLayer_->OnMouseMove(event, BuildRay(event->position().x(), event->position().y()));
     }
 
@@ -71,6 +81,7 @@ void Viewport::mouseMoveEvent(QMouseEvent* event) {
 }
 
 void Viewport::wheelEvent(QWheelEvent* event) {
+    LVS_BENCH_SCOPE("Viewport::wheelEvent");
     if (cameraController_ != nullptr) {
         const double delta = static_cast<double>(event->angleDelta().y()) / 120.0;
         cameraController_->Move(cameraController_->GetForward(), delta, false);

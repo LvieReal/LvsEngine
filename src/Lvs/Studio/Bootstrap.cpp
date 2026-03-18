@@ -13,6 +13,7 @@
 #include <QApplication>
 #include <QScreen>
 #include <QSize>
+#include <QStringList>
 
 #include <memory>
 
@@ -112,6 +113,36 @@ void Run(QApplication& app, Engine::Core::Window& window, const Engine::EngineCo
             studio->ToolbarController->SetVisible(false);
         }
     });
+
+    // Optional CLI: `--place <path>` or `--place=<path>` or a bare `*.lvsx` path.
+    const QStringList args = app.arguments();
+    QString placePath;
+    for (int i = 0; i < args.size(); ++i) {
+        const QString& arg = args[i];
+        if (arg == "--place" && i + 1 < args.size()) {
+            placePath = args[i + 1];
+            break;
+        }
+        if (arg.startsWith("--place=")) {
+            placePath = arg.mid(QString("--place=").size());
+            break;
+        }
+    }
+    if (placePath.isEmpty()) {
+        for (int i = 1; i < args.size(); ++i) {
+            const QString& arg = args[i];
+            if (arg.startsWith("--")) {
+                continue;
+            }
+            if (arg.endsWith(".lvsx", Qt::CaseInsensitive)) {
+                placePath = arg;
+                break;
+            }
+        }
+    }
+    if (!placePath.isEmpty() && context->PlaceManager != nullptr) {
+        context->PlaceManager->OpenPlaceFromFile(placePath);
+    }
 
     window.showMaximized();
 }

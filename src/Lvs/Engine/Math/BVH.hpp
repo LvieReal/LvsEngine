@@ -65,8 +65,11 @@ public:
         best.Distance = maxT;
         bool hasBest = false;
 
-        std::vector<std::uint32_t> stack;
-        stack.reserve(nodes_.size());
+        thread_local std::vector<std::uint32_t> stack;
+        stack.clear();
+        if (stack.capacity() < nodes_.size()) {
+            stack.reserve(nodes_.size());
+        }
         stack.push_back(0);
 
         while (!stack.empty()) {

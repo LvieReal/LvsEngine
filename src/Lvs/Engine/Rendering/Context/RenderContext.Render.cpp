@@ -10,6 +10,7 @@
 #include "Lvs/Engine/Enums/SurfaceMipmapping.hpp"
 #include "Lvs/Engine/Objects/DirectionalLight.hpp"
 #include "Lvs/Engine/Rendering/Context/RenderContextUtils.hpp"
+#include "Lvs/Engine/Utils/Benchmark.hpp"
 
 #include <QMetaType>
 
@@ -20,10 +21,14 @@
 namespace Lvs::Engine::Rendering {
 
 void RenderContext::Render() {
+    LVS_BENCH_SCOPE("RenderContext::Render");
     if (nativeWindowHandle_ == nullptr) {
         return;
     }
-    EnsureBackend();
+    {
+        LVS_BENCH_SCOPE("RenderContext::EnsureBackend");
+        EnsureBackend();
+    }
     RHI::u32 desiredMsaaSamples = 1U;
 	    bool desiredSurfaceMipmaps = true;
 	    if (place_ != nullptr) {
@@ -244,7 +249,19 @@ void RenderContext::Render() {
             scene.EnableSkybox = false;
         }
     }
-    scene.GeometryDraws = BuildGeometryDraws();
+    {
+        LVS_BENCH_SCOPE("RenderContext::BuildGeometryDraws");
+        // Split call vs. transfer so bench output can distinguish where time is spent.
+        std::vector<SceneData::DrawPacket> geometryDraws{};
+        {
+            LVS_BENCH_SCOPE("RenderContext::BuildGeometryDraws(Call)");
+            geometryDraws = BuildGeometryDraws();
+        }
+        {
+            LVS_BENCH_SCOPE("RenderContext::BuildGeometryDraws(MoveToScene)");
+            scene.GeometryDraws = std::move(geometryDraws);
+        }
+    }
     if (!scene.GeometryDraws.empty()) {
         scene.GeometryDraw = scene.GeometryDraws.front();
     } else {
@@ -269,7 +286,11 @@ void RenderContext::Render() {
     }
 
     ++postProcessFrameSeed_;
-    const Common::CameraUniformData cameraUniforms = BuildCameraUniforms();
+    Common::CameraUniformData cameraUniforms{};
+    {
+        LVS_BENCH_SCOPE("RenderContext::BuildCameraUniforms");
+        cameraUniforms = BuildCameraUniforms();
+    }
     scene.SkyboxPush = BuildSkyboxPushConstants();
     if (frameResourceSet_ != nullptr) {
         retiredFrameResourceSets_.push_back(std::move(frameResourceSet_));
@@ -283,23 +304,29 @@ void RenderContext::Render() {
     if (frameShadowUniformBuffer_ != nullptr) {
         retiredFrameUniformBuffers_.push_back(std::move(frameShadowUniformBuffer_));
     }
-    frameUniformBuffer_ = GetRhiContext().CreateBuffer(RHI::BufferDesc{
+    {
+        LVS_BENCH_SCOPE("RenderContext::CreateFrameUniformBuffer");
+        frameUniformBuffer_ = GetRhiContext().CreateBuffer(RHI::BufferDesc{
         .type = RHI::BufferType::Uniform,
         .usage = RHI::BufferUsage::Dynamic,
         .size = sizeof(Common::CameraUniformData),
         .initialData = &cameraUniforms
-    });
+        });
+    }
     if (instanceBufferDirty_ || frameInstanceBuffer_ == nullptr) {
         if (frameInstanceBuffer_ != nullptr) {
             retiredFrameUniformBuffers_.push_back(std::move(frameInstanceBuffer_));
         }
         const Common::DrawInstanceData dummyInstance{};
-        frameInstanceBuffer_ = GetRhiContext().CreateBuffer(RHI::BufferDesc{
+        {
+            LVS_BENCH_SCOPE("RenderContext::CreateInstanceBuffer");
+            frameInstanceBuffer_ = GetRhiContext().CreateBuffer(RHI::BufferDesc{
             .type = RHI::BufferType::Storage,
             .usage = RHI::BufferUsage::Dynamic,
             .size = std::max<std::size_t>(static_cast<std::size_t>(1), cachedInstanceData_.size()) * sizeof(Common::DrawInstanceData),
             .initialData = cachedInstanceData_.empty() ? &dummyInstance : cachedInstanceData_.data()
-        });
+            });
+        }
         instanceBufferDirty_ = false;
     }
     scene.ShadowResources = nullptr;
@@ -527,11 +554,20 @@ void RenderContext::Render() {
     static_cast<void>(overlayPrimitives_);
     static_cast<void>(clearColor_);
     if (vkBackend_ != nullptr) {
-        vkBackend_->Render(scene);
+        {
+            LVS_BENCH_SCOPE("RenderContext::BackendRender(Vulkan)");
+            vkBackend_->Render(scene);
+        }
     } else if (glBackend_ != nullptr) {
-        glBackend_->Render(scene);
+        {
+            LVS_BENCH_SCOPE("RenderContext::BackendRender(OpenGL)");
+            glBackend_->Render(scene);
+        }
     }
-    TrimRetiredFrameResources();
+    {
+        LVS_BENCH_SCOPE("RenderContext::TrimRetiredFrameResources");
+        TrimRetiredFrameResources();
+    }
 }
 
 } // namespace Lvs::Engine::Rendering

@@ -5,6 +5,7 @@
 #include "Lvs/Engine/Math/Vector3.hpp"
 #include "Lvs/Engine/Objects/BasePart.hpp"
 #include "Lvs/Engine/Objects/Camera.hpp"
+#include "Lvs/Engine/Utils/Benchmark.hpp"
 
 #include <algorithm>
 #include <array>
@@ -70,6 +71,9 @@ std::optional<double> RaycastPartAABB(const Ray& ray, const std::shared_ptr<Obje
 }
 
 PartBVH BuildPartBVH(const std::vector<std::shared_ptr<Objects::BasePart>>& parts) {
+    if (Benchmark::Enabled()) {
+        LVS_BENCH_SCOPE("Raycast::BuildPartBVH");
+    }
     PartBVH out;
     out.Parts.reserve(parts.size());
     out.Bounds.reserve(parts.size());
@@ -97,7 +101,43 @@ PartBVH BuildPartBVH(const std::vector<std::shared_ptr<Objects::BasePart>>& part
     return out;
 }
 
+void RebuildPartBVH(PartBVH& bvh) {
+    if (Benchmark::Enabled()) {
+        LVS_BENCH_SCOPE("Raycast::RebuildPartBVH");
+    }
+    if (bvh.Parts.empty()) {
+        bvh.Bounds.clear();
+        bvh.Bvh.Build({});
+        return;
+    }
+
+    bvh.Bounds.assign(bvh.Parts.size(), Math::AABB{});
+
+    std::vector<Math::BVH::Primitive> primitives;
+    primitives.reserve(bvh.Parts.size());
+
+    for (std::uint32_t i = 0; i < static_cast<std::uint32_t>(bvh.Parts.size()); ++i) {
+        const auto& part = bvh.Parts[i];
+        if (part == nullptr || part->GetParent() == nullptr) {
+            continue;
+        }
+
+        const Math::AABB aabb = BuildPartWorldAABB(part);
+        bvh.Bounds[i] = aabb;
+        primitives.push_back(Math::BVH::Primitive{
+            .Bounds = aabb,
+            .Centroid = aabb.Centroid(),
+            .Payload = i
+        });
+    }
+
+    bvh.Bvh.Build(std::move(primitives));
+}
+
 std::pair<std::shared_ptr<Objects::BasePart>, double> RaycastPartBVH(const Ray& ray, const PartBVH& bvh) {
+    if (Benchmark::Enabled()) {
+        LVS_BENCH_SCOPE("Raycast::RaycastPartBVH");
+    }
     if (bvh.Parts.empty() || bvh.Bvh.Empty()) {
         return {nullptr, std::numeric_limits<double>::infinity()};
     }
@@ -119,6 +159,9 @@ std::pair<std::shared_ptr<Objects::BasePart>, double> RaycastPartBVHWithFilter(
     const std::vector<std::shared_ptr<Objects::BasePart>>& descendantFilterList,
     const DescendantFilterType filterType
 ) {
+    if (Benchmark::Enabled()) {
+        LVS_BENCH_SCOPE("Raycast::RaycastPartBVHWithFilter");
+    }
     if (bvh.Parts.empty() || bvh.Bvh.Empty()) {
         return {nullptr, std::numeric_limits<double>::infinity()};
     }
