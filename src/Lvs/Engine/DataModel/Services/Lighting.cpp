@@ -45,6 +45,13 @@ Core::ClassDescriptor& Lighting::Descriptor() {
             "Rendering",
             "Selects per-fragment or legacy per-vertex lighting."
         ));
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
+            "FresnelAmount",
+            1.0,
+            true,
+            "Rendering",
+            "Scales Fresnel term contribution (0 disables angle-dependent Fresnel, 1 is default)."
+        ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
             "ShadowsEnabled",
             true,
@@ -61,10 +68,17 @@ Core::ClassDescriptor& Lighting::Descriptor() {
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<int>(
             "DefaultShadowTapCount",
-            16,
+            64,
             true,
             "Rendering",
             "Number of Poisson PCF taps."
+        ));
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
+            "ShadowBias",
+            1.0,
+            true,
+            "Rendering",
+            "Directional shadow depth bias (in shadow texels)."
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<int>(
             "DefaultShadowCascadeCount",

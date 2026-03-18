@@ -24,7 +24,7 @@ Common::CameraUniformData RenderContext::BuildCameraUniforms() {
     uniforms.CameraPosition = {0.0F, 0.0F, 0.0F, 1.0F};
     uniforms.LightDirection = {0.0F, -1.0F, 0.0F, 0.0F};
     uniforms.LightColorIntensity = {0.0F, 0.0F, 0.0F, 0.0F};
-    uniforms.LightSpecular = {0.0F, 0.0F, 0.0F, 0.0F};
+    uniforms.LightSpecular = {0.0F, 0.0F, 1.0F, 0.0F};
     uniforms.Ambient = {0.15F, 0.15F, 0.15F, 1.0F};
     uniforms.SkyTint = {1.0F, 1.0F, 1.0F, 1.0F};
     uniforms.RenderSettings = {1.0F, 0.0F, 1.0F, 0.0F};
@@ -52,9 +52,11 @@ Common::CameraUniformData RenderContext::BuildCameraUniforms() {
 
     Math::Vector3 directionalLightDirection = Math::Vector3{0.0, -1.0, 0.0};
     bool hasDirectionalLight = false;
+    float fresnelAmount = 1.0F;
 
     if (const auto lightingService = std::dynamic_pointer_cast<DataModel::Lighting>(place_->FindService("Lighting"));
         lightingService != nullptr) {
+        fresnelAmount = static_cast<float>(std::clamp(lightingService->GetProperty("FresnelAmount").toDouble(), 0.0, 1.0));
         const Math::Color3 ambientColor = lightingService->GetProperty("Ambient").value<Math::Color3>();
         uniforms.Ambient = Context::ToVec4(
             ambientColor,
@@ -83,7 +85,7 @@ Common::CameraUniformData RenderContext::BuildCameraUniforms() {
             uniforms.LightSpecular = {
                 static_cast<float>(std::max(0.0, directional->GetProperty("SpecularStrength").toDouble())),
                 static_cast<float>(std::max(0.0, directional->GetProperty("Shininess").toDouble())),
-                0.0F,
+                fresnelAmount,
                 0.0F
             };
             directionalLightDirection = direction;

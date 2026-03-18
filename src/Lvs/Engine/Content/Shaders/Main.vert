@@ -108,7 +108,9 @@ void main() {
     float effectiveRoughness = max(roughness * lightShininessToRoughness, 0.045);
     float NDF = DistributionGGX(N, H, effectiveRoughness);
     float G = GeometrySmith(N, V, L, effectiveRoughness);
-    vec3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
+    float fresnelAmount = clamp(camera.lightSpecular.z, 0.0, 1.0);
+    vec3 Fschlick = FresnelSchlick(max(dot(H, V), 0.0), F0);
+    vec3 F = mix(F0, Fschlick, fresnelAmount);
 
     vec3 numerator = NDF * G * F;
     float denominator = max(4.0 * max(dot(N, V), 0.0) * NdotL, 1e-5);

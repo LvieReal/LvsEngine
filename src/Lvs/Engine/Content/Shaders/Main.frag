@@ -222,9 +222,10 @@ float SampleDirectionalShadowMap(int cascadeIndex, vec3 shadowCoord) {
     return texture(directionalShadowMap0, shadowCoord);
 }
 
-float SampleDirectionalAdaptivePCF64(int cascadeIndex, vec3 baseShadowCoord, float radiusTexels, float ndotl) {
+float SampleDirectionalAdaptivePCF(int cascadeIndex, vec3 baseShadowCoord, float radiusTexels, float ndotl) {
+    int desiredTaps = clamp(int(camera.shadowParams.z + 0.5), 1, SHADOW_SAMPLES_COUNT);
     float radius = max(0.0, radiusTexels);
-    if (radius <= 1e-6) {
+    if (radius <= 1e-6 || desiredTaps <= 1) {
         return SampleDirectionalShadowMap(cascadeIndex, baseShadowCoord);
     }
 
@@ -232,50 +233,66 @@ float SampleDirectionalAdaptivePCF64(int cascadeIndex, vec3 baseShadowCoord, flo
     float texelScale = max(texelSize.x, texelSize.y);
     float fsize = radius * texelScale;
     vec3 jcoord = vec3(gl_FragCoord.xy * camera.shadowState.yz, 0.0);
-    float shadow = 0.0;
-    vec3 smCoord = baseShadowCoord;
+    float shadowSum = 0.0;
 
-    // Cheap pretest: 8 taps via 4 jitter fetches.
-    for (int i = 0; i < 4; ++i) {
+    // Cheap pretest: up to 8 taps via jitter fetches.
+    int pretestTaps = min(8, desiredTaps);
+    int tapsDone = 0;
+    int pretestFetches = (pretestTaps + 1) / 2;
+    for (int i = 0; i < pretestFetches; ++i) {
         vec4 offset = (texture(directionalShadowJitter, jcoord) * 2.0) - 1.0;
         jcoord.z += 1.0 / float(SHADOW_SAMPLES_HALF);
 
-        smCoord.xy = (offset.xy * fsize) + baseShadowCoord.xy;
-        shadow += SampleDirectionalShadowMap(cascadeIndex, smCoord) * (1.0 / 8.0);
-
-        smCoord.xy = (offset.zw * fsize) + baseShadowCoord.xy;
-        shadow += SampleDirectionalShadowMap(cascadeIndex, smCoord) * (1.0 / 8.0);
-    }
-
-    if (ndotl > 0.0 && shadow > 0.0 && shadow < 1.0) {
-        shadow *= (1.0 / 8.0);
-        for (int i = 0; i < (SHADOW_SAMPLES_HALF - 4); ++i) {
-            vec4 offset = (texture(directionalShadowJitter, jcoord) * 2.0) - 1.0;
-            jcoord.z += 1.0 / float(SHADOW_SAMPLES_HALF);
-
+        vec3 smCoord = baseShadowCoord;
+        if (tapsDone < pretestTaps) {
             smCoord.xy = (offset.xy * fsize) + baseShadowCoord.xy;
-            shadow += SampleDirectionalShadowMap(cascadeIndex, smCoord) * INV_SHADOW_SAMPLES;
+            shadowSum += SampleDirectionalShadowMap(cascadeIndex, smCoord);
+            tapsDone += 1;
+        }
 
+        if (tapsDone < pretestTaps) {
             smCoord.xy = (offset.zw * fsize) + baseShadowCoord.xy;
-            shadow += SampleDirectionalShadowMap(cascadeIndex, smCoord) * INV_SHADOW_SAMPLES;
+            shadowSum += SampleDirectionalShadowMap(cascadeIndex, smCoord);
+            tapsDone += 1;
         }
     }
 
-    return shadow;
+    float shadowPretest = shadowSum / float(max(pretestTaps, 1));
+    if (desiredTaps <= pretestTaps) {
+        return shadowPretest;
+    }
+
+    if (ndotl > 0.0 && shadowPretest > 0.0 && shadowPretest < 1.0) {
+        // Continue sampling until desired tap count (early-out keeps penumbra quality).
+        for (int i = 0; i < SHADOW_SAMPLES_HALF && tapsDone < desiredTaps; ++i) {
+            vec4 offset = (texture(directionalShadowJitter, jcoord) * 2.0) - 1.0;
+            jcoord.z += 1.0 / float(SHADOW_SAMPLES_HALF);
+
+            vec3 smCoord = baseShadowCoord;
+            if (tapsDone < desiredTaps) {
+                smCoord.xy = (offset.xy * fsize) + baseShadowCoord.xy;
+                shadowSum += SampleDirectionalShadowMap(cascadeIndex, smCoord);
+                tapsDone += 1;
+            }
+
+            if (tapsDone < desiredTaps) {
+                smCoord.xy = (offset.zw * fsize) + baseShadowCoord.xy;
+                shadowSum += SampleDirectionalShadowMap(cascadeIndex, smCoord);
+                tapsDone += 1;
+            }
+        }
+        return shadowSum / float(desiredTaps);
+    }
+
+    return shadowPretest;
 }
 
-float ComputeDirectionalBias(int cascadeIndex, float pcfRadiusTexels, vec3 normal, vec3 lightDir) {
+float ComputeDirectionalBias(int cascadeIndex, vec3 normal, vec3 lightDir) {
     vec2 texelSize = GetDirectionalShadowTexelSize(cascadeIndex);
     float texelScale = max(texelSize.x, texelSize.y);
-    float cascadeResolution = 1.0 / max(texelScale, 1e-6);
     float ndotl = clamp(dot(normal, lightDir), 0.0, 1.0);
-    float slope = sqrt(max(1.0 - ndotl * ndotl, 0.0)) / max(ndotl, 0.05);
-    float biasTexels = camera.shadowParams.x + (0.25 * slope);
-    biasTexels *= (1.0 + pcfRadiusTexels * 0.25);
-    const float biasReferenceResolution = 2048.0;
-    float lowResRatio = clamp(biasReferenceResolution / max(cascadeResolution, 1.0), 1.0, 8.0);
-    float lowResCompensation = sqrt(lowResRatio);
-    return (biasTexels * texelScale) / lowResCompensation;
+    float biasTexels = camera.shadowParams.x * (1.0 + (1.0 - ndotl));
+    return biasTexels * texelScale;
 }
 
 float ComputeShadowFactor(vec3 normal, vec3 lightDir) {
@@ -308,15 +325,21 @@ float ComputeShadowFactor(vec3 normal, vec3 lightDir) {
     }
 
     float softness = camera.shadowParams.y;
+    vec2 baseSize = vec2(max(textureSize(directionalShadowMap0, 0), ivec2(1)));
+    vec2 cascadeSize = baseSize;
     if (cascadeIndex == 1) {
-        softness *= 0.65;
+        cascadeSize = vec2(max(textureSize(directionalShadowMap1, 0), ivec2(1)));
     } else if (cascadeIndex == 2) {
-        softness *= 0.45;
+        cascadeSize = vec2(max(textureSize(directionalShadowMap2, 0), ivec2(1)));
     }
+    float baseRes = max(baseSize.x, baseSize.y);
+    float cascadeRes = max(cascadeSize.x, cascadeSize.y);
+    float resScale = cascadeRes / max(baseRes, 1.0);
+    softness *= resScale;
     float ndotl = clamp(dot(normal, lightDir), 0.0, 1.0);
-    float bias = ComputeDirectionalBias(cascadeIndex, softness, normal, lightDir);
+    float bias = ComputeDirectionalBias(cascadeIndex, normal, lightDir);
     float compareDepth = clamp(receiverDepth - bias, 0.0, 1.0);
-    float shadow = SampleDirectionalAdaptivePCF64(cascadeIndex, vec3(shadowUv, compareDepth), softness, ndotl);
+    float shadow = SampleDirectionalAdaptivePCF(cascadeIndex, vec3(shadowUv, compareDepth), softness, ndotl);
 
     if (cascadeIndex == cascadeCount - 1) {
         float fadeWidth = clamp(camera.shadowParams.w, 0.0, 1.0);
@@ -387,6 +410,7 @@ void main() {
         float shadowFactor = ComputeShadowFactor(N, L);
         color += fragVertexLighting * surfaceDetail * shadowFactor;
 
+        float fresnelAmount = clamp(camera.lightSpecular.z, 0.0, 1.0);
         float reflectionWeight = clamp(metalness, 0.0, 1.0);
         if (reflectionWeight > 1e-4) {
             vec3 R = reflect(-V, N);
@@ -395,7 +419,8 @@ void main() {
                 env = camera.skyTint.rgb;
             }
             vec3 F0 = mix(vec3(0.04), albedo, metalness);
-            vec3 Fenv = FresnelSchlick(max(dot(N, V), 0.0), F0);
+            vec3 FenvSchlick = FresnelSchlick(max(dot(N, V), 0.0), F0);
+            vec3 Fenv = mix(F0, FenvSchlick, fresnelAmount);
             float smoothness = 1.0 - roughness;
             color += env * Fenv * reflectionWeight * (smoothness * smoothness);
         }
@@ -421,7 +446,9 @@ void main() {
     float effectiveRoughness = max(roughness * lightShininessToRoughness, 0.045);
     float NDF = DistributionGGX(N, H, effectiveRoughness);
     float G = GeometrySmith(N, V, L, effectiveRoughness);
-    vec3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
+    float fresnelAmount = clamp(camera.lightSpecular.z, 0.0, 1.0);
+    vec3 Fschlick = FresnelSchlick(max(dot(H, V), 0.0), F0);
+    vec3 F = mix(F0, Fschlick, fresnelAmount);
 
     vec3 numerator = NDF * G * F;
     float denominator = max(4.0 * max(dot(N, V), 0.0) * NdotL, 1e-5);
@@ -440,7 +467,8 @@ void main() {
         if (dot(env, env) < 1e-6) {
             env = camera.skyTint.rgb;
         }
-        vec3 Fenv = FresnelSchlick(max(dot(N, V), 0.0), F0);
+        vec3 FenvSchlick = FresnelSchlick(max(dot(N, V), 0.0), F0);
+        vec3 Fenv = mix(F0, FenvSchlick, fresnelAmount);
         color += env * Fenv * reflectionWeight * (smoothness * smoothness);
     }
 

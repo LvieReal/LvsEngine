@@ -201,9 +201,8 @@ ShadowSettings NormalizeShadowSettings(const ShadowSettings& settings) {
     normalized.BlurAmount = std::max(0.0F, std::min(12.0F, normalized.BlurAmount));
     normalized.CascadeCount = std::max(1, std::min(kMaxShadowCascades, normalized.CascadeCount));
     normalized.MaxDistance = std::max(1.0F, std::min(1024.0F, normalized.MaxDistance));
-    // Bias and fade are currently engine-level defaults (no exposed user properties yet).
-    normalized.Bias = 0.25F;
-    normalized.FadeWidth = 0.25F;
+    normalized.Bias = std::max(0.0F, std::min(8.0F, normalized.Bias));
+    normalized.FadeWidth = std::max(0.0F, std::min(1.0F, normalized.FadeWidth));
     return normalized;
 }
 

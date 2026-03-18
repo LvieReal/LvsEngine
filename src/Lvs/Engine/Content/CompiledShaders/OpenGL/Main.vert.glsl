@@ -133,9 +133,11 @@ void main()
     vec3 param_5 = L;
     float param_6 = effectiveRoughness;
     float G = GeometrySmith(param_3, param_4, param_5, param_6);
+    float fresnelAmount = clamp(camera.lightSpecular.z, 0.0, 1.0);
     float param_7 = max(dot(H, V), 0.0);
     vec3 param_8 = F0;
-    vec3 F = FresnelSchlick(param_7, param_8);
+    vec3 Fschlick = FresnelSchlick(param_7, param_8);
+    vec3 F = mix(F0, Fschlick, vec3(fresnelAmount));
     vec3 numerator = F * (NDF * G);
     float denominator = max((4.0 * max(dot(N, V), 0.0)) * NdotL, 9.9999997473787516355514526367188e-06);
     float smoothness = 1.0 - roughness;

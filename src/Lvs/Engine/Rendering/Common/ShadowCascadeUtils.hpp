@@ -23,7 +23,7 @@ struct ShadowSettings {
     float CascadeSplitLambda{0.75F};
     int CascadeCount{3};
     float MaxDistance{220.0F};
-    int TapCount{16};
+    int TapCount{32};
     float BlurAmount{4.0F};
     float Bias{0.25F};
     float FadeWidth{0.25F};

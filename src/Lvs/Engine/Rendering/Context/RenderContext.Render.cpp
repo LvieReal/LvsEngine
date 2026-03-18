@@ -104,6 +104,7 @@ void RenderContext::Render() {
                 std::max(0.0, lightingService->GetProperty("ShadowBlur").toDouble())
             );
             desiredShadowSettings.TapCount = std::max(1, lightingService->GetProperty("DefaultShadowTapCount").toInt());
+            desiredShadowSettings.Bias = static_cast<float>(std::max(0.0, lightingService->GetProperty("ShadowBias").toDouble()));
             desiredShadowSettings.CascadeCount =
                 std::max(1, std::min(Common::kMaxShadowCascades, lightingService->GetProperty("DefaultShadowCascadeCount").toInt()));
             desiredShadowSettings.MaxDistance = static_cast<float>(
