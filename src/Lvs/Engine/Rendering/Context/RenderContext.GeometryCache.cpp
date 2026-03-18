@@ -866,16 +866,24 @@ std::vector<SceneData::DrawPacket> RenderContext::BuildGeometryDraws() {
         EnsureGeometryCache();
     }
 
-    if (geometryLayoutDirty_ || overlayDirty_) {
+    if (geometryLayoutDirty_) {
         LVS_BENCH_SCOPE("RenderContext::BuildGeometryDraws::RebuildBatches");
-        if (geometryLayoutDirty_) {
-            RebuildGeometryBatchesAndInstances();
-        } else {
+        RebuildGeometryBatchesAndInstances();
+    } else {
+        // Overlay updates are common (gizmos/selection). Don’t let them starve geometry instance updates.
+        if (overlayDirty_) {
+            LVS_BENCH_SCOPE("RenderContext::BuildGeometryDraws::RebuildBatches");
             RebuildOverlayBatchesAndInstances();
         }
-    } else if (geometryDataDirty_) {
-        LVS_BENCH_SCOPE("RenderContext::BuildGeometryDraws::UpdateDirtyInstances");
-        UpdateDirtyInstanceData();
+        if (geometryDataDirty_) {
+            LVS_BENCH_SCOPE("RenderContext::BuildGeometryDraws::UpdateDirtyInstances");
+            UpdateDirtyInstanceData();
+            // UpdateDirtyInstanceData can promote to a layout rebuild (e.g. visibility/size transitions).
+            if (geometryLayoutDirty_) {
+                LVS_BENCH_SCOPE("RenderContext::BuildGeometryDraws::RebuildBatches");
+                RebuildGeometryBatchesAndInstances();
+            }
+        }
     }
 
     {
