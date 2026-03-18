@@ -6,6 +6,7 @@
 #include <QMetaType>
 #include <QVariant>
 
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -47,6 +48,7 @@ public:
 
     [[nodiscard]] std::vector<std::shared_ptr<Instance>> GetChildren() const;
     [[nodiscard]] std::vector<std::shared_ptr<Instance>> GetDescendants() const;
+    void ForEachDescendant(const std::function<void(const std::shared_ptr<Instance>&)>& visitor) const;
 
     std::shared_ptr<DataModel::DataModel> GetDataModel();
     std::shared_ptr<const DataModel::DataModel> GetDataModel() const;

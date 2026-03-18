@@ -147,12 +147,79 @@ std::vector<std::shared_ptr<Instance>> Instance::GetChildren() const {
 
 std::vector<std::shared_ptr<Instance>> Instance::GetDescendants() const {
     std::vector<std::shared_ptr<Instance>> result;
-    for (const auto& child : children_) {
+
+    struct Frame {
+        const Instance* InstancePtr{nullptr};
+        std::size_t NextChild{0};
+    };
+    std::vector<Frame> stack;
+    stack.reserve(32);
+    stack.push_back(Frame{.InstancePtr = this, .NextChild = 0});
+
+    while (!stack.empty()) {
+        auto& frame = stack.back();
+        if (frame.InstancePtr == nullptr) {
+            stack.pop_back();
+            continue;
+        }
+
+        const auto& children = frame.InstancePtr->children_;
+        if (frame.NextChild >= children.size()) {
+            stack.pop_back();
+            continue;
+        }
+
+        std::shared_ptr<Instance> child = children[frame.NextChild++];
+        if (child == nullptr) {
+            continue;
+        }
+
         result.push_back(child);
-        const auto childDescendants = child->GetDescendants();
-        result.insert(result.end(), childDescendants.begin(), childDescendants.end());
+
+        if (!child->children_.empty()) {
+            stack.push_back(Frame{.InstancePtr = child.get(), .NextChild = 0});
+        }
     }
     return result;
+}
+
+void Instance::ForEachDescendant(const std::function<void(const std::shared_ptr<Instance>&)>& visitor) const {
+    if (!visitor) {
+        return;
+    }
+
+    struct Frame {
+        const Instance* InstancePtr{nullptr};
+        std::size_t NextChild{0};
+    };
+    std::vector<Frame> stack;
+    stack.reserve(32);
+    stack.push_back(Frame{.InstancePtr = this, .NextChild = 0});
+
+    while (!stack.empty()) {
+        auto& frame = stack.back();
+        if (frame.InstancePtr == nullptr) {
+            stack.pop_back();
+            continue;
+        }
+
+        const auto& children = frame.InstancePtr->children_;
+        if (frame.NextChild >= children.size()) {
+            stack.pop_back();
+            continue;
+        }
+
+        std::shared_ptr<Instance> child = children[frame.NextChild++];
+        if (child == nullptr) {
+            continue;
+        }
+
+        visitor(child);
+
+        if (!child->children_.empty()) {
+            stack.push_back(Frame{.InstancePtr = child.get(), .NextChild = 0});
+        }
+    }
 }
 
 std::shared_ptr<DataModel::DataModel> Instance::GetDataModel() {

@@ -546,13 +546,12 @@ void StudioViewportToolLayer::UpdatePartDrag(const Engine::Utils::Ray& ray) {
                 continue;
             }
             descendantsToExclude.push_back(target.Part);
-            const auto descendants = target.Part->GetDescendants();
-            for (const auto& desc : descendants) {
+            target.Part->ForEachDescendant([&descendantsToExclude](const std::shared_ptr<Engine::Core::Instance>& desc) {
                 if (const auto descPart = std::dynamic_pointer_cast<Engine::Objects::BasePart>(desc);
                     descPart != nullptr) {
                     descendantsToExclude.push_back(descPart);
                 }
-            }
+            });
         }
 
         const auto [hitPart, hitDistance] = Engine::Utils::RaycastPartBVHWithFilter(
@@ -646,13 +645,13 @@ std::vector<std::shared_ptr<Engine::Objects::BasePart>> StudioViewportToolLayer:
     if (workspace_ == nullptr) {
         return parts;
     }
-    for (const auto& descendant : workspace_->GetDescendants()) {
+    workspace_->ForEachDescendant([&parts, &ignore](const std::shared_ptr<Engine::Core::Instance>& descendant) {
         const auto part = std::dynamic_pointer_cast<Engine::Objects::BasePart>(descendant);
         if (part == nullptr || part->GetParent() == nullptr || part == ignore) {
-            continue;
+            return;
         }
         parts.push_back(part);
-    }
+    });
     return parts;
 }
 
@@ -798,10 +797,10 @@ void StudioViewportToolLayer::AppendSelectionBoxInstances(
 
     const bool localSpace = context_ != nullptr && context_->EditorToolState != nullptr && context_->EditorToolState->GetLocalSpace();
 
-    for (const auto& descendant : workspace_->GetDescendants()) {
+    workspace_->ForEachDescendant([&](const std::shared_ptr<Engine::Core::Instance>& descendant) {
         const auto box = std::dynamic_pointer_cast<Engine::Objects::SelectionBox>(descendant);
         if (box == nullptr || !box->GetProperty("Visible").toBool()) {
-            continue;
+            return;
         }
 
         std::shared_ptr<Engine::Core::Instance> adorneeInstance = box->GetProperty("Adornee").value<std::shared_ptr<Engine::Core::Instance>>();
@@ -810,7 +809,7 @@ void StudioViewportToolLayer::AppendSelectionBoxInstances(
             adorneePart = std::dynamic_pointer_cast<Engine::Objects::BasePart>(box->GetParent());
         }
         if (adorneePart == nullptr || adorneePart->GetParent() == nullptr) {
-            continue;
+            return;
         }
 
         const auto aabb = Engine::Utils::BuildPartWorldAABB(adorneePart);
@@ -848,7 +847,7 @@ void StudioViewportToolLayer::AppendSelectionBoxInstances(
         } else {
             Engine::Core::AppendSelectionBoxOutlinePrimitives(aabb, style, overlay, distance);
         }
-    }
+    });
 }
 
 void StudioViewportToolLayer::BeginGizmoHistory(const std::shared_ptr<Engine::Objects::BasePart>& targetOverride) {
