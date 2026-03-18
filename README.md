@@ -4,6 +4,8 @@ Early Lvs Engine version in modern C++ 23 with Qt6 UI and default Vulkan (1.0+) 
 
 Studio is constantly being maintained, slowly expanding into building toy!
 
+Official Discord (report issues, support, ...): https://discord.gg/45eqsxKT
+
 ## Project requirements
 
 Windows 10+ 64 Bit, and:
