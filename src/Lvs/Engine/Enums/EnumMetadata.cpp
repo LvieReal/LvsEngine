@@ -124,6 +124,7 @@ const QHash<int, EnumInfo>& Registry() {
         add(MakeEnumInfo<Theme>({
             {"Light", static_cast<int>(Theme::Light)},
             {"Dark", static_cast<int>(Theme::Dark)},
+            {"Auto", static_cast<int>(Theme::Auto)},
         }));
         add(MakeEnumInfo<RenderApi>({
             {"Auto", static_cast<int>(RenderApi::Auto)},

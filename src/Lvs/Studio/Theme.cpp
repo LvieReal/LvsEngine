@@ -20,6 +20,11 @@ Core::Settings::Connection g_themeConnection;
 
 void ApplyThemeValue(const Engine::Enums::Theme theme)
 {
+    if (theme == Engine::Enums::Theme::Auto) {
+        QGuiApplication::styleHints()->setColorScheme(Qt::ColorScheme::Unknown);
+        return;
+    }
+
     QGuiApplication::styleHints()->setColorScheme(theme == Engine::Enums::Theme::Dark ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light);
 }
 } // namespace
@@ -48,7 +53,7 @@ void ApplyTheme(QApplication& app) {
             const int typeId = QMetaType::fromType<Engine::Enums::Theme>().id();
             QVariant coerced = Engine::Enums::Metadata::CoerceVariant(typeId, value);
             if (!coerced.isValid()) {
-                coerced = QVariant::fromValue(Engine::Enums::Theme::Light);
+                coerced = QVariant::fromValue(Engine::Enums::Theme::Auto);
             }
             ApplyThemeValue(coerced.value<Engine::Enums::Theme>());
         },

@@ -25,7 +25,7 @@ namespace {
 QMap<QString, SettingMeta> g_settings = {
     {"BaseCameraSpeed", {"Base Camera Speed", "Base camera speed", 15.0}},
     {"ShiftCameraSpeed", {"Shift Camera Speed", "Shift camera speed", 5.0}},
-    {"Theme", {"Theme", "Main studio theme", QVariant::fromValue(Engine::Enums::Theme::Light)}},
+    {"Theme", {"Theme", "Main studio theme", QVariant::fromValue(Engine::Enums::Theme::Auto)}},
     {"StudioIconPack", {"Studio Icon Pack", "Studio icon pack folder name", "famfamfam-silk"}},
     {"ExplorerShowHiddenServices", {"Show Hidden Services", "Show hidden services in Explorer", false}},
     {"RenderingApi", {"Rendering API", "Preferred rendering backend", QVariant::fromValue(Engine::Rendering::RenderApi::Auto)}},
