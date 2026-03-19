@@ -33,6 +33,7 @@ public:
     void Resize(RHI::u32 width, RHI::u32 height);
     void Render(const ::Lvs::Engine::Rendering::SceneData& sceneData);
     void WaitIdle();
+    void RefreshShaders();
 
     void BeginRenderPass(const RHI::RenderPassInfo& info);
     void EndRenderPass();
@@ -40,7 +41,7 @@ public:
     void BindVertexBuffer(RHI::u32 slot, const RHI::IBuffer& buffer, std::size_t offset);
     void BindIndexBuffer(const RHI::IBuffer& buffer, RHI::IndexType indexType, std::size_t offset);
     void BindResourceSet(RHI::u32 slot, const RHI::IResourceSet& set);
-    void PushConstants(const void* data, std::size_t size);
+    void PushConstants(const RHI::ICommandBuffer::PushConstantsInfo& info);
     void Draw(const RHI::ICommandBuffer::DrawInfo& info);
 
 private:

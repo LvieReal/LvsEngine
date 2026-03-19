@@ -182,6 +182,7 @@ public:
         const SceneData& scene,
         RHI::u32 frameIndex
     );
+    void InvalidatePipelines();
 
 private:
     friend class GeometryPassRenderer;

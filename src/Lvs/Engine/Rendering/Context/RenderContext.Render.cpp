@@ -29,6 +29,16 @@ void RenderContext::Render() {
         LVS_BENCH_SCOPE("RenderContext::EnsureBackend");
         EnsureBackend();
     }
+    if (refreshShadersRequested_) {
+        refreshShadersRequested_ = false;
+        WaitForBackendIdle();
+        if (vkBackend_ != nullptr) {
+            vkBackend_->RefreshShaders();
+        }
+        if (glBackend_ != nullptr) {
+            glBackend_->RefreshShaders();
+        }
+    }
     RHI::u32 desiredMsaaSamples = 1U;
 	    bool desiredSurfaceMipmaps = true;
 	    if (place_ != nullptr) {

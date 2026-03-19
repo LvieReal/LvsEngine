@@ -1,6 +1,7 @@
 #include "Lvs/Engine/Rendering/Renderer.hpp"
 
 #include <algorithm>
+#include <array>
 #include <vector>
 
 namespace Lvs::Engine::Rendering {
@@ -53,7 +54,19 @@ void GeometryPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBuffe
         cmd.BindVertexBuffer(0, *mesh->VertexBuffer, mesh->VertexOffset);
         cmd.BindIndexBuffer(*mesh->IndexBuffer, mesh->IndexBufferType, mesh->IndexOffset);
         const Common::DrawCallPushConstants push{.Data = {draw.BaseInstance, 0U, 0U, 0U}};
-        cmd.PushConstants(&push, sizeof(push));
+        const std::array<RHI::ICommandBuffer::PushConstantField, 1> fields{
+            RHI::ICommandBuffer::PushConstantField{
+                .name = "pushData.data",
+                .type = RHI::ICommandBuffer::PushConstantFieldType::UInt4,
+                .data = push.Data.data()
+            }
+        };
+        cmd.PushConstants(RHI::ICommandBuffer::PushConstantsInfo{
+            .data = &push,
+            .size = sizeof(push),
+            .fields = fields.data(),
+            .fieldCount = fields.size()
+        });
         cmd.Draw(RHI::ICommandBuffer::DrawInfo{.vertexCount = 0, .indexCount = mesh->IndexCount, .instanceCount = draw.InstanceCount});
     };
 

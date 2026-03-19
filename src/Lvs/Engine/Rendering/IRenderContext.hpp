@@ -38,6 +38,7 @@ public:
     virtual void BindToPlace(const std::shared_ptr<DataModel::Place>& place) = 0;
     virtual void Unbind() = 0;
     virtual void SetOverlayPrimitives(std::vector<Common::OverlayPrimitive> primitives) = 0;
+    virtual void RefreshShaders() = 0;
     virtual void Render() = 0;
 };
 

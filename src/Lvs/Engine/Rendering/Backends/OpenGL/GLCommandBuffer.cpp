@@ -31,8 +31,8 @@ void GLCommandBuffer::BindResourceSet(const RHI::u32 slot, const RHI::IResourceS
     context_.BindResourceSet(slot, set);
 }
 
-void GLCommandBuffer::PushConstants(const void* data, const std::size_t size) {
-    context_.PushConstants(data, size);
+void GLCommandBuffer::PushConstants(const PushConstantsInfo& info) {
+    context_.PushConstants(info);
 }
 
 void GLCommandBuffer::Draw(const RHI::ICommandBuffer::DrawInfo& info) {

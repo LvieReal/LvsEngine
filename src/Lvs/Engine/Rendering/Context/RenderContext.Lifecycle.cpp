@@ -144,4 +144,8 @@ void RenderContext::SetOverlayPrimitives(std::vector<Common::OverlayPrimitive> p
     }
 }
 
+void RenderContext::RefreshShaders() {
+    refreshShadersRequested_ = true;
+}
+
 } // namespace Lvs::Engine::Rendering

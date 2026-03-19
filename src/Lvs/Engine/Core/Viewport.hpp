@@ -50,6 +50,7 @@ public:
     void SetCameraSpeed(double speed);
     void SetCameraShiftSpeed(double speed);
     void SetRenderingApiPreference(Rendering::RenderApi api);
+    void RefreshShaders();
     void SetToolLayer(std::unique_ptr<ViewportToolLayer> layer);
     [[nodiscard]] ViewportToolLayer* GetToolLayer() const;
     void FocusOnPart(const std::shared_ptr<Objects::BasePart>& part);

@@ -110,6 +110,10 @@ void Renderer::RecordFrameCommands(
     postProcessPass_.RecordCommands(ctx, cmd);
 }
 
+void Renderer::InvalidatePipelines() {
+    pipelineCache_.clear();
+}
+
 Pipeline* Renderer::GetOrCreatePipeline(
     RHI::IContext& ctx,
     const PassKey key,

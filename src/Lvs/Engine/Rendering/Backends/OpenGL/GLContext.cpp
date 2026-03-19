@@ -715,6 +715,12 @@ void GLContext::WaitIdle() {
     glFinish();
 }
 
+void GLContext::RefreshShaders() {
+    if (renderer_ != nullptr) {
+        renderer_->InvalidatePipelines();
+    }
+}
+
 void GLContext::BeginRenderPass(const RHI::RenderPassInfo& info) {
     if (!api_.GladLoaded) {
         return;
@@ -904,149 +910,33 @@ void GLContext::BindResourceSet(const RHI::u32 slot, const RHI::IResourceSet& se
     }
 }
 
-void GLContext::PushConstants(const void* data, const std::size_t size) {
-    if (!api_.GladLoaded || currentProgram_ == 0U || pushConstantBuffer_ == 0U || data == nullptr || size == 0) {
+void GLContext::PushConstants(const RHI::ICommandBuffer::PushConstantsInfo& info) {
+    if (!api_.GladLoaded || currentProgram_ == 0U || info.fields == nullptr || info.fieldCount == 0U) {
         return;
     }
 
-    const std::array<const char*, 5> pushBlockNames{
-        "PushConstants",
-        "ShadowPush",
-        "SkyPush",
-        "PostSettings",
-        "BlurSettings"
-    };
-    bool uploadedToBlock = false;
-    std::uint32_t pushBlockBinding = 15U;
-    for (const char* blockName : pushBlockNames) {
-        const GLuint blockIndex = glGetUniformBlockIndex(currentProgram_, blockName);
-        if (blockIndex == GL_INVALID_INDEX) {
+    for (std::size_t i = 0; i < info.fieldCount; ++i) {
+        const auto& field = info.fields[i];
+        if (field.name == nullptr || field.data == nullptr) {
             continue;
         }
-        GLint blockSize = 0;
-        glGetActiveUniformBlockiv(currentProgram_, blockIndex, GL_UNIFORM_BLOCK_DATA_SIZE, &blockSize);
-        const std::size_t uploadSize = static_cast<std::size_t>(std::max(0, blockSize));
-        if (uploadSize == 0U) {
-            continue;
-        }
-        std::vector<std::byte> blockData(uploadSize, std::byte{0});
-        std::memcpy(blockData.data(), data, std::min(uploadSize, size));
-        glUniformBlockBinding(currentProgram_, blockIndex, pushBlockBinding);
-        glBindBuffer(GL_UNIFORM_BUFFER, pushConstantBuffer_);
-        glBufferData(GL_UNIFORM_BUFFER, static_cast<GLsizeiptr>(uploadSize), blockData.data(), GL_DYNAMIC_DRAW);
-        glBindBufferBase(GL_UNIFORM_BUFFER, pushBlockBinding, pushConstantBuffer_);
-        uploadedToBlock = true;
-        ++pushBlockBinding;
-    }
-    if (uploadedToBlock) {
-        return;
-    }
-
-    struct UniformField {
-        const char* name;
-        bool matrix4;
-        const float* value;
-    };
-
-    if (size == sizeof(Common::ShadowPushConstants)) {
-        const auto& shadowPush = *static_cast<const Common::ShadowPushConstants*>(data);
-        const std::array<UniformField, 2> shadowFields{
-            UniformField{"pushData.model", true, shadowPush.Model.data()},
-            UniformField{"pushData.cascade", false, shadowPush.Cascade.data()}
-        };
-        bool updated = false;
-        for (const auto& field : shadowFields) {
-            const GLint location = glGetUniformLocation(currentProgram_, field.name);
-            if (location < 0) {
-                continue;
-            }
-            if (field.matrix4) {
-                glUniformMatrix4fv(location, 1, GL_FALSE, field.value);
-            } else {
-                glUniform4fv(location, 1, field.value);
-            }
-            updated = true;
-        }
-        if (updated) {
-            return;
-        }
-    }
-
-    if (size == sizeof(Common::SkyboxPushConstants)) {
-        const auto& skyPush = *static_cast<const Common::SkyboxPushConstants*>(data);
-        const std::array<UniformField, 2> skyFields{
-            UniformField{"skyPush.viewProjection", true, skyPush.ViewProjection.data()},
-            UniformField{"skyPush.tint", false, skyPush.Tint.data()}
-        };
-        bool updated = false;
-        for (const auto& field : skyFields) {
-            const GLint location = glGetUniformLocation(currentProgram_, field.name);
-            if (location < 0) {
-                continue;
-            }
-            if (field.matrix4) {
-                glUniformMatrix4fv(location, 1, GL_FALSE, field.value);
-            } else {
-                glUniform4fv(location, 1, field.value);
-            }
-            updated = true;
-        }
-        if (updated) {
-            return;
-        }
-    }
-
-    if (size == sizeof(Common::PostProcessPushConstants)) {
-        const auto& push = *static_cast<const Common::PostProcessPushConstants*>(data);
-        const std::array<const char*, 2> names{"pushData.settings", "settings"};
-        for (const char* name : names) {
-            const GLint location = glGetUniformLocation(currentProgram_, name);
-            if (location >= 0) {
-                glUniform4fv(location, 1, push.Settings.data());
-                return;
-            }
-        }
-    }
-
-    if (size == sizeof(Common::DrawCallPushConstants)) {
-        const auto& push = *static_cast<const Common::DrawCallPushConstants*>(data);
-        const GLint location = glGetUniformLocation(currentProgram_, "pushData.data");
-        if (location >= 0) {
-            glUniform4uiv(location, 1, push.Data.data());
-            return;
-        }
-    }
-
-    if (size == sizeof(Common::ShadowDrawCallPushConstants)) {
-        const auto& push = *static_cast<const Common::ShadowDrawCallPushConstants*>(data);
-        const GLint location = glGetUniformLocation(currentProgram_, "pushData.data");
-        if (location >= 0) {
-            glUniform4uiv(location, 1, push.Data.data());
-            return;
-        }
-    }
-
-    if (size < sizeof(Common::DrawPushConstants)) {
-        return;
-    }
-    const auto& push = *static_cast<const Common::DrawPushConstants*>(data);
-    const std::array<UniformField, 5> fields{
-        UniformField{"pushData.model", true, push.Model.data()},
-        UniformField{"pushData.baseColor", false, push.BaseColor.data()},
-        UniformField{"pushData.material", false, push.Material.data()},
-        UniformField{"pushData.surfaceData0", false, push.SurfaceData0.data()},
-        UniformField{"pushData.surfaceData1", false, push.SurfaceData1.data()}
-    };
-
-    for (const auto& field : fields) {
         const GLint location = glGetUniformLocation(currentProgram_, field.name);
         if (location < 0) {
             continue;
         }
-        if (field.matrix4) {
-            glUniformMatrix4fv(location, 1, GL_FALSE, field.value);
-        } else {
-            glUniform4fv(location, 1, field.value);
+
+        switch (field.type) {
+            case RHI::ICommandBuffer::PushConstantFieldType::Float4:
+                glUniform4fv(location, 1, static_cast<const float*>(field.data));
+                break;
+            case RHI::ICommandBuffer::PushConstantFieldType::UInt4:
+                glUniform4uiv(location, 1, static_cast<const GLuint*>(field.data));
+                break;
+            case RHI::ICommandBuffer::PushConstantFieldType::Matrix4x4:
+                glUniformMatrix4fv(location, 1, GL_FALSE, static_cast<const float*>(field.data));
+                break;
+            default:
+                break;
         }
     }
 }

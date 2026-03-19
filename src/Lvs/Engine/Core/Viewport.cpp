@@ -87,6 +87,13 @@ void Viewport::SetRenderingApiPreference(const Rendering::RenderApi api) {
     RecreateRenderContext(api);
 }
 
+void Viewport::RefreshShaders() {
+    if (context_ != nullptr && context_->RenderContext != nullptr) {
+        context_->RenderContext->RefreshShaders();
+        update();
+    }
+}
+
 void Viewport::SetToolLayer(std::unique_ptr<ViewportToolLayer> layer) {
     if (toolLayer_ != nullptr) {
         toolLayer_->Unbind();

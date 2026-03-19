@@ -45,6 +45,7 @@ public:
     void BindToPlace(const std::shared_ptr<DataModel::Place>& place) override;
     void Unbind() override;
     void SetOverlayPrimitives(std::vector<Common::OverlayPrimitive> primitives) override;
+    void RefreshShaders() override;
     void Render() override;
 
 private:
@@ -227,6 +228,7 @@ private:
     bool hasFallbackBlackTexture_{false};
 
     std::uint32_t postProcessFrameSeed_{0};
+    bool refreshShadersRequested_{false};
 
     RHI::u32 surfaceWidth_{0};
     RHI::u32 surfaceHeight_{0};

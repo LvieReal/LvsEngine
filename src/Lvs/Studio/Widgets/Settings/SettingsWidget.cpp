@@ -54,6 +54,9 @@ QString ActionLabel(const QString& actionId) {
     if (actionId == "OpenRootFolder") {
         return "Open Root Folder";
     }
+    if (actionId == "RefreshShaders") {
+        return "Refresh Shaders";
+    }
     return actionId;
 }
 
@@ -63,6 +66,14 @@ QWidget* CreateActionEditor(QWidget* parent, const QString& actionId) {
         QObject::connect(button, &QPushButton::clicked, button, []() {
             const QString root = Lvs::Engine::Utils::EngineDataPaths::RootDir();
             QDesktopServices::openUrl(QUrl::fromLocalFile(root));
+        });
+        return button;
+    }
+    if (actionId == "RefreshShaders") {
+        auto* button = new QPushButton("Refresh", parent);
+        QObject::connect(button, &QPushButton::clicked, button, []() {
+            const int current = Core::Settings::Get("RefreshShaders").toInt();
+            Core::Settings::Set("RefreshShaders", current + 1);
         });
         return button;
     }

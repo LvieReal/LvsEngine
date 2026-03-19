@@ -151,6 +151,12 @@ void VulkanContext::WaitIdle() {
     }
 }
 
+void VulkanContext::RefreshShaders() {
+    if (renderer_ != nullptr) {
+        renderer_->InvalidatePipelines();
+    }
+}
+
 void VulkanContext::EnsureApiBootstrap() {
     if (api_.Instance == VK_NULL_HANDLE) {
 #ifdef _WIN32
@@ -3692,12 +3698,15 @@ void VulkanContext::BindResourceSet(
     );
 }
 
-void VulkanContext::PushConstants(const VkCommandBuffer commandBuffer, const void* data, const std::size_t size) const {
-    if (commandBuffer == VK_NULL_HANDLE || api_.PipelineLayout == VK_NULL_HANDLE || data == nullptr || size == 0) {
+void VulkanContext::PushConstants(
+    const VkCommandBuffer commandBuffer,
+    const RHI::ICommandBuffer::PushConstantsInfo& info
+) const {
+    if (commandBuffer == VK_NULL_HANDLE || api_.PipelineLayout == VK_NULL_HANDLE || info.data == nullptr || info.size == 0) {
         return;
     }
     const std::uint32_t clampedSize = static_cast<std::uint32_t>(
-        std::min<std::size_t>(size, sizeof(Common::DrawPushConstants))
+        std::min<std::size_t>(info.size, sizeof(Common::DrawPushConstants))
     );
     vkCmdPushConstants(
         commandBuffer,
@@ -3705,7 +3714,7 @@ void VulkanContext::PushConstants(const VkCommandBuffer commandBuffer, const voi
         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
         0,
         clampedSize,
-        data
+        info.data
     );
 }
 

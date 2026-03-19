@@ -15,13 +15,15 @@ struct SettingMeta {
     QString Description;
     QVariant DefaultValue;
     QStringList Options;
+    bool Transient{false};
 
     SettingMeta() = default;
-    SettingMeta(QString name, QString description, QVariant defaultValue, QStringList options = {})
+    SettingMeta(QString name, QString description, QVariant defaultValue, QStringList options = {}, const bool transient = false)
         : Name(std::move(name)),
           Description(std::move(description)),
           DefaultValue(std::move(defaultValue)),
-          Options(std::move(options)) {
+          Options(std::move(options)),
+          Transient(transient) {
     }
 };
 

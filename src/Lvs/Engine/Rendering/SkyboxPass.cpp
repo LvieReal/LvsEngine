@@ -1,5 +1,7 @@
 #include "Lvs/Engine/Rendering/Renderer.hpp"
 
+#include <array>
+
 namespace Lvs::Engine::Rendering {
 
 void SkyboxPassRenderer::SetInputs(
@@ -39,7 +41,24 @@ void SkyboxPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBuffer&
     cmd.BindVertexBuffer(0, *mesh->VertexBuffer, mesh->VertexOffset);
     cmd.BindIndexBuffer(*mesh->IndexBuffer, mesh->IndexBufferType, mesh->IndexOffset);
     cmd.BindResourceSet(0, *resources_);
-    cmd.PushConstants(&scene_->SkyboxPush, sizeof(scene_->SkyboxPush));
+    const std::array<RHI::ICommandBuffer::PushConstantField, 2> fields{
+        RHI::ICommandBuffer::PushConstantField{
+            .name = "skyPush.viewProjection",
+            .type = RHI::ICommandBuffer::PushConstantFieldType::Matrix4x4,
+            .data = scene_->SkyboxPush.ViewProjection.data()
+        },
+        RHI::ICommandBuffer::PushConstantField{
+            .name = "skyPush.tint",
+            .type = RHI::ICommandBuffer::PushConstantFieldType::Float4,
+            .data = scene_->SkyboxPush.Tint.data()
+        }
+    };
+    cmd.PushConstants(RHI::ICommandBuffer::PushConstantsInfo{
+        .data = &scene_->SkyboxPush,
+        .size = sizeof(scene_->SkyboxPush),
+        .fields = fields.data(),
+        .fieldCount = fields.size()
+    });
     cmd.Draw(RHI::ICommandBuffer::DrawInfo{.vertexCount = 0, .indexCount = mesh->IndexCount, .instanceCount = 1});
     cmd.EndRenderPass();
 }

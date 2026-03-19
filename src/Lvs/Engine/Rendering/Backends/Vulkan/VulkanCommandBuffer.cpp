@@ -36,8 +36,8 @@ void VulkanCommandBuffer::BindResourceSet(const RHI::u32 slot, const RHI::IResou
     context_.BindResourceSet(handle_, slot, set);
 }
 
-void VulkanCommandBuffer::PushConstants(const void* data, const std::size_t size) {
-    context_.PushConstants(handle_, data, size);
+void VulkanCommandBuffer::PushConstants(const PushConstantsInfo& info) {
+    context_.PushConstants(handle_, info);
 }
 
 void VulkanCommandBuffer::Draw(const RHI::ICommandBuffer::DrawInfo& info) {

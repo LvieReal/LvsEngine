@@ -5,6 +5,8 @@
 #include "Lvs/Engine/Rendering/RHI/IResourceSet.hpp"
 #include "Lvs/Engine/Rendering/RHI/Types.hpp"
 
+#include <cstdint>
+
 namespace Lvs::Engine::Rendering::RHI {
 
 struct RenderPassInfo {
@@ -28,7 +30,27 @@ public:
     virtual void BindVertexBuffer(u32 slot, const IBuffer& buffer, std::size_t offset) = 0;
     virtual void BindIndexBuffer(const IBuffer& buffer, IndexType indexType, std::size_t offset) = 0;
     virtual void BindResourceSet(u32 slot, const IResourceSet& set) = 0;
-    virtual void PushConstants(const void* data, std::size_t size) = 0;
+
+    enum class PushConstantFieldType : std::uint8_t {
+        Float4,
+        UInt4,
+        Matrix4x4
+    };
+
+    struct PushConstantField {
+        const char* name{nullptr};
+        PushConstantFieldType type{PushConstantFieldType::Float4};
+        const void* data{nullptr};
+    };
+
+    struct PushConstantsInfo {
+        const void* data{nullptr};
+        std::size_t size{0};
+        const PushConstantField* fields{nullptr};
+        std::size_t fieldCount{0};
+    };
+
+    virtual void PushConstants(const PushConstantsInfo& info) = 0;
 
     struct DrawInfo {
         u32 vertexCount{0};

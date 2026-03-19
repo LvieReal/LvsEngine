@@ -39,7 +39,8 @@ QMap<QString, SettingMeta> g_settings = {
     {"LocalAssetsPath", {"Local Assets Folder", "Folder used for local assets (can be changed to any folder on this device)", ""}},
     {"Shortcut.Tool.Select", {"Select Tool", "Keyboard shortcut(s) for Select tool (separate with ';')", "1"}},
     {"Shortcut.Tool.Move", {"Move Tool", "Keyboard shortcut(s) for Move tool (separate with ';')", "2"}},
-    {"Shortcut.Tool.Size", {"Size Tool", "Keyboard shortcut(s) for Size tool (separate with ';')", "3"}}
+    {"Shortcut.Tool.Size", {"Size Tool", "Keyboard shortcut(s) for Size tool (separate with ';')", "3"}},
+    {"RefreshShaders", {"Refresh Shaders", "Hot-reload rendering shaders (recreates cached pipelines)", 0, {}, true}}
 };
 
 QMap<QString, QStringList> g_categories = {
@@ -73,7 +74,9 @@ QMap<QString, QStringList> g_categories = {
          "RenderingApi",
          "@Quality",
          "MSAA",
-         "SurfaceMipmapping"
+         "SurfaceMipmapping",
+         "@Shaders",
+         "!RefreshShaders"
         }
     },
     {"Shortcuts",
@@ -302,6 +305,9 @@ void Save() {
     QJsonObject obj;
     for (auto it = g_settings.cbegin(); it != g_settings.cend(); ++it) {
         const QString& key = it.key();
+        if (it.value().Transient) {
+            continue;
+        }
         obj.insert(key, ToJsonValue(g_values.value(key, it.value().DefaultValue)));
     }
 
@@ -349,7 +355,9 @@ bool Set(const QString& key, const QVariant& value) {
     }
 
     g_values[key] = converted;
-    Save();
+    if (!g_settings.value(key).Transient) {
+        Save();
+    }
     FireChanged(key, converted);
     return true;
 }

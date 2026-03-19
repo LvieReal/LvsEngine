@@ -1,5 +1,6 @@
 #include "Lvs/Engine/Rendering/Renderer.hpp"
 
+#include <array>
 #include <algorithm>
 
 namespace Lvs::Engine::Rendering {
@@ -11,14 +12,13 @@ void RecordFullScreenPass(
     const RHI::RenderPassInfo& passInfo,
     const Pipeline& pipeline,
     const RHI::IResourceSet& resources,
-    const void* pushData,
-    const std::size_t pushDataSize
+    const RHI::ICommandBuffer::PushConstantsInfo* push
 ) {
     cmd.BeginRenderPass(passInfo);
     cmd.BindPipeline(pipeline);
     cmd.BindResourceSet(0, resources);
-    if (pushData != nullptr && pushDataSize > 0) {
-        cmd.PushConstants(pushData, pushDataSize);
+    if (push != nullptr && push->fields != nullptr && push->fieldCount > 0) {
+        cmd.PushConstants(*push);
     }
     cmd.Draw(RHI::ICommandBuffer::DrawInfo{.vertexCount = 3, .indexCount = 0, .instanceCount = 1});
     cmd.EndRenderPass();
@@ -69,6 +69,19 @@ void PostProcessPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBu
                          blurAmount,
                          0.0F}
         };
+        const std::array<RHI::ICommandBuffer::PushConstantField, 1> fields{
+            RHI::ICommandBuffer::PushConstantField{
+                .name = "pushData.settings",
+                .type = RHI::ICommandBuffer::PushConstantFieldType::Float4,
+                .data = blurSettings.Settings.data()
+            }
+        };
+        const RHI::ICommandBuffer::PushConstantsInfo push{
+            .data = &blurSettings,
+            .size = sizeof(blurSettings),
+            .fields = fields.data(),
+            .fieldCount = fields.size()
+        };
         const RHI::RenderPassInfo pass{
             .width = target.Width,
             .height = target.Height,
@@ -78,7 +91,7 @@ void PostProcessPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBu
             .clearColor = true,
             .clearDepth = false
         };
-        RecordFullScreenPass(cmd, pass, *blurDownPipeline_, *resources, &blurSettings, sizeof(blurSettings));
+        RecordFullScreenPass(cmd, pass, *blurDownPipeline_, *resources, &push);
         sourceWidth = std::max(1U, target.Width);
         sourceHeight = std::max(1U, target.Height);
     }
@@ -96,6 +109,19 @@ void PostProcessPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBu
                              blurAmount,
                              0.0F}
             };
+            const std::array<RHI::ICommandBuffer::PushConstantField, 1> fields{
+                RHI::ICommandBuffer::PushConstantField{
+                    .name = "pushData.settings",
+                    .type = RHI::ICommandBuffer::PushConstantFieldType::Float4,
+                    .data = blurSettings.Settings.data()
+                }
+            };
+            const RHI::ICommandBuffer::PushConstantsInfo push{
+                .data = &blurSettings,
+                .size = sizeof(blurSettings),
+                .fields = fields.data(),
+                .fieldCount = fields.size()
+            };
             const RHI::RenderPassInfo pass{
                 .width = target.Width,
                 .height = target.Height,
@@ -105,7 +131,7 @@ void PostProcessPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBu
                 .clearColor = true,
                 .clearDepth = false
             };
-            RecordFullScreenPass(cmd, pass, *blurUpPipeline_, *resources, &blurSettings, sizeof(blurSettings));
+            RecordFullScreenPass(cmd, pass, *blurUpPipeline_, *resources, &push);
             sourceWidth = std::max(1U, target.Width);
             sourceHeight = std::max(1U, target.Height);
         }
@@ -117,6 +143,19 @@ void PostProcessPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBu
                          1.0F / static_cast<float>(std::max(1U, sourceHeight)),
                          blurAmount,
                          0.0F}
+        };
+        const std::array<RHI::ICommandBuffer::PushConstantField, 1> fields{
+            RHI::ICommandBuffer::PushConstantField{
+                .name = "pushData.settings",
+                .type = RHI::ICommandBuffer::PushConstantFieldType::Float4,
+                .data = blurSettings.Settings.data()
+            }
+        };
+        const RHI::ICommandBuffer::PushConstantsInfo push{
+            .data = &blurSettings,
+            .size = sizeof(blurSettings),
+            .fields = fields.data(),
+            .fieldCount = fields.size()
         };
         const RHI::RenderPassInfo finalPass{
             .width = scene_->PostBlurFinalTarget.Width,
@@ -132,8 +171,7 @@ void PostProcessPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBu
             finalPass,
             *blurUpPipeline_,
             *scene_->PostBlurFinalResources,
-            &blurSettings,
-            sizeof(blurSettings)
+            &push
         );
     }
 
@@ -147,14 +185,21 @@ void PostProcessPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBu
         .clearDepth = false
     };
 
-    RecordFullScreenPass(
-        cmd,
-        compositePass,
-        *compositePipeline_,
-        *scene_->PostCompositeResources,
-        &scene_->PostProcessPush,
-        sizeof(scene_->PostProcessPush)
-    );
+    const std::array<RHI::ICommandBuffer::PushConstantField, 1> compositeFields{
+        RHI::ICommandBuffer::PushConstantField{
+            .name = "pushData.settings",
+            .type = RHI::ICommandBuffer::PushConstantFieldType::Float4,
+            .data = scene_->PostProcessPush.Settings.data()
+        }
+    };
+    const RHI::ICommandBuffer::PushConstantsInfo compositePush{
+        .data = &scene_->PostProcessPush,
+        .size = sizeof(scene_->PostProcessPush),
+        .fields = compositeFields.data(),
+        .fieldCount = compositeFields.size()
+    };
+
+    RecordFullScreenPass(cmd, compositePass, *compositePipeline_, *scene_->PostCompositeResources, &compositePush);
 }
 
 } // namespace Lvs::Engine::Rendering

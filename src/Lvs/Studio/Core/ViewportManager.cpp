@@ -111,6 +111,11 @@ void ViewportManager::BindSettings() {
     settingsConnections_.push_back(Settings::Changed("SurfaceMipmapping", [this](const QVariant& value) {
         ApplySurfaceMipmappingSetting(value);
     }, true));
+    settingsConnections_.push_back(Settings::Changed("RefreshShaders", [this](const QVariant&) {
+        if (viewport_ != nullptr) {
+            viewport_->RefreshShaders();
+        }
+    }, false));
 }
 
 void ViewportManager::ApplyMsaaSetting(const QVariant& value) const {
