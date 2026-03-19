@@ -203,8 +203,7 @@ ShadowSettings NormalizeShadowSettings(const ShadowSettings& settings) {
     normalized.MaxDistance = std::max(1.0F, std::min(1024.0F, normalized.MaxDistance));
     normalized.Bias = std::max(0.0F, std::min(8.0F, normalized.Bias));
     normalized.FadeWidth = std::max(0.0F, std::min(1.0F, normalized.FadeWidth));
-    normalized.AdaptiveBiasEpsilonScale = std::max(0.0F, std::min(32.0F, normalized.AdaptiveBiasEpsilonScale));
-    normalized.AdaptiveBiasMaxScale = std::max(1.0F, std::min(10000.0F, normalized.AdaptiveBiasMaxScale));
+    normalized.SlopeBias = std::max(0.0F, std::min(64.0F, normalized.SlopeBias));
     return normalized;
 }
 

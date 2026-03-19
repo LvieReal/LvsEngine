@@ -94,7 +94,7 @@ void Renderer::RecordFrameCommands(
     const RHI::IResourceSet* globalResources = GetOrCreateGlobalResources(ctx, scene);
 
     geometryPass_.SetInputs(&surface_, &scene, this, geometryPipeline, globalResources);
-    shadowPass_.SetInputs(&surface_, &scene, this, scene.ShadowResources);
+    shadowPass_.SetInputs(&surface_, &scene, this);
     skyboxPass_.SetInputs(&surface_, &scene, skyboxPipeline, globalResources);
     postProcessPass_.SetInputs(
         &surface_,

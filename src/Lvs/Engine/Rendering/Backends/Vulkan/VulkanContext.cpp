@@ -4,6 +4,7 @@
 #include "Lvs/Engine/Rendering/Backends/Vulkan/VulkanPipeline.hpp"
 #include "Lvs/Engine/Rendering/Backends/Vulkan/Utils/VulkanRhiObjects.hpp"
 #include "Lvs/Engine/Rendering/Backends/Vulkan/Utils/VulkanRenderUtils.hpp"
+#include "Lvs/Engine/Rendering/Common/LightBufferData.hpp"
 #include "Lvs/Engine/Rendering/Common/SceneUniformData.hpp"
 #include "Lvs/Engine/Rendering/ShaderLoader.hpp"
 
@@ -12,6 +13,7 @@
 #include <cstdint>
 #include <cstring>
 #include <iostream>
+#include <unordered_map>
 #include <vector>
 
 #ifdef _WIN32
@@ -746,7 +748,7 @@ void VulkanContext::InitializeBackendObjects() {
 
     if (api_.DescriptorSetLayout == VK_NULL_HANDLE) {
         std::vector<VkDescriptorSetLayoutBinding> bindings;
-        bindings.reserve(10);
+        bindings.reserve(9);
         bindings.push_back(VkDescriptorSetLayoutBinding{
             .binding = 0,
             .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -754,17 +756,58 @@ void VulkanContext::InitializeBackendObjects() {
             .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
             .pImmutableSamplers = nullptr
         });
-        for (std::uint32_t i = 1; i <= 8; ++i) {
-            bindings.push_back(VkDescriptorSetLayoutBinding{
-                .binding = i,
-                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                .descriptorCount = 1,
-                .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                .pImmutableSamplers = nullptr
-            });
-        }
+        bindings.push_back(VkDescriptorSetLayoutBinding{
+            .binding = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr
+        });
+        bindings.push_back(VkDescriptorSetLayoutBinding{
+            .binding = 2,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr
+        });
+        // Bindless-style directional shadow map array (2 shadowed directionals * 3 cascades).
+        bindings.push_back(VkDescriptorSetLayoutBinding{
+            .binding = 3,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = Common::kMaxDirectionalShadowMapTextures,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr
+        });
+        bindings.push_back(VkDescriptorSetLayoutBinding{
+            .binding = 4,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr
+        });
+        bindings.push_back(VkDescriptorSetLayoutBinding{
+            .binding = 5,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr
+        });
+        bindings.push_back(VkDescriptorSetLayoutBinding{
+            .binding = 6,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr
+        });
         bindings.push_back(VkDescriptorSetLayoutBinding{
             .binding = 9,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr
+        });
+        bindings.push_back(VkDescriptorSetLayoutBinding{
+            .binding = 10,
             .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             .descriptorCount = 1,
             .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -2130,10 +2173,15 @@ std::unique_ptr<RHI::IResourceSet> VulkanContext::CreateResourceSet(const RHI::R
         return std::make_unique<Utils::VulkanResourceSet>(api_.Device, api_.DescriptorPool, VK_NULL_HANDLE, false);
     }
 
-    std::vector<VkDescriptorImageInfo> imageInfos;
+    struct PendingImage {
+        RHI::u32 arrayElement{0};
+        VkDescriptorImageInfo info{};
+    };
+
     std::vector<VkDescriptorBufferInfo> bufferInfos;
     std::vector<VkWriteDescriptorSet> writes;
-    imageInfos.reserve(desc.bindingCount);
+    // Group image bindings by (binding slot) so we can support sampler arrays / bindless-style arrays.
+    std::unordered_map<RHI::u32, std::vector<PendingImage>> pendingImages;
     bufferInfos.reserve(desc.bindingCount);
     writes.reserve(desc.bindingCount);
     for (RHI::u32 i = 0; i < desc.bindingCount; ++i) {
@@ -2159,27 +2207,50 @@ std::unique_ptr<RHI::IResourceSet> VulkanContext::CreateResourceSet(const RHI::R
             });
         } else {
             const bool isDepthFormat = binding.texture.format == RHI::Format::D32_Float || binding.texture.format == RHI::Format::D24S8;
-            imageInfos.push_back(VkDescriptorImageInfo{
+            VkDescriptorImageInfo info{
                 .sampler = binding.texture.sampler_handle_ptr != nullptr
                                ? reinterpret_cast<VkSampler>(binding.texture.sampler_handle_ptr)
                                : api_.DefaultSampler,
                 .imageView = reinterpret_cast<VkImageView>(binding.texture.graphic_handle_ptr),
                 .imageLayout = isDepthFormat ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
                                              : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-            });
-            writes.push_back(VkWriteDescriptorSet{
-                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                .pNext = nullptr,
-                .dstSet = set,
-                .dstBinding = binding.slot,
-                .dstArrayElement = 0,
-                .descriptorCount = 1,
-                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                .pImageInfo = &imageInfos.back(),
-                .pBufferInfo = nullptr,
-                .pTexelBufferView = nullptr
-            });
+            };
+            pendingImages[binding.slot].push_back(PendingImage{binding.arrayElement, info});
         }
+    }
+
+    // Materialize grouped image writes after collecting.
+    std::vector<std::vector<VkDescriptorImageInfo>> groupedImageInfos;
+    groupedImageInfos.reserve(pendingImages.size());
+    for (auto& [slot, elements] : pendingImages) {
+        RHI::u32 maxElement = 0U;
+        for (const auto& e : elements) {
+            maxElement = std::max(maxElement, e.arrayElement);
+        }
+        groupedImageInfos.emplace_back(static_cast<std::size_t>(maxElement + 1U), VkDescriptorImageInfo{
+            .sampler = api_.DefaultSampler,
+            .imageView = VK_NULL_HANDLE,
+            .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+        });
+
+        auto& infos = groupedImageInfos.back();
+        for (const auto& e : elements) {
+            if (e.arrayElement < infos.size()) {
+                infos[static_cast<std::size_t>(e.arrayElement)] = e.info;
+            }
+        }
+        writes.push_back(VkWriteDescriptorSet{
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext = nullptr,
+            .dstSet = set,
+            .dstBinding = slot,
+            .dstArrayElement = 0,
+            .descriptorCount = static_cast<std::uint32_t>(infos.size()),
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .pImageInfo = infos.data(),
+            .pBufferInfo = nullptr,
+            .pTexelBufferView = nullptr
+        });
     }
     if (!writes.empty()) {
         vkUpdateDescriptorSets(api_.Device, static_cast<std::uint32_t>(writes.size()), writes.data(), 0, nullptr);

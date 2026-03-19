@@ -7,20 +7,37 @@ layout(set = 0, binding = 0) uniform CameraUBO {
     mat4 view;
     mat4 projection;
     vec4 cameraPosition;
-    vec4 lightDirection;
-    vec4 lightColorIntensity;
-    vec4 lightSpecular;
     vec4 ambient;
     vec4 skyTint;
     vec4 renderSettings;
-    mat4 shadowMatrices[3];
-    mat4 shadowInvMatrices[3];
-    vec4 shadowCascadeSplits;
-    vec4 shadowParams;
-    vec4 shadowAdaptiveBiasParams;
-    vec4 shadowState;
+    vec4 lightingSettings; // x: perVertexShadingEnabled
     vec4 cameraForward;
 } camera;
+
+struct Light {
+    uint type;
+    uint flags;
+    uint dataIndex;
+    uint shadowIndex;
+    vec4 colorIntensity;
+    vec4 specular; // x: strength, y: shininess, z: fresnelAmount
+};
+
+struct DirectionalLight {
+    vec4 direction;
+    vec4 shadowCascadeSplits;
+    vec4 shadowParams;
+    vec4 shadowBiasParams;
+    vec4 shadowState;
+    mat4 shadowMatrices[3];
+    mat4 shadowInvMatrices[3];
+};
+
+layout(set = 0, binding = 10, std430) readonly buffer LightsSSBO {
+    uvec4 counts; // x: lightCount
+    Light lights[64];
+    DirectionalLight directionalLights[64];
+} lightData;
 
 struct InstanceData {
     mat4 model;
@@ -94,35 +111,45 @@ void main() {
 
     vec3 N = normalize(mat3(inst.model) * inNormal);
     vec3 V = normalize(camera.cameraPosition.xyz - worldPos.xyz);
-    vec3 L = normalize(-camera.lightDirection.xyz);
-    vec3 H = normalize(V + L);
-
     vec3 directLight = vec3(0.0);
 
-    vec3 lightColor = camera.lightColorIntensity.rgb * camera.lightColorIntensity.a;
-    float specularStrength = max(camera.lightSpecular.x, 0.0);
-    float shininess = max(camera.lightSpecular.y, 1.0);
+    uint lightCount = min(lightData.counts.x, uint(64));
+    for (uint i = 0; i < lightCount; ++i) {
+        Light light = lightData.lights[i];
+        if ((light.flags & 1u) == 0u) {
+            continue;
+        }
+        if (light.type == 0u) {
+            DirectionalLight d = lightData.directionalLights[light.dataIndex];
+            vec3 L = normalize(-d.direction.xyz);
+            vec3 H = normalize(V + L);
 
-    float NdotL = max(dot(N, L), 0.0);
-    vec3 F0 = mix(vec3(0.04), albedo, metalness);
+            vec3 lightColor = light.colorIntensity.rgb * light.colorIntensity.a;
+            float specularStrength = max(light.specular.x, 0.0);
+            float shininess = max(light.specular.y, 1.0);
 
-    float lightShininessToRoughness = clamp(sqrt(2.0 / (shininess + 2.0)), 0.05, 1.0);
-    float effectiveRoughness = max(roughness * lightShininessToRoughness, 0.045);
-    float NDF = DistributionGGX(N, H, effectiveRoughness);
-    float G = GeometrySmith(N, V, L, effectiveRoughness);
-    float fresnelAmount = clamp(camera.lightSpecular.z, 0.0, 1.0);
-    vec3 Fschlick = FresnelSchlick(max(dot(H, V), 0.0), F0);
-    vec3 F = mix(F0, Fschlick, fresnelAmount);
+            float NdotL = max(dot(N, L), 0.0);
+            vec3 F0 = mix(vec3(0.04), albedo, metalness);
 
-    vec3 numerator = NDF * G * F;
-    float denominator = max(4.0 * max(dot(N, V), 0.0) * NdotL, 1e-5);
-    float smoothness = 1.0 - roughness;
-    vec3 specular = (numerator / denominator) * specularStrength * (smoothness * smoothness);
+            float lightShininessToRoughness = clamp(sqrt(2.0 / (shininess + 2.0)), 0.05, 1.0);
+            float effectiveRoughness = max(roughness * lightShininessToRoughness, 0.045);
+            float NDF = DistributionGGX(N, H, effectiveRoughness);
+            float G = GeometrySmith(N, V, L, effectiveRoughness);
+            float fresnelAmount = clamp(light.specular.z, 0.0, 1.0);
+            vec3 Fschlick = FresnelSchlick(max(dot(H, V), 0.0), F0);
+            vec3 F = mix(F0, Fschlick, fresnelAmount);
 
-    vec3 kS = F;
-    vec3 kD = (vec3(1.0) - kS) * (1.0 - metalness);
-    vec3 diffuse = kD * albedo / PI;
-    directLight += (diffuse + specular) * lightColor * NdotL;
+            vec3 numerator = NDF * G * F;
+            float denominator = max(4.0 * max(dot(N, V), 0.0) * NdotL, 1e-5);
+            float smoothness = 1.0 - roughness;
+            vec3 specular = (numerator / denominator) * specularStrength * (smoothness * smoothness);
+
+            vec3 kS = F;
+            vec3 kD = (vec3(1.0) - kS) * (1.0 - metalness);
+            vec3 diffuse = kD * albedo / PI;
+            directLight += (diffuse + specular) * lightColor * NdotL;
+        }
+    }
 
     fragNormal = N;
     fragWorldPos = worldPos.xyz;

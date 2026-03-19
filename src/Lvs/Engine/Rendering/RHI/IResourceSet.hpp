@@ -16,6 +16,9 @@ enum class ResourceBindingKind {
 
 struct ResourceBinding {
     u32 slot{0};
+    // Optional descriptor array element (for bindless/array bindings).
+    // For non-array bindings, this must be 0.
+    u32 arrayElement{0};
     ResourceBindingKind kind{ResourceBindingKind::Texture2D};
     Texture texture{};
     const IBuffer* buffer{nullptr};

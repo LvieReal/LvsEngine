@@ -12,6 +12,27 @@ struct InstanceData
     vec4 surfaceData1;
 };
 
+struct Light
+{
+    uint type;
+    uint flags;
+    uint dataIndex;
+    uint shadowIndex;
+    vec4 colorIntensity;
+    vec4 specular;
+};
+
+struct DirectionalLight
+{
+    vec4 direction;
+    vec4 shadowCascadeSplits;
+    vec4 shadowParams;
+    vec4 shadowBiasParams;
+    vec4 shadowState;
+    mat4 shadowMatrices[3];
+    mat4 shadowInvMatrices[3];
+};
+
 layout(binding = 9, std430) readonly buffer InstanceSSBO
 {
     InstanceData instances[];
@@ -22,20 +43,19 @@ layout(binding = 0, std140) uniform CameraUBO
     mat4 view;
     mat4 projection;
     vec4 cameraPosition;
-    vec4 lightDirection;
-    vec4 lightColorIntensity;
-    vec4 lightSpecular;
     vec4 ambient;
     vec4 skyTint;
     vec4 renderSettings;
-    mat4 shadowMatrices[3];
-    mat4 shadowInvMatrices[3];
-    vec4 shadowCascadeSplits;
-    vec4 shadowParams;
-    vec4 shadowAdaptiveBiasParams;
-    vec4 shadowState;
+    vec4 lightingSettings;
     vec4 cameraForward;
 } camera;
+
+layout(binding = 10, std430) readonly buffer LightsSSBO
+{
+    uvec4 counts;
+    Light lights[64];
+    DirectionalLight directionalLights[64];
+} lightData;
 
 struct PushConstants
 {
@@ -116,38 +136,68 @@ void main()
     float emissive = max(inst.material.z, 0.0);
     vec3 N = normalize(mat3(inst.model[0].xyz, inst.model[1].xyz, inst.model[2].xyz) * inNormal);
     vec3 V = normalize(camera.cameraPosition.xyz - worldPos.xyz);
-    vec3 L = normalize(-camera.lightDirection.xyz);
-    vec3 H = normalize(V + L);
     vec3 directLight = vec3(0.0);
-    vec3 lightColor = camera.lightColorIntensity.xyz * camera.lightColorIntensity.w;
-    float specularStrength = max(camera.lightSpecular.x, 0.0);
-    float shininess = max(camera.lightSpecular.y, 1.0);
-    float NdotL = max(dot(N, L), 0.0);
-    vec3 F0 = mix(vec3(0.039999999105930328369140625), albedo, vec3(metalness));
-    float lightShininessToRoughness = clamp(sqrt(2.0 / (shininess + 2.0)), 0.0500000007450580596923828125, 1.0);
-    float effectiveRoughness = max(roughness * lightShininessToRoughness, 0.04500000178813934326171875);
-    vec3 param = N;
-    vec3 param_1 = H;
-    float param_2 = effectiveRoughness;
-    float NDF = DistributionGGX(param, param_1, param_2);
-    vec3 param_3 = N;
-    vec3 param_4 = V;
-    vec3 param_5 = L;
-    float param_6 = effectiveRoughness;
-    float G = GeometrySmith(param_3, param_4, param_5, param_6);
-    float fresnelAmount = clamp(camera.lightSpecular.z, 0.0, 1.0);
-    float param_7 = max(dot(H, V), 0.0);
-    vec3 param_8 = F0;
-    vec3 Fschlick = FresnelSchlick(param_7, param_8);
-    vec3 F = mix(F0, Fschlick, vec3(fresnelAmount));
-    vec3 numerator = F * (NDF * G);
-    float denominator = max((4.0 * max(dot(N, V), 0.0)) * NdotL, 9.9999997473787516355514526367188e-06);
-    float smoothness = 1.0 - roughness;
-    vec3 specular = ((numerator / vec3(denominator)) * specularStrength) * (smoothness * smoothness);
-    vec3 kS = F;
-    vec3 kD = (vec3(1.0) - kS) * (1.0 - metalness);
-    vec3 diffuse = (kD * albedo) / vec3(3.1415927410125732421875);
-    directLight += (((diffuse + specular) * lightColor) * NdotL);
+    uint lightCount = min(lightData.counts.x, 64u);
+    Light light;
+    DirectionalLight d;
+    for (uint i = 0u; i < lightCount; i++)
+    {
+        light.type = lightData.lights[i].type;
+        light.flags = lightData.lights[i].flags;
+        light.dataIndex = lightData.lights[i].dataIndex;
+        light.shadowIndex = lightData.lights[i].shadowIndex;
+        light.colorIntensity = lightData.lights[i].colorIntensity;
+        light.specular = lightData.lights[i].specular;
+        if ((light.flags & 1u) == 0u)
+        {
+            continue;
+        }
+        if (light.type == 0u)
+        {
+            d.direction = lightData.directionalLights[light.dataIndex].direction;
+            d.shadowCascadeSplits = lightData.directionalLights[light.dataIndex].shadowCascadeSplits;
+            d.shadowParams = lightData.directionalLights[light.dataIndex].shadowParams;
+            d.shadowBiasParams = lightData.directionalLights[light.dataIndex].shadowBiasParams;
+            d.shadowState = lightData.directionalLights[light.dataIndex].shadowState;
+            d.shadowMatrices[0] = lightData.directionalLights[light.dataIndex].shadowMatrices[0];
+            d.shadowMatrices[1] = lightData.directionalLights[light.dataIndex].shadowMatrices[1];
+            d.shadowMatrices[2] = lightData.directionalLights[light.dataIndex].shadowMatrices[2];
+            d.shadowInvMatrices[0] = lightData.directionalLights[light.dataIndex].shadowInvMatrices[0];
+            d.shadowInvMatrices[1] = lightData.directionalLights[light.dataIndex].shadowInvMatrices[1];
+            d.shadowInvMatrices[2] = lightData.directionalLights[light.dataIndex].shadowInvMatrices[2];
+            vec3 L = normalize(-d.direction.xyz);
+            vec3 H = normalize(V + L);
+            vec3 lightColor = light.colorIntensity.xyz * light.colorIntensity.w;
+            float specularStrength = max(light.specular.x, 0.0);
+            float shininess = max(light.specular.y, 1.0);
+            float NdotL = max(dot(N, L), 0.0);
+            vec3 F0 = mix(vec3(0.039999999105930328369140625), albedo, vec3(metalness));
+            float lightShininessToRoughness = clamp(sqrt(2.0 / (shininess + 2.0)), 0.0500000007450580596923828125, 1.0);
+            float effectiveRoughness = max(roughness * lightShininessToRoughness, 0.04500000178813934326171875);
+            vec3 param = N;
+            vec3 param_1 = H;
+            float param_2 = effectiveRoughness;
+            float NDF = DistributionGGX(param, param_1, param_2);
+            vec3 param_3 = N;
+            vec3 param_4 = V;
+            vec3 param_5 = L;
+            float param_6 = effectiveRoughness;
+            float G = GeometrySmith(param_3, param_4, param_5, param_6);
+            float fresnelAmount = clamp(light.specular.z, 0.0, 1.0);
+            float param_7 = max(dot(H, V), 0.0);
+            vec3 param_8 = F0;
+            vec3 Fschlick = FresnelSchlick(param_7, param_8);
+            vec3 F = mix(F0, Fschlick, vec3(fresnelAmount));
+            vec3 numerator = F * (NDF * G);
+            float denominator = max((4.0 * max(dot(N, V), 0.0)) * NdotL, 9.9999997473787516355514526367188e-06);
+            float smoothness = 1.0 - roughness;
+            vec3 specular = ((numerator / vec3(denominator)) * specularStrength) * (smoothness * smoothness);
+            vec3 kS = F;
+            vec3 kD = (vec3(1.0) - kS) * (1.0 - metalness);
+            vec3 diffuse = (kD * albedo) / vec3(3.1415927410125732421875);
+            directLight += (((diffuse + specular) * lightColor) * NdotL);
+        }
+    }
     fragNormal = N;
     fragWorldPos = worldPos.xyz;
     fragBaseColor = inst.baseColor;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Lvs/Engine/Rendering/Common/LightBufferData.hpp"
 #include "Lvs/Engine/Rendering/Common/SceneUniformData.hpp"
 #include "Lvs/Engine/Rendering/RHI/IContext.hpp"
 #include "Lvs/Engine/Rendering/RHI/Types.hpp"
@@ -20,6 +21,7 @@ struct RenderSurface {
 struct SceneData {
     static constexpr RHI::u32 MaxPostBlurLevels = 4U;
     static constexpr RHI::u32 MaxShadowCascades = 3U;
+    static constexpr RHI::u32 MaxDirectionalShadowMaps = Common::kMaxDirectionalShadowMaps;
 
     struct PassTarget {
         void* RenderPass{nullptr};
@@ -56,8 +58,9 @@ struct SceneData {
     bool EnableGeometry{true};
     bool ClearColor{true};
     float ClearColorValue[4]{1.0F, 1.0F, 1.0F, 1.0F};
-    RHI::u32 ShadowCascadeCount{0};
-    std::array<PassTarget, MaxShadowCascades> ShadowCascadeTargets{};
+    RHI::u32 DirectionalShadowCount{0};
+    std::array<RHI::u32, MaxDirectionalShadowMaps> DirectionalShadowCascadeCounts{};
+    std::array<std::array<PassTarget, MaxShadowCascades>, MaxDirectionalShadowMaps> DirectionalShadowCascadeTargets{};
     std::vector<DrawPacket> ShadowCasters{};
     PassTarget ShadowTarget{};
     PassTarget SkyboxTarget{};
@@ -81,7 +84,7 @@ struct SceneData {
     RHI::u32 GlobalBindingCount{0};
     std::size_t GlobalResourceKey{0};
     const RHI::IResourceSet* GlobalResources{nullptr};
-    const RHI::IResourceSet* ShadowResources{nullptr};
+    std::array<const RHI::IResourceSet*, MaxDirectionalShadowMaps> DirectionalShadowResources{};
     const RHI::IResourceSet* PostBlurDownResources{nullptr};
     const RHI::IResourceSet* PostBlurUpResources{nullptr};
     const RHI::IResourceSet* PostBlurFinalResources{nullptr};
@@ -102,14 +105,12 @@ private:
     void SetInputs(
         const RenderSurface* surface,
         const SceneData* scene,
-        Renderer* renderer,
-        const RHI::IResourceSet* resources
+        Renderer* renderer
     );
 
     const RenderSurface* surface_{nullptr};
     const SceneData* scene_{nullptr};
     Renderer* renderer_{nullptr};
-    const RHI::IResourceSet* resources_{nullptr};
 };
 
 class SkyboxPassRenderer {

@@ -5,9 +5,11 @@
 #include "Lvs/Engine/DataModel/Place.hpp"
 #include "Lvs/Engine/DataModel/Services/Lighting.hpp"
 #include "Lvs/Engine/DataModel/Services/QualitySettings.hpp"
+#include "Lvs/Engine/DataModel/Services/Workspace.hpp"
 #include "Lvs/Engine/Enums/EnumMetadata.hpp"
 #include "Lvs/Engine/Enums/MSAA.hpp"
 #include "Lvs/Engine/Enums/SurfaceMipmapping.hpp"
+#include "Lvs/Engine/Objects/Camera.hpp"
 #include "Lvs/Engine/Objects/DirectionalLight.hpp"
 #include "Lvs/Engine/Rendering/Context/RenderContextUtils.hpp"
 #include "Lvs/Engine/Utils/Benchmark.hpp"
@@ -17,6 +19,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <unordered_map>
 
 namespace Lvs::Engine::Rendering {
 
@@ -95,57 +98,68 @@ void RenderContext::Render() {
     scene.EnablePostProcess = geometryTarget_ != nullptr && blurDownTargets_[0] != nullptr && blurFinalTarget_ != nullptr;
     scene.EnableGeometry = true;
     scene.NeonBlur = 2.0F;
-    Common::ShadowSettings desiredShadowSettings = shadowSettings_;
+
+    std::shared_ptr<DataModel::Lighting> lightingService{};
+    std::vector<std::shared_ptr<Objects::DirectionalLight>> enabledDirectionalLights{};
+    enabledDirectionalLights.reserve(8);
+    std::unordered_map<const Objects::DirectionalLight*, RHI::u32> directionalShadowIndex{};
+    std::array<std::shared_ptr<Objects::DirectionalLight>, Common::kMaxDirectionalShadowMaps> shadowDirectionalLights{};
+    std::array<Common::ShadowSettings, Common::kMaxDirectionalShadowMaps> requestedShadowSettings{};
+    float fresnelAmount = 1.0F;
+
     if (place_ != nullptr) {
-        if (const auto lightingService = std::dynamic_pointer_cast<DataModel::Lighting>(place_->FindService("Lighting"));
-            lightingService != nullptr) {
+        lightingService = std::dynamic_pointer_cast<DataModel::Lighting>(place_->FindService("Lighting"));
+        if (lightingService != nullptr) {
             scene.NeonBlur = static_cast<float>(std::max(0.0, lightingService->GetProperty("NeonBlur").toDouble()));
-            scene.EnableShadows = lightingService->GetProperty("ShadowsEnabled").toBool();
-            bool hasDirectionalLight = false;
+            fresnelAmount = static_cast<float>(std::clamp(lightingService->GetProperty("FresnelAmount").toDouble(), 0.0, 1.0));
+
+            scene.DirectionalShadowCount = 0U;
+            scene.DirectionalShadowCascadeCounts.fill(0U);
+            shadowDirectionalLights.fill(nullptr);
             for (const auto& child : lightingService->GetChildren()) {
                 const auto directional = std::dynamic_pointer_cast<Objects::DirectionalLight>(child);
-                if (directional != nullptr && directional->GetProperty("Enabled").toBool()) {
-                    hasDirectionalLight = true;
-                    break;
+                if (directional == nullptr || !directional->GetProperty("Enabled").toBool()) {
+                    continue;
                 }
+                enabledDirectionalLights.push_back(directional);
+
+                const bool wantsShadows = directional->GetProperty("ShadowEnabled").toBool();
+                if (!wantsShadows || scene.DirectionalShadowCount >= Common::kMaxDirectionalShadowMaps) {
+                    continue;
+                }
+
+                const RHI::u32 shadowIndex = scene.DirectionalShadowCount++;
+                shadowDirectionalLights[shadowIndex] = directional;
+                directionalShadowIndex[directional.get()] = shadowIndex;
+
+                Common::ShadowSettings desired{};
+                desired.BlurAmount = static_cast<float>(std::max(0.0, directional->GetProperty("ShadowBlur").toDouble()));
+                desired.TapCount = std::max(1, directional->GetProperty("ShadowTapCount").toInt());
+                desired.Bias = static_cast<float>(std::max(0.0, directional->GetProperty("ShadowBias").toDouble()));
+                desired.SlopeBias = static_cast<float>(std::max(0.0, directional->GetProperty("ShadowSlopeBias").toDouble()));
+                desired.CascadeCount = std::max(
+                    1,
+                    std::min(Common::kMaxShadowCascades, directional->GetProperty("ShadowCascadeCount").toInt())
+                );
+                desired.MaxDistance = static_cast<float>(std::max(1.0, directional->GetProperty("ShadowMaxDistance").toDouble()));
+                desired.MapResolution = static_cast<std::uint32_t>(std::max(1, directional->GetProperty("ShadowMapResolution").toInt()));
+                desired.CascadeResolutionScale = static_cast<float>(
+                    std::clamp(directional->GetProperty("ShadowCascadeResolutionScale").toDouble(), 0.1, 1.0)
+                );
+                desired.CascadeSplitLambda = static_cast<float>(
+                    std::clamp(directional->GetProperty("ShadowCascadeSplitLambda").toDouble(), 0.0, 1.0)
+                );
+
+                const Common::ShadowSettings normalized = Common::NormalizeShadowSettings(desired);
+                requestedShadowSettings[shadowIndex] = normalized;
+                EnsureDirectionalShadowTargets(shadowIndex, normalized);
+                scene.DirectionalShadowCascadeCounts[shadowIndex] = static_cast<RHI::u32>(
+                    std::clamp(normalized.CascadeCount, 0, Common::kMaxShadowCascades)
+                );
             }
-            scene.EnableShadows = scene.EnableShadows && hasDirectionalLight;
-            desiredShadowSettings.BlurAmount = static_cast<float>(
-                std::max(0.0, lightingService->GetProperty("ShadowBlur").toDouble())
-            );
-            desiredShadowSettings.TapCount = std::max(1, lightingService->GetProperty("DefaultShadowTapCount").toInt());
-            desiredShadowSettings.Bias = static_cast<float>(std::max(0.0, lightingService->GetProperty("ShadowBias").toDouble()));
-            desiredShadowSettings.AdaptiveBiasEnabled = lightingService->GetProperty("ShadowAdaptiveBiasEnabled").toBool();
-            desiredShadowSettings.AdaptiveBiasEpsilonScale = static_cast<float>(
-                std::max(0.0, lightingService->GetProperty("ShadowAdaptiveBiasEpsilonScale").toDouble())
-            );
-            desiredShadowSettings.AdaptiveBiasMaxScale = static_cast<float>(
-                std::max(1.0, lightingService->GetProperty("ShadowAdaptiveBiasMaxScale").toDouble())
-            );
-            desiredShadowSettings.CascadeCount =
-                std::max(1, std::min(Common::kMaxShadowCascades, lightingService->GetProperty("DefaultShadowCascadeCount").toInt()));
-            desiredShadowSettings.MaxDistance = static_cast<float>(
-                std::max(1.0, lightingService->GetProperty("DefaultShadowMaxDistance").toDouble())
-            );
-            desiredShadowSettings.MapResolution = static_cast<std::uint32_t>(
-                std::max(1, lightingService->GetProperty("DefaultShadowMapResolution").toInt())
-            );
-            desiredShadowSettings.CascadeResolutionScale = static_cast<float>(
-                std::clamp(lightingService->GetProperty("DefaultShadowCascadeResolutionScale").toDouble(), 0.1, 1.0)
-            );
-            desiredShadowSettings.CascadeSplitLambda = static_cast<float>(
-                std::clamp(lightingService->GetProperty("DefaultShadowCascadeSplitLambda").toDouble(), 0.0, 1.0)
-            );
         }
     }
-    shadowsEnabled_ = scene.EnableShadows;
-    shadowSettings_ = Common::NormalizeShadowSettings(desiredShadowSettings);
-    if (shadowsEnabled_) {
-        EnsureShadowTargets(desiredShadowSettings);
-        scene.ShadowCascadeCount = static_cast<RHI::u32>(std::clamp(shadowSettings_.CascadeCount, 0, Common::kMaxShadowCascades));
-    } else {
-        scene.ShadowCascadeCount = 0;
-    }
+    scene.EnableShadows = scene.DirectionalShadowCount > 0U;
     scene.ShadowTarget = SceneData::PassTarget{
         .RenderPass = nullptr,
         .Framebuffer = nullptr,
@@ -179,20 +193,25 @@ void RenderContext::Render() {
         scene.GeometryTarget = scene.SkyboxTarget;
     }
 
-    scene.ShadowCascadeTargets = {};
-    if (shadowsEnabled_) {
-        for (RHI::u32 cascade = 0; cascade < scene.ShadowCascadeCount && cascade < SceneData::MaxShadowCascades; ++cascade) {
-            if (shadowTargets_[cascade] == nullptr) {
-                continue;
+    scene.DirectionalShadowCascadeTargets = {};
+    if (scene.EnableShadows) {
+        const RHI::u32 shadowCount = std::min(scene.DirectionalShadowCount, SceneData::MaxDirectionalShadowMaps);
+        for (RHI::u32 shadowIndex = 0; shadowIndex < shadowCount; ++shadowIndex) {
+            const RHI::u32 cascadeCount = std::min(scene.DirectionalShadowCascadeCounts[shadowIndex], SceneData::MaxShadowCascades);
+            for (RHI::u32 cascade = 0; cascade < cascadeCount; ++cascade) {
+                if (directionalShadowTargets_[shadowIndex][cascade] == nullptr) {
+                    continue;
+                }
+                const auto& rt = directionalShadowTargets_[shadowIndex][cascade];
+                scene.DirectionalShadowCascadeTargets[shadowIndex][cascade] = SceneData::PassTarget{
+                    .RenderPass = rt->GetRenderPassHandle(),
+                    .Framebuffer = rt->GetFramebufferHandle(),
+                    .ColorAttachmentCount = rt->GetColorAttachmentCount(),
+                    .SampleCount = rt->GetSampleCount(),
+                    .Width = rt->GetWidth(),
+                    .Height = rt->GetHeight()
+                };
             }
-            scene.ShadowCascadeTargets[cascade] = SceneData::PassTarget{
-                .RenderPass = shadowTargets_[cascade]->GetRenderPassHandle(),
-                .Framebuffer = shadowTargets_[cascade]->GetFramebufferHandle(),
-                .ColorAttachmentCount = shadowTargets_[cascade]->GetColorAttachmentCount(),
-                .SampleCount = shadowTargets_[cascade]->GetSampleCount(),
-                .Width = shadowTargets_[cascade]->GetWidth(),
-                .Height = shadowTargets_[cascade]->GetHeight()
-            };
         }
     }
     RHI::u32 availableBlurLevels = 0U;
@@ -287,7 +306,11 @@ void RenderContext::Render() {
     }
 
     scene.ShadowCasters.clear();
-    if (shadowsEnabled_ && scene.ShadowCascadeCount > 0U) {
+    bool hasAnyShadowCascades = false;
+    for (RHI::u32 i = 0; i < std::min(scene.DirectionalShadowCount, SceneData::MaxDirectionalShadowMaps); ++i) {
+        hasAnyShadowCascades = hasAnyShadowCascades || scene.DirectionalShadowCascadeCounts[i] > 0U;
+    }
+    if (scene.EnableShadows && hasAnyShadowCascades) {
         scene.ShadowCasters.reserve(scene.GeometryDraws.size());
         for (const auto& draw : scene.GeometryDraws) {
             if (draw.Mesh == nullptr) {
@@ -316,11 +339,18 @@ void RenderContext::Render() {
     if (frameUniformBuffer_ != nullptr) {
         retiredFrameUniformBuffers_.push_back(std::move(frameUniformBuffer_));
     }
-    if (frameShadowResourceSet_ != nullptr) {
-        retiredFrameResourceSets_.push_back(std::move(frameShadowResourceSet_));
+    for (auto& set : frameShadowResourceSets_) {
+        if (set != nullptr) {
+            retiredFrameResourceSets_.push_back(std::move(set));
+        }
     }
-    if (frameShadowUniformBuffer_ != nullptr) {
-        retiredFrameUniformBuffers_.push_back(std::move(frameShadowUniformBuffer_));
+    for (auto& buf : frameShadowUniformBuffers_) {
+        if (buf != nullptr) {
+            retiredFrameUniformBuffers_.push_back(std::move(buf));
+        }
+    }
+    if (frameLightBuffer_ != nullptr) {
+        retiredFrameUniformBuffers_.push_back(std::move(frameLightBuffer_));
     }
     {
         LVS_BENCH_SCOPE("RenderContext::CreateFrameUniformBuffer");
@@ -347,45 +377,175 @@ void RenderContext::Render() {
         }
         instanceBufferDirty_ = false;
     }
-    scene.ShadowResources = nullptr;
-    if (cameraUniforms.ShadowState[0] > 0.5F && scene.ShadowCascadeCount > 0U && !scene.ShadowCasters.empty()) {
-        Common::ShadowUniformData shadowUniforms{};
-        for (int i = 0; i < Common::kMaxShadowCascades; ++i) {
-            Math::Matrix4 matrix = shadowCascadeComputation_.Matrices[static_cast<std::size_t>(i)];
-            if (vkBackend_ == nullptr) {
-                matrix = Context::ApplyOpenGLShadowDepthRemap(matrix);
-            }
-            shadowUniforms.LightViewProjection[static_cast<std::size_t>(i)] = Context::ToFloatMat4ColumnMajor(matrix);
+    scene.DirectionalShadowResources.fill(nullptr);
+
+    // Resolve camera for shadow cascade computation.
+    std::shared_ptr<Objects::Camera> camera{};
+    if (place_ != nullptr) {
+        if (const auto workspaceService = std::dynamic_pointer_cast<DataModel::Workspace>(place_->FindService("Workspace"));
+            workspaceService != nullptr) {
+            camera = workspaceService->GetProperty("CurrentCamera").value<std::shared_ptr<Objects::Camera>>();
         }
-        frameShadowUniformBuffer_ = GetRhiContext().CreateBuffer(RHI::BufferDesc{
-            .type = RHI::BufferType::Uniform,
-            .usage = RHI::BufferUsage::Dynamic,
-            .size = sizeof(Common::ShadowUniformData),
-            .initialData = &shadowUniforms
-        });
-        const std::array<RHI::ResourceBinding, 2> shadowBindings{
-            RHI::ResourceBinding{
-                .slot = 0,
-                .kind = RHI::ResourceBindingKind::UniformBuffer,
-                .texture = {},
-                .buffer = frameShadowUniformBuffer_.get()
-            },
-            RHI::ResourceBinding{
-                .slot = 9,
-                .kind = RHI::ResourceBindingKind::StorageBuffer,
-                .texture = {},
-                .buffer = frameInstanceBuffer_.get()
-            }
-        };
-        frameShadowResourceSet_ = GetRhiContext().CreateResourceSet(RHI::ResourceSetDesc{
-            .bindings = shadowBindings.data(),
-            .bindingCount = static_cast<RHI::u32>(shadowBindings.size()),
-            .nativeHandleHint = nullptr
-        });
-        scene.ShadowResources = frameShadowResourceSet_.get();
+    }
+    const float aspect =
+        surfaceHeight_ > 0U ? static_cast<float>(surfaceWidth_) / static_cast<float>(surfaceHeight_) : 1.0F;
+    if (camera != nullptr && surfaceHeight_ > 0U) {
+        camera->Resize(static_cast<double>(aspect));
     }
 
-    std::array<RHI::ResourceBinding, 11> frameBindings{};
+    // Precompute shadow cascades for each shadow-casting directional light.
+    std::array<bool, Common::kMaxDirectionalShadowMaps> shadowCascadeOk{};
+    for (RHI::u32 shadowIndex = 0; shadowIndex < std::min(scene.DirectionalShadowCount, SceneData::MaxDirectionalShadowMaps);
+         ++shadowIndex) {
+        shadowCascadeOk[shadowIndex] = false;
+        const auto& light = shadowDirectionalLights[shadowIndex];
+        if (light == nullptr || camera == nullptr || scene.DirectionalShadowCascadeCounts[shadowIndex] == 0U) {
+            continue;
+        }
+        const Math::Vector3 direction = light->GetProperty("Direction").value<Math::Vector3>().Unit();
+        Common::ShadowCascadeComputation computation{};
+        const bool ok = Common::ComputeShadowCascades(
+            *camera,
+            direction,
+            aspect,
+            requestedShadowSettings[shadowIndex],
+            directionalShadowCascadeResolutions_[shadowIndex],
+            computation
+        );
+        if (!ok) {
+            continue;
+        }
+        directionalShadowCascadeComputations_[shadowIndex] = computation;
+        shadowCascadeOk[shadowIndex] = true;
+    }
+
+    // Build light buffer (all enabled directional lights; shadow data only for up to 2 shadowed directionals).
+    Common::GpuLightBuffer lightBuffer{};
+    std::uint32_t lightCount = 0U;
+    std::uint32_t directionalCount = 0U;
+    std::uint32_t shadowedDirectionalCount = static_cast<std::uint32_t>(scene.DirectionalShadowCount);
+
+    for (const auto& directional : enabledDirectionalLights) {
+        if (directional == nullptr) {
+            continue;
+        }
+        if (lightCount >= Common::kMaxLights || directionalCount >= Common::kMaxDirectionalLights) {
+            break;
+        }
+
+        Common::GpuLight base{};
+        base.Type = static_cast<std::uint32_t>(Common::GpuLightType::Directional);
+        base.Flags = Common::GpuLightFlagEnabled;
+        base.DataIndex = directionalCount;
+        base.ShadowIndex = 0xFFFFFFFFU;
+        if (const auto it = directionalShadowIndex.find(directional.get()); it != directionalShadowIndex.end()) {
+            base.ShadowIndex = it->second;
+        }
+
+        const Math::Color3 color = directional->GetProperty("Color").value<Math::Color3>();
+        const float intensity = static_cast<float>(std::max(0.0, directional->GetProperty("Intensity").toDouble()));
+        base.ColorIntensity = Context::ToVec4(color, intensity);
+        base.Specular = {
+            static_cast<float>(std::max(0.0, directional->GetProperty("SpecularStrength").toDouble())),
+            static_cast<float>(std::max(0.0, directional->GetProperty("Shininess").toDouble())),
+            fresnelAmount,
+            0.0F
+        };
+
+        Common::GpuDirectionalLight dir{};
+        const Math::Vector3 direction = directional->GetProperty("Direction").value<Math::Vector3>().Unit();
+        dir.Direction = Context::ToVec4(direction, 0.0F);
+
+        if (base.ShadowIndex != 0xFFFFFFFFU && base.ShadowIndex < scene.DirectionalShadowCount) {
+            const RHI::u32 shadowIndex = base.ShadowIndex;
+            const Common::ShadowSettings& settings = requestedShadowSettings[shadowIndex];
+            const bool ok = shadowCascadeOk[shadowIndex];
+            dir.ShadowState = {ok ? 1.0F : 0.0F, shadowJitterScaleXY_, shadowJitterScaleXY_, 0.0F};
+            dir.ShadowCascadeSplits = {
+                directionalShadowCascadeComputations_[shadowIndex].Split0,
+                directionalShadowCascadeComputations_[shadowIndex].Split1,
+                settings.MaxDistance,
+                static_cast<float>(settings.CascadeCount)
+            };
+            dir.ShadowParams = {
+                settings.Bias,
+                settings.BlurAmount,
+                static_cast<float>(settings.TapCount),
+                settings.FadeWidth
+            };
+            dir.ShadowBiasParams = {settings.SlopeBias, 32.0F, 0.0F, 0.0F};
+
+            for (int c = 0; c < Common::kMaxShadowCascades; ++c) {
+                const auto matrix = directionalShadowCascadeComputations_[shadowIndex].Matrices[static_cast<std::size_t>(c)];
+                dir.ShadowMatrices[static_cast<std::size_t>(c)] = Context::ToFloatMat4ColumnMajor(matrix);
+                dir.ShadowInvMatrices[static_cast<std::size_t>(c)] = Context::ToFloatMat4ColumnMajor(matrix.Inverse());
+            }
+        } else {
+            dir.ShadowState = {0.0F, 0.0F, 0.0F, 0.0F};
+        }
+
+        lightBuffer.Lights[lightCount] = base;
+        lightBuffer.DirectionalLights[directionalCount] = dir;
+        ++lightCount;
+        ++directionalCount;
+    }
+    lightBuffer.Counts = {lightCount, directionalCount, shadowedDirectionalCount, 0U};
+
+    frameLightBuffer_ = GetRhiContext().CreateBuffer(RHI::BufferDesc{
+        .type = RHI::BufferType::Storage,
+        .usage = RHI::BufferUsage::Dynamic,
+        .size = sizeof(Common::GpuLightBuffer),
+        .initialData = &lightBuffer
+    });
+
+    // Build shadow resources per shadow map (Directional shadow maps limited to 2).
+    if (scene.EnableShadows && !scene.ShadowCasters.empty()) {
+        for (RHI::u32 shadowIndex = 0; shadowIndex < std::min(scene.DirectionalShadowCount, SceneData::MaxDirectionalShadowMaps);
+             ++shadowIndex) {
+            if (!shadowCascadeOk[shadowIndex] || scene.DirectionalShadowCascadeCounts[shadowIndex] == 0U) {
+                continue;
+            }
+
+            Common::ShadowUniformData shadowUniforms{};
+            for (int i = 0; i < Common::kMaxShadowCascades; ++i) {
+                Math::Matrix4 matrix = directionalShadowCascadeComputations_[shadowIndex].Matrices[static_cast<std::size_t>(i)];
+                if (vkBackend_ == nullptr) {
+                    matrix = Context::ApplyOpenGLShadowDepthRemap(matrix);
+                }
+                shadowUniforms.LightViewProjection[static_cast<std::size_t>(i)] = Context::ToFloatMat4ColumnMajor(matrix);
+            }
+
+            frameShadowUniformBuffers_[shadowIndex] = GetRhiContext().CreateBuffer(RHI::BufferDesc{
+                .type = RHI::BufferType::Uniform,
+                .usage = RHI::BufferUsage::Dynamic,
+                .size = sizeof(Common::ShadowUniformData),
+                .initialData = &shadowUniforms
+            });
+
+            const std::array<RHI::ResourceBinding, 2> shadowBindings{
+                RHI::ResourceBinding{
+                    .slot = 0,
+                    .kind = RHI::ResourceBindingKind::UniformBuffer,
+                    .texture = {},
+                    .buffer = frameShadowUniformBuffers_[shadowIndex].get()
+                },
+                RHI::ResourceBinding{
+                    .slot = 9,
+                    .kind = RHI::ResourceBindingKind::StorageBuffer,
+                    .texture = {},
+                    .buffer = frameInstanceBuffer_.get()
+                }
+            };
+            frameShadowResourceSets_[shadowIndex] = GetRhiContext().CreateResourceSet(RHI::ResourceSetDesc{
+                .bindings = shadowBindings.data(),
+                .bindingCount = static_cast<RHI::u32>(shadowBindings.size()),
+                .nativeHandleHint = nullptr
+            });
+            scene.DirectionalShadowResources[shadowIndex] = frameShadowResourceSets_[shadowIndex].get();
+        }
+    }
+
+    std::array<RHI::ResourceBinding, 20> frameBindings{};
     RHI::u32 frameBindingCount = 0;
     frameBindings[frameBindingCount++] = RHI::ResourceBinding{
         .slot = 0,
@@ -409,44 +569,45 @@ void RenderContext::Render() {
     };
     const RHI::Texture fallbackShadow = (fallbackShadowTarget_ != nullptr) ? fallbackShadowTarget_->GetDepthTexture()
                                                                           : RHI::Texture{};
-    const auto getCascadeTexture = [this, fallbackShadow](const RHI::u32 cascade) -> RHI::Texture {
-        if (shadowsEnabled_ && cascade < shadowTargets_.size() && shadowTargets_[cascade] != nullptr) {
-            return shadowTargets_[cascade]->GetDepthTexture();
+    const auto getDirectionalShadowTexture = [this, &scene, fallbackShadow](const RHI::u32 mapIndex) -> RHI::Texture {
+        const RHI::u32 shadowIndex = mapIndex / Common::kDirectionalShadowMapCascadeCount;
+        const RHI::u32 cascadeIndex = mapIndex % Common::kDirectionalShadowMapCascadeCount;
+        if (!scene.EnableShadows || shadowIndex >= scene.DirectionalShadowCount) {
+            return fallbackShadow;
+        }
+        if (cascadeIndex >= scene.DirectionalShadowCascadeCounts[shadowIndex]) {
+            return fallbackShadow;
+        }
+        if (shadowIndex < directionalShadowTargets_.size() && cascadeIndex < SceneData::MaxShadowCascades &&
+            directionalShadowTargets_[shadowIndex][cascadeIndex] != nullptr) {
+            return directionalShadowTargets_[shadowIndex][cascadeIndex]->GetDepthTexture();
         }
         return fallbackShadow;
     };
-    frameBindings[frameBindingCount++] = RHI::ResourceBinding{
-        .slot = 3,
-        .kind = RHI::ResourceBindingKind::Texture2D,
-        .texture = getCascadeTexture(0),
-        .buffer = nullptr
-    };
+    for (RHI::u32 i = 0; i < Common::kMaxDirectionalShadowMapTextures; ++i) {
+        frameBindings[frameBindingCount++] = RHI::ResourceBinding{
+            .slot = 3,
+            .arrayElement = i,
+            .kind = RHI::ResourceBindingKind::Texture2D,
+            .texture = getDirectionalShadowTexture(i),
+            .buffer = nullptr
+        };
+    }
+
     frameBindings[frameBindingCount++] = RHI::ResourceBinding{
         .slot = 4,
-        .kind = RHI::ResourceBindingKind::Texture2D,
-        .texture = getCascadeTexture(1),
-        .buffer = nullptr
-    };
-    frameBindings[frameBindingCount++] = RHI::ResourceBinding{
-        .slot = 5,
-        .kind = RHI::ResourceBindingKind::Texture2D,
-        .texture = getCascadeTexture(2),
-        .buffer = nullptr
-    };
-    frameBindings[frameBindingCount++] = RHI::ResourceBinding{
-        .slot = 6,
         .kind = RHI::ResourceBindingKind::Texture2D,
         .texture = (blurFinalTarget_ != nullptr ? blurFinalTarget_->GetColorTexture(0) : fallbackBlackTexture_),
         .buffer = nullptr
     };
     frameBindings[frameBindingCount++] = RHI::ResourceBinding{
-        .slot = 7,
+        .slot = 5,
         .kind = RHI::ResourceBindingKind::Texture3D,
         .texture = shadowJitterTexture_,
         .buffer = nullptr
     };
     frameBindings[frameBindingCount++] = RHI::ResourceBinding{
-        .slot = 8,
+        .slot = 6,
         .kind = RHI::ResourceBindingKind::Texture2D,
         .texture = fallbackBlackTexture_, // Normal atlas is currently optional.
         .buffer = nullptr
@@ -456,6 +617,12 @@ void RenderContext::Render() {
         .kind = RHI::ResourceBindingKind::StorageBuffer,
         .texture = {},
         .buffer = frameInstanceBuffer_.get()
+    };
+    frameBindings[frameBindingCount++] = RHI::ResourceBinding{
+        .slot = 10,
+        .kind = RHI::ResourceBindingKind::StorageBuffer,
+        .texture = {},
+        .buffer = frameLightBuffer_.get()
     };
     frameResourceSet_ = GetRhiContext().CreateResourceSet(RHI::ResourceSetDesc{
         .bindings = frameBindings.data(),

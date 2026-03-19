@@ -6,6 +6,7 @@
 #include "Lvs/Engine/Rendering/Backends/OpenGL/GLApi.hpp"
 #include "Lvs/Engine/Rendering/Backends/Vulkan/VulkanApi.hpp"
 #include "Lvs/Engine/Rendering/Common/ShadowCascadeUtils.hpp"
+#include "Lvs/Engine/Rendering/Common/LightBufferData.hpp"
 #include "Lvs/Engine/Rendering/Common/SkyboxSettingsResolver.hpp"
 #include "Lvs/Engine/Rendering/IRenderContext.hpp"
 #include "Lvs/Engine/Rendering/Renderer.hpp"
@@ -108,7 +109,7 @@ private:
 
     void WaitForBackendIdle();
     void ReleaseGpuResources();
-    void EnsureShadowTargets(const Common::ShadowSettings& settings);
+    void EnsureDirectionalShadowTargets(RHI::u32 shadowIndex, const Common::ShadowSettings& settings);
     void EnsureFallbackShadowTarget();
     void EnsureShadowJitterTexture();
     void EnsurePostProcessTargets();
@@ -183,9 +184,10 @@ private:
 
     std::unique_ptr<RHI::IBuffer> frameUniformBuffer_{};
     std::unique_ptr<RHI::IResourceSet> frameResourceSet_{};
-    std::unique_ptr<RHI::IBuffer> frameShadowUniformBuffer_{};
-    std::unique_ptr<RHI::IResourceSet> frameShadowResourceSet_{};
+    std::array<std::unique_ptr<RHI::IBuffer>, Common::kMaxDirectionalShadowMaps> frameShadowUniformBuffers_{};
+    std::array<std::unique_ptr<RHI::IResourceSet>, Common::kMaxDirectionalShadowMaps> frameShadowResourceSets_{};
     std::unique_ptr<RHI::IBuffer> frameInstanceBuffer_{};
+    std::unique_ptr<RHI::IBuffer> frameLightBuffer_{};
 
     std::array<std::unique_ptr<RHI::IResourceSet>, SceneData::MaxPostBlurLevels> postBlurDownLevelResourceSets_{};
     std::array<std::unique_ptr<RHI::IResourceSet>, SceneData::MaxPostBlurLevels> postBlurUpLevelResourceSets_{};
@@ -198,7 +200,8 @@ private:
     std::array<std::unique_ptr<RHI::IRenderTarget>, SceneData::MaxPostBlurLevels> blurUpTargets_{};
     std::unique_ptr<RHI::IRenderTarget> blurFinalTarget_{};
 
-    std::array<std::unique_ptr<RHI::IRenderTarget>, SceneData::MaxShadowCascades> shadowTargets_{};
+    std::array<std::array<std::unique_ptr<RHI::IRenderTarget>, SceneData::MaxShadowCascades>, Common::kMaxDirectionalShadowMaps>
+        directionalShadowTargets_{};
     std::unique_ptr<RHI::IRenderTarget> fallbackShadowTarget_{};
 
     std::deque<std::unique_ptr<RHI::IBuffer>> retiredFrameUniformBuffers_{};
@@ -206,10 +209,10 @@ private:
 
     Common::SkyboxSettingsResolver skyboxResolver_{};
 
-    Common::ShadowSettings shadowSettings_{};
-    bool shadowsEnabled_{false};
-    Common::ShadowCascadeComputation shadowCascadeComputation_{};
-    std::array<RHI::u32, Common::kMaxShadowCascades> shadowCascadeResolutions_{};
+    std::array<Common::ShadowSettings, Common::kMaxDirectionalShadowMaps> directionalShadowSettings_{};
+    std::array<Common::ShadowCascadeComputation, Common::kMaxDirectionalShadowMaps> directionalShadowCascadeComputations_{};
+    std::array<std::array<RHI::u32, Common::kMaxShadowCascades>, Common::kMaxDirectionalShadowMaps>
+        directionalShadowCascadeResolutions_{};
 
     std::optional<std::size_t> skyboxSettingsKey_{};
     Math::Color3 skyboxTint_{1.0, 1.0, 1.0};

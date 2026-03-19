@@ -50,10 +50,15 @@ void RenderContext::ReleaseGpuResources() {
     }
     postBlurFinalResourceSet_.reset();
     postCompositeResourceSet_.reset();
-    frameShadowResourceSet_.reset();
+    for (auto& set : frameShadowResourceSets_) {
+        set.reset();
+    }
     frameUniformBuffer_.reset();
-    frameShadowUniformBuffer_.reset();
+    for (auto& buf : frameShadowUniformBuffers_) {
+        buf.reset();
+    }
     frameInstanceBuffer_.reset();
+    frameLightBuffer_.reset();
     retiredFrameResourceSets_.clear();
     retiredFrameUniformBuffers_.clear();
     primitiveMeshCache_.clear();
@@ -69,30 +74,35 @@ void RenderContext::ReleaseGpuResources() {
         target.reset();
     }
     blurFinalTarget_.reset();
-    for (auto& target : shadowTargets_) {
-        target.reset();
+    for (auto& perLightTargets : directionalShadowTargets_) {
+        for (auto& target : perLightTargets) {
+            target.reset();
+        }
     }
     fallbackShadowTarget_.reset();
     skyboxSettingsKey_.reset();
 }
 
-void RenderContext::EnsureShadowTargets(const Common::ShadowSettings& settings) {
+void RenderContext::EnsureDirectionalShadowTargets(const RHI::u32 shadowIndex, const Common::ShadowSettings& settings) {
+    if (shadowIndex >= Common::kMaxDirectionalShadowMaps) {
+        return;
+    }
     EnsureFallbackShadowTarget();
     EnsureBackend();
     const Common::ShadowSettings normalized = Common::NormalizeShadowSettings(settings);
-    shadowSettings_ = normalized;
-    shadowCascadeResolutions_ = Common::ComputeCascadeResolutions(
+    directionalShadowSettings_[shadowIndex] = normalized;
+    directionalShadowCascadeResolutions_[shadowIndex] = Common::ComputeCascadeResolutions(
         normalized.MapResolution,
         normalized.CascadeResolutionScale
     );
 
     for (RHI::u32 i = 0; i < SceneData::MaxShadowCascades; ++i) {
-        const RHI::u32 desired = shadowCascadeResolutions_[i];
+        const RHI::u32 desired = directionalShadowCascadeResolutions_[shadowIndex][i];
         const auto needsRecreate = [&](const std::unique_ptr<RHI::IRenderTarget>& target) {
             return target == nullptr || target->GetWidth() != desired || target->GetHeight() != desired;
         };
-        if (i < static_cast<RHI::u32>(normalized.CascadeCount) && needsRecreate(shadowTargets_[i])) {
-            shadowTargets_[i] = GetRhiContext().CreateRenderTarget(RHI::RenderTargetDesc{
+        if (i < static_cast<RHI::u32>(normalized.CascadeCount) && needsRecreate(directionalShadowTargets_[shadowIndex][i])) {
+            directionalShadowTargets_[shadowIndex][i] = GetRhiContext().CreateRenderTarget(RHI::RenderTargetDesc{
                 .width = desired,
                 .height = desired,
                 .colorAttachmentCount = 0,

@@ -905,7 +905,8 @@ void GLContext::BindResourceSet(const RHI::u32 slot, const RHI::IResourceSet& se
                 glBindBufferBase(GL_SHADER_STORAGE_BUFFER, binding.slot, handle);
             }
         } else {
-            BindTexture(binding.slot, binding.texture);
+            // For sampler arrays we treat each array element as binding.slot + arrayElement.
+            BindTexture(binding.slot + binding.arrayElement, binding.texture);
         }
     }
 }

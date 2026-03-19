@@ -1,5 +1,16 @@
 #version 450
 
+struct DirectionalLight
+{
+    vec4 direction;
+    vec4 shadowCascadeSplits;
+    vec4 shadowParams;
+    vec4 shadowBiasParams;
+    vec4 shadowState;
+    mat4 shadowMatrices[3];
+    mat4 shadowInvMatrices[3];
+};
+
 struct InstanceData
 {
     mat4 model;
@@ -9,23 +20,25 @@ struct InstanceData
     vec4 surfaceData1;
 };
 
+struct Light
+{
+    uint type;
+    uint flags;
+    uint dataIndex;
+    uint shadowIndex;
+    vec4 colorIntensity;
+    vec4 specular;
+};
+
 layout(binding = 0, std140) uniform CameraUBO
 {
     mat4 view;
     mat4 projection;
     vec4 cameraPosition;
-    vec4 lightDirection;
-    vec4 lightColorIntensity;
-    vec4 lightSpecular;
     vec4 ambient;
     vec4 skyTint;
     vec4 renderSettings;
-    mat4 shadowMatrices[3];
-    mat4 shadowInvMatrices[3];
-    vec4 shadowCascadeSplits;
-    vec4 shadowParams;
-    vec4 shadowAdaptiveBiasParams;
-    vec4 shadowState;
+    vec4 lightingSettings;
     vec4 cameraForward;
 } camera;
 
@@ -34,13 +47,18 @@ layout(binding = 9, std430) readonly buffer InstanceSSBO
     InstanceData instances[];
 } instanceData;
 
+layout(binding = 10, std430) readonly buffer LightsSSBO
+{
+    uvec4 counts;
+    Light lights[64];
+    DirectionalLight directionalLights[64];
+} lightData;
+
 layout(binding = 2) uniform sampler2D surfaceAtlas;
-layout(binding = 8) uniform sampler2D surfaceNormalAtlas;
-layout(binding = 4) uniform sampler2DShadow directionalShadowMap1;
-layout(binding = 5) uniform sampler2DShadow directionalShadowMap2;
-layout(binding = 3) uniform sampler2DShadow directionalShadowMap0;
-layout(binding = 7) uniform sampler3D directionalShadowJitter;
-layout(binding = 6) uniform sampler2D neonTexture;
+layout(binding = 6) uniform sampler2D surfaceNormalAtlas;
+layout(binding = 3) uniform sampler2DShadow directionalShadowMaps[6];
+layout(binding = 5) uniform sampler3D directionalShadowJitter;
+layout(binding = 4) uniform sampler2D neonTexture;
 layout(binding = 1) uniform samplerCube skyboxTex;
 
 layout(location = 1) in vec3 fragWorldPos;
@@ -89,62 +107,62 @@ int GetSurfaceType(vec3 normal)
 {
     vec3 n = normalize(normal);
     vec3 a = abs(n);
-    bool _335 = a.y >= a.x;
-    bool _343;
-    if (_335)
+    bool _334 = a.y >= a.x;
+    bool _342;
+    if (_334)
     {
-        _343 = a.y >= a.z;
+        _342 = a.y >= a.z;
     }
     else
     {
-        _343 = _335;
+        _342 = _334;
     }
-    if (_343)
+    if (_342)
     {
-        int _349;
+        int _348;
         if (n.y > 0.0)
         {
-            _349 = GetTopSurfaceType();
+            _348 = GetTopSurfaceType();
         }
         else
         {
-            _349 = GetBottomSurfaceType();
+            _348 = GetBottomSurfaceType();
         }
-        return _349;
+        return _348;
     }
-    bool _361 = a.x >= a.y;
-    bool _369;
-    if (_361)
+    bool _360 = a.x >= a.y;
+    bool _368;
+    if (_360)
     {
-        _369 = a.x >= a.z;
+        _368 = a.x >= a.z;
     }
     else
     {
-        _369 = _361;
+        _368 = _360;
     }
-    if (_369)
+    if (_368)
     {
-        int _375;
+        int _374;
         if (n.x > 0.0)
         {
-            _375 = GetRightSurfaceType();
+            _374 = GetRightSurfaceType();
         }
         else
         {
-            _375 = GetLeftSurfaceType();
+            _374 = GetLeftSurfaceType();
         }
-        return _375;
+        return _374;
     }
-    int _386;
+    int _385;
     if (n.z > 0.0)
     {
-        _386 = GetFrontSurfaceType();
+        _385 = GetFrontSurfaceType();
     }
     else
     {
-        _386 = GetBackSurfaceType();
+        _385 = GetBackSurfaceType();
     }
-    return _386;
+    return _385;
 }
 
 vec3 GetMeshSizeFromModel()
@@ -162,34 +180,34 @@ vec2 GetFaceUV(vec3 localPos, vec3 localNormal)
     vec3 halfSize = size * 0.5;
     vec3 n = normalize(localNormal);
     vec3 a = abs(n);
-    bool _414 = a.x >= a.y;
-    bool _422;
-    if (_414)
+    bool _413 = a.x >= a.y;
+    bool _421;
+    if (_413)
     {
-        _422 = a.x >= a.z;
+        _421 = a.x >= a.z;
     }
     else
     {
-        _422 = _414;
+        _421 = _413;
     }
     vec2 uv;
-    if (_422)
+    if (_421)
     {
         uv = scaledPos.zy + halfSize.zy;
     }
     else
     {
-        bool _436 = a.y >= a.x;
-        bool _444;
-        if (_436)
+        bool _435 = a.y >= a.x;
+        bool _443;
+        if (_435)
         {
-            _444 = a.y >= a.z;
+            _443 = a.y >= a.z;
         }
         else
         {
-            _444 = _436;
+            _443 = _435;
         }
-        if (_444)
+        if (_443)
         {
             uv = scaledPos.xz + halfSize.xz;
         }
@@ -230,17 +248,17 @@ vec2 GetSurfaceAtlasUV(int surfaceType, vec2 uv)
 
 vec3 SampleSurfaceColor(int surfaceType, vec2 uv)
 {
-    bool _541 = surfaceType == 0;
-    bool _547;
-    if (!_541)
+    bool _540 = surfaceType == 0;
+    bool _546;
+    if (!_540)
     {
-        _547 = !IsSurfaceEnabled();
+        _546 = !IsSurfaceEnabled();
     }
     else
     {
-        _547 = _541;
+        _546 = _540;
     }
-    if (_547)
+    if (_546)
     {
         return vec3(1.0);
     }
@@ -256,52 +274,52 @@ bool IsSurfaceNormalEnabled()
 
 vec3 GetSurfaceMappedNormal(vec3 localNormal, int surfaceType, vec2 uv)
 {
-    bool _563 = !IsSurfaceEnabled();
-    bool _569;
-    if (!_563)
+    bool _562 = !IsSurfaceEnabled();
+    bool _568;
+    if (!_562)
     {
-        _569 = !IsSurfaceNormalEnabled();
+        _568 = !IsSurfaceNormalEnabled();
     }
     else
     {
-        _569 = _563;
+        _568 = _562;
     }
-    if (_569 || (surfaceType == 0))
+    if (_568 || (surfaceType == 0))
     {
         return normalize(mat3(inst.model[0].xyz, inst.model[1].xyz, inst.model[2].xyz) * localNormal);
     }
     vec3 n = normalize(localNormal);
     vec3 a = abs(n);
-    bool _600 = a.x >= a.y;
-    bool _608;
-    if (_600)
+    bool _599 = a.x >= a.y;
+    bool _607;
+    if (_599)
     {
-        _608 = a.x >= a.z;
+        _607 = a.x >= a.z;
     }
     else
     {
-        _608 = _600;
+        _607 = _599;
     }
     vec3 tangentLocal;
     vec3 bitangentLocal;
-    if (_608)
+    if (_607)
     {
         tangentLocal = vec3(0.0, 0.0, 1.0);
         bitangentLocal = vec3(0.0, 1.0, 0.0);
     }
     else
     {
-        bool _620 = a.y >= a.x;
-        bool _628;
-        if (_620)
+        bool _619 = a.y >= a.x;
+        bool _627;
+        if (_619)
         {
-            _628 = a.y >= a.z;
+            _627 = a.y >= a.z;
         }
         else
         {
-            _628 = _620;
+            _627 = _619;
         }
-        if (_628)
+        if (_627)
         {
             tangentLocal = vec3(1.0, 0.0, 0.0);
             bitangentLocal = vec3(0.0, 0.0, 1.0);
@@ -320,146 +338,56 @@ vec3 GetSurfaceMappedNormal(vec3 localNormal, int surfaceType, vec2 uv)
     return normalize(mat3(inst.model[0].xyz, inst.model[1].xyz, inst.model[2].xyz) * mappedLocal);
 }
 
-vec2 GetDirectionalShadowTexelSize(int cascadeIndex)
+vec2 GetDirectionalShadowTexelSize(int shadowMapBase, int cascadeIndex)
 {
-    ivec2 size = ivec2(1);
-    if (cascadeIndex == 1)
-    {
-        size = max(textureSize(directionalShadowMap1, 0), ivec2(1));
-    }
-    else
-    {
-        if (cascadeIndex == 2)
-        {
-            size = max(textureSize(directionalShadowMap2, 0), ivec2(1));
-        }
-        else
-        {
-            size = max(textureSize(directionalShadowMap0, 0), ivec2(1));
-        }
-    }
+    int idx = clamp(shadowMapBase + cascadeIndex, 0, 5);
+    ivec2 size = max(textureSize(directionalShadowMaps[idx], 0), ivec2(1));
     return vec2(1.0) / vec2(size);
 }
 
-float ComputeDirectionalBias(int cascadeIndex, vec3 normal, vec3 lightDir)
+float ComputeDirectionalBias(DirectionalLight dl, int shadowMapBase, int cascadeIndex, vec3 normal, vec3 lightDir)
 {
-    int param = cascadeIndex;
-    vec2 texelSize = GetDirectionalShadowTexelSize(param);
+    int param = shadowMapBase;
+    int param_1 = cascadeIndex;
+    vec2 texelSize = GetDirectionalShadowTexelSize(param, param_1);
     float texelScale = max(texelSize.x, texelSize.y);
     float ndotl = clamp(dot(normal, lightDir), 0.0, 1.0);
-    float biasTexels = camera.shadowParams.x * (1.0 + (1.0 - ndotl));
+    float constantBiasTexels = max(dl.shadowParams.x, 0.0);
+    float slopeBiasFactor = max(dl.shadowBiasParams.x, 0.0);
+    float maxBiasTexels = max(dl.shadowBiasParams.y, 0.0);
+    float tanTheta = sqrt(max(1.0 - (ndotl * ndotl), 0.0)) / max(ndotl, 0.001000000047497451305389404296875);
+    float biasTexels = constantBiasTexels + (slopeBiasFactor * tanTheta);
+    if (maxBiasTexels > 0.0)
+    {
+        biasTexels = min(biasTexels, maxBiasTexels);
+    }
     return biasTexels * texelScale;
 }
 
-float SampleDirectionalShadowMap(int cascadeIndex, vec3 shadowCoord)
+float SampleDirectionalShadowMap(int shadowMapBase, int cascadeIndex, vec3 shadowCoord)
 {
-    if (cascadeIndex == 1)
-    {
-        return texture(directionalShadowMap1, vec3(shadowCoord.xy, shadowCoord.z));
-    }
-    if (cascadeIndex == 2)
-    {
-        return texture(directionalShadowMap2, vec3(shadowCoord.xy, shadowCoord.z));
-    }
-    return texture(directionalShadowMap0, vec3(shadowCoord.xy, shadowCoord.z));
+    int idx = clamp(shadowMapBase + cascadeIndex, 0, 5);
+    return texture(directionalShadowMaps[idx], vec3(shadowCoord.xy, shadowCoord.z));
 }
 
-float ComputeDirectionalAdaptiveEpsilon(int cascadeIndex, float ndotl)
+float SampleDirectionalPCF(DirectionalLight dl, int shadowMapBase, int cascadeIndex, vec3 baseShadowCoord, float radiusTexels, vec3 normal, vec3 lightDir)
 {
-    int param = cascadeIndex;
-    vec2 texelSize = GetDirectionalShadowTexelSize(param);
-    float texelScale = max(texelSize.x, texelSize.y);
-    float base = (max(0.0, camera.shadowParams.x) * texelScale) * max(camera.shadowAdaptiveBiasParams.y, 0.0);
-    float cosTheta = clamp(abs(ndotl), 0.001000000047497451305389404296875, 1.0);
-    float maxScale = max(camera.shadowAdaptiveBiasParams.z, 1.0);
-    float scaleFactor = min(1.0 / (cosTheta * cosTheta), maxScale);
-    return base * scaleFactor;
-}
-
-float ComputeDirectionalPotentialOccluderDepth(int cascadeIndex, vec2 shadowUv, vec3 normal, float fallbackDepth)
-{
-    vec2 ndc = (shadowUv * 2.0) - vec2(1.0);
-    mat4 inv = camera.shadowInvMatrices[cascadeIndex];
-    vec4 worldNear4 = inv * vec4(ndc, 0.0, 1.0);
-    vec4 worldFar4 = inv * vec4(ndc, 1.0, 1.0);
-    vec3 worldNear = worldNear4.xyz / vec3(max(worldNear4.w, 9.9999999747524270787835121154785e-07));
-    vec3 worldFar = worldFar4.xyz / vec3(max(worldFar4.w, 9.9999999747524270787835121154785e-07));
-    vec3 rayDir = worldFar - worldNear;
-    float denom = dot(normal, rayDir);
-    if (abs(denom) <= 9.9999999747524270787835121154785e-07)
-    {
-        return fallbackDepth;
-    }
-    float t = dot(normal, fragWorldPos - worldNear) / denom;
-    if ((t < 0.0) || (t > 1.0))
-    {
-        return fallbackDepth;
-    }
-    vec3 worldPos = worldNear + (rayDir * t);
-    vec4 lightNdc = camera.shadowMatrices[cascadeIndex] * vec4(worldPos, 1.0);
-    return clamp(lightNdc.z, 0.0, 1.0);
-}
-
-float SampleDirectionalAdaptivePCF(int cascadeIndex, vec3 baseShadowCoord, float radiusTexels, vec3 normal, vec3 lightDir)
-{
-    int desiredTaps = clamp(int(camera.shadowParams.z + 0.5), 1, 64);
+    int desiredTaps = clamp(int(dl.shadowParams.z + 0.5), 1, 64);
     float radius = max(0.0, radiusTexels);
     if ((radius <= 9.9999999747524270787835121154785e-07) || (desiredTaps <= 1))
     {
-        int param = cascadeIndex;
-        vec3 param_1 = baseShadowCoord;
-        return SampleDirectionalShadowMap(param, param_1);
+        int param = shadowMapBase;
+        int param_1 = cascadeIndex;
+        vec3 param_2 = baseShadowCoord;
+        return SampleDirectionalShadowMap(param, param_1, param_2);
     }
-    int param_2 = cascadeIndex;
-    vec2 texelSize = GetDirectionalShadowTexelSize(param_2);
+    int param_3 = shadowMapBase;
+    int param_4 = cascadeIndex;
+    vec2 texelSize = GetDirectionalShadowTexelSize(param_3, param_4);
     float texelScale = max(texelSize.x, texelSize.y);
     float fsize = radius * texelScale;
     float ndotl = clamp(dot(normal, lightDir), -1.0, 1.0);
-    bool useAdaptiveBias = camera.shadowAdaptiveBiasParams.x > 0.5;
-    float _940;
-    if (useAdaptiveBias)
-    {
-        int param_3 = cascadeIndex;
-        float param_4 = ndotl;
-        _940 = ComputeDirectionalAdaptiveEpsilon(param_3, param_4);
-    }
-    else
-    {
-        _940 = 0.0;
-    }
-    float epsilon = _940;
-    float occluderDepth0 = baseShadowCoord.z;
-    float deltaBiasX = 0.0;
-    float deltaBiasY = 0.0;
-    if (useAdaptiveBias)
-    {
-        vec2 shadowMapSize = vec2(1.0) / texelSize;
-        vec2 uvCenter = (floor(baseShadowCoord.xy * shadowMapSize) + vec2(0.5)) / shadowMapSize;
-        vec2 uvMin = texelSize * 0.5;
-        vec2 uvMax = vec2(1.0) - uvMin;
-        uvCenter = clamp(uvCenter, uvMin, uvMax);
-        vec2 uvX = clamp(uvCenter + vec2(texelSize.x, 0.0), uvMin, uvMax);
-        vec2 uvY = clamp(uvCenter + vec2(0.0, texelSize.y), uvMin, uvMax);
-        int param_5 = cascadeIndex;
-        vec2 param_6 = uvCenter;
-        vec3 param_7 = normal;
-        float param_8 = baseShadowCoord.z;
-        float z0 = ComputeDirectionalPotentialOccluderDepth(param_5, param_6, param_7, param_8);
-        int param_9 = cascadeIndex;
-        vec2 param_10 = uvX;
-        vec3 param_11 = normal;
-        float param_12 = z0;
-        float zX = ComputeDirectionalPotentialOccluderDepth(param_9, param_10, param_11, param_12);
-        int param_13 = cascadeIndex;
-        vec2 param_14 = uvY;
-        vec3 param_15 = normal;
-        float param_16 = z0;
-        float zY = ComputeDirectionalPotentialOccluderDepth(param_13, param_14, param_15, param_16);
-        occluderDepth0 = z0;
-        deltaBiasX = zX - z0;
-        deltaBiasY = zY - z0;
-    }
-    vec3 jcoord = vec3(gl_FragCoord.xy * camera.shadowState.yz, 0.0);
+    vec3 jcoord = vec3(gl_FragCoord.xy * dl.shadowState.yz, 0.0);
     float shadowSum = 0.0;
     int pretestTaps = min(8, desiredTaps);
     int tapsDone = 0;
@@ -472,35 +400,25 @@ float SampleDirectionalAdaptivePCF(int cascadeIndex, vec3 baseShadowCoord, float
         if (tapsDone < pretestTaps)
         {
             vec2 uvOffset = offset.xy * fsize;
-            vec2 _1103 = uvOffset + baseShadowCoord.xy;
-            smCoord.x = _1103.x;
-            smCoord.y = _1103.y;
-            if (useAdaptiveBias)
-            {
-                vec2 texelOffset = uvOffset / texelSize;
-                float occluderDepth = (occluderDepth0 + (deltaBiasX * texelOffset.x)) + (deltaBiasY * texelOffset.y);
-                smCoord.z = clamp(occluderDepth - epsilon, 0.0, 1.0);
-            }
-            int param_17 = cascadeIndex;
-            vec3 param_18 = smCoord;
-            shadowSum += SampleDirectionalShadowMap(param_17, param_18);
+            vec2 _831 = uvOffset + baseShadowCoord.xy;
+            smCoord.x = _831.x;
+            smCoord.y = _831.y;
+            int param_5 = shadowMapBase;
+            int param_6 = cascadeIndex;
+            vec3 param_7 = smCoord;
+            shadowSum += SampleDirectionalShadowMap(param_5, param_6, param_7);
             tapsDone++;
         }
         if (tapsDone < pretestTaps)
         {
             vec2 uvOffset_1 = offset.zw * fsize;
-            vec2 _1154 = uvOffset_1 + baseShadowCoord.xy;
-            smCoord.x = _1154.x;
-            smCoord.y = _1154.y;
-            if (useAdaptiveBias)
-            {
-                vec2 texelOffset_1 = uvOffset_1 / texelSize;
-                float occluderDepth_1 = (occluderDepth0 + (deltaBiasX * texelOffset_1.x)) + (deltaBiasY * texelOffset_1.y);
-                smCoord.z = clamp(occluderDepth_1 - epsilon, 0.0, 1.0);
-            }
-            int param_19 = cascadeIndex;
-            vec3 param_20 = smCoord;
-            shadowSum += SampleDirectionalShadowMap(param_19, param_20);
+            vec2 _860 = uvOffset_1 + baseShadowCoord.xy;
+            smCoord.x = _860.x;
+            smCoord.y = _860.y;
+            int param_8 = shadowMapBase;
+            int param_9 = cascadeIndex;
+            vec3 param_10 = smCoord;
+            shadowSum += SampleDirectionalShadowMap(param_8, param_9, param_10);
             tapsDone++;
         }
     }
@@ -519,35 +437,25 @@ float SampleDirectionalAdaptivePCF(int cascadeIndex, vec3 baseShadowCoord, float
             if (tapsDone < desiredTaps)
             {
                 vec2 uvOffset_2 = offset_1.xy * fsize;
-                vec2 _1256 = uvOffset_2 + baseShadowCoord.xy;
-                smCoord_1.x = _1256.x;
-                smCoord_1.y = _1256.y;
-                if (useAdaptiveBias)
-                {
-                    vec2 texelOffset_2 = uvOffset_2 / texelSize;
-                    float occluderDepth_2 = (occluderDepth0 + (deltaBiasX * texelOffset_2.x)) + (deltaBiasY * texelOffset_2.y);
-                    smCoord_1.z = clamp(occluderDepth_2 - epsilon, 0.0, 1.0);
-                }
-                int param_21 = cascadeIndex;
-                vec3 param_22 = smCoord_1;
-                shadowSum += SampleDirectionalShadowMap(param_21, param_22);
+                vec2 _940 = uvOffset_2 + baseShadowCoord.xy;
+                smCoord_1.x = _940.x;
+                smCoord_1.y = _940.y;
+                int param_11 = shadowMapBase;
+                int param_12 = cascadeIndex;
+                vec3 param_13 = smCoord_1;
+                shadowSum += SampleDirectionalShadowMap(param_11, param_12, param_13);
                 tapsDone++;
             }
             if (tapsDone < desiredTaps)
             {
                 vec2 uvOffset_3 = offset_1.zw * fsize;
-                vec2 _1307 = uvOffset_3 + baseShadowCoord.xy;
-                smCoord_1.x = _1307.x;
-                smCoord_1.y = _1307.y;
-                if (useAdaptiveBias)
-                {
-                    vec2 texelOffset_3 = uvOffset_3 / texelSize;
-                    float occluderDepth_3 = (occluderDepth0 + (deltaBiasX * texelOffset_3.x)) + (deltaBiasY * texelOffset_3.y);
-                    smCoord_1.z = clamp(occluderDepth_3 - epsilon, 0.0, 1.0);
-                }
-                int param_23 = cascadeIndex;
-                vec3 param_24 = smCoord_1;
-                shadowSum += SampleDirectionalShadowMap(param_23, param_24);
+                vec2 _969 = uvOffset_3 + baseShadowCoord.xy;
+                smCoord_1.x = _969.x;
+                smCoord_1.y = _969.y;
+                int param_14 = shadowMapBase;
+                int param_15 = cascadeIndex;
+                vec3 param_16 = smCoord_1;
+                shadowSum += SampleDirectionalShadowMap(param_14, param_15, param_16);
                 tapsDone++;
             }
         }
@@ -556,47 +464,47 @@ float SampleDirectionalAdaptivePCF(int cascadeIndex, vec3 baseShadowCoord, float
     return shadowPretest;
 }
 
-float ComputeShadowFactor(vec3 normal, vec3 lightDir)
+float ComputeDirectionalShadowFactor(DirectionalLight dl, int shadowMapBase, vec3 normal, vec3 lightDir)
 {
-    if (camera.shadowState.x < 0.5)
+    if (dl.shadowState.x < 0.5)
     {
         return 1.0;
     }
-    int cascadeCount = clamp(int(camera.shadowCascadeSplits.w + 0.5), 1, 3);
+    int cascadeCount = clamp(int(dl.shadowCascadeSplits.w + 0.5), 1, 3);
     float viewDepth = max(dot(fragWorldPos - camera.cameraPosition.xyz, normalize(camera.cameraForward.xyz)), 0.0);
     int cascadeIndex = 0;
-    bool _1410 = cascadeCount >= 3;
-    bool _1417;
-    if (_1410)
+    bool _1086 = cascadeCount >= 3;
+    bool _1093;
+    if (_1086)
     {
-        _1417 = viewDepth > camera.shadowCascadeSplits.y;
+        _1093 = viewDepth > dl.shadowCascadeSplits.y;
     }
     else
     {
-        _1417 = _1410;
+        _1093 = _1086;
     }
-    if (_1417)
+    if (_1093)
     {
         cascadeIndex = 2;
     }
     else
     {
-        bool _1422 = cascadeCount >= 2;
-        bool _1429;
-        if (_1422)
+        bool _1098 = cascadeCount >= 2;
+        bool _1105;
+        if (_1098)
         {
-            _1429 = viewDepth > camera.shadowCascadeSplits.x;
+            _1105 = viewDepth > dl.shadowCascadeSplits.x;
         }
         else
         {
-            _1429 = _1422;
+            _1105 = _1098;
         }
-        if (_1429)
+        if (_1105)
         {
             cascadeIndex = 1;
         }
     }
-    vec4 lightClip = camera.shadowMatrices[cascadeIndex] * vec4(fragWorldPos, 1.0);
+    vec4 lightClip = dl.shadowMatrices[cascadeIndex] * vec4(fragWorldPos, 1.0);
     if (abs(lightClip.w) <= 9.9999999747524270787835121154785e-07)
     {
         return 1.0;
@@ -608,79 +516,68 @@ float ComputeShadowFactor(vec3 normal, vec3 lightDir)
     {
         return 1.0;
     }
-    bool _1475 = shadowUv.x < 0.0;
-    bool _1482;
-    if (!_1475)
+    bool _1152 = shadowUv.x < 0.0;
+    bool _1159;
+    if (!_1152)
     {
-        _1482 = shadowUv.x > 1.0;
+        _1159 = shadowUv.x > 1.0;
     }
     else
     {
-        _1482 = _1475;
+        _1159 = _1152;
     }
-    bool _1489;
-    if (!_1482)
+    bool _1166;
+    if (!_1159)
     {
-        _1489 = shadowUv.y < 0.0;
+        _1166 = shadowUv.y < 0.0;
     }
     else
     {
-        _1489 = _1482;
+        _1166 = _1159;
     }
-    bool _1496;
-    if (!_1489)
+    bool _1173;
+    if (!_1166)
     {
-        _1496 = shadowUv.y > 1.0;
+        _1173 = shadowUv.y > 1.0;
     }
     else
     {
-        _1496 = _1489;
+        _1173 = _1166;
     }
-    if (_1496)
+    if (_1173)
     {
         return 1.0;
     }
-    float softness = camera.shadowParams.y;
-    vec2 baseSize = vec2(max(textureSize(directionalShadowMap0, 0), ivec2(1)));
+    float softness = dl.shadowParams.y;
+    vec2 baseSize = vec2(max(textureSize(directionalShadowMaps[clamp(shadowMapBase + 0, 0, 5)], 0), ivec2(1)));
     vec2 cascadeSize = baseSize;
-    if (cascadeIndex == 1)
-    {
-        cascadeSize = vec2(max(textureSize(directionalShadowMap1, 0), ivec2(1)));
-    }
-    else
-    {
-        if (cascadeIndex == 2)
-        {
-            cascadeSize = vec2(max(textureSize(directionalShadowMap2, 0), ivec2(1)));
-        }
-    }
+    cascadeSize = vec2(max(textureSize(directionalShadowMaps[clamp(shadowMapBase + cascadeIndex, 0, 5)], 0), ivec2(1)));
     float baseRes = max(baseSize.x, baseSize.y);
     float cascadeRes = max(cascadeSize.x, cascadeSize.y);
     float resScale = cascadeRes / max(baseRes, 1.0);
     softness *= resScale;
-    float compareDepth = receiverDepth;
-    if (camera.shadowAdaptiveBiasParams.x < 0.5)
-    {
-        float ndotl = clamp(dot(normal, lightDir), 0.0, 1.0);
-        int param = cascadeIndex;
-        vec3 param_1 = normal;
-        vec3 param_2 = lightDir;
-        float bias = ComputeDirectionalBias(param, param_1, param_2);
-        compareDepth = clamp(receiverDepth - bias, 0.0, 1.0);
-    }
-    int param_3 = cascadeIndex;
-    vec3 param_4 = vec3(shadowUv, compareDepth);
-    float param_5 = softness;
-    vec3 param_6 = normal;
-    vec3 param_7 = lightDir;
-    float shadow = SampleDirectionalAdaptivePCF(param_3, param_4, param_5, param_6, param_7);
+    DirectionalLight param = dl;
+    int param_1 = shadowMapBase;
+    int param_2 = cascadeIndex;
+    vec3 param_3 = normal;
+    vec3 param_4 = lightDir;
+    float bias = ComputeDirectionalBias(param, param_1, param_2, param_3, param_4);
+    float compareDepth = clamp(receiverDepth - bias, 0.0, 1.0);
+    DirectionalLight param_5 = dl;
+    int param_6 = shadowMapBase;
+    int param_7 = cascadeIndex;
+    vec3 param_8 = vec3(shadowUv, compareDepth);
+    float param_9 = softness;
+    vec3 param_10 = normal;
+    vec3 param_11 = lightDir;
+    float shadow = SampleDirectionalPCF(param_5, param_6, param_7, param_8, param_9, param_10, param_11);
     if (cascadeIndex == (cascadeCount - 1))
     {
-        float fadeWidth = clamp(camera.shadowParams.w, 0.0, 1.0);
+        float fadeWidth = clamp(dl.shadowParams.w, 0.0, 1.0);
         if (fadeWidth > 9.9999997473787516355514526367188e-05)
         {
-            float fadeStart = camera.shadowCascadeSplits.z * (1.0 - fadeWidth);
-            float fade = clamp((viewDepth - fadeStart) / max(camera.shadowCascadeSplits.z - fadeStart, 9.9999997473787516355514526367188e-05), 0.0, 1.0);
+            float fadeStart = dl.shadowCascadeSplits.z * (1.0 - fadeWidth);
+            float fade = clamp((viewDepth - fadeStart) / max(dl.shadowCascadeSplits.z - fadeStart, 9.9999997473787516355514526367188e-05), 0.0, 1.0);
             shadow = mix(shadow, 1.0, fade);
         }
     }
@@ -766,16 +663,16 @@ void main()
     vec3 emissiveScene = (albedo * emissive) * 4.0;
     vec3 glowColor = (((glowBase * emissive) * 8.0) * blackNeonGlowBoost) * glowMask;
     vec2 neonUv = gl_FragCoord.xy / vec2(max(textureSize(neonTexture, 0), ivec2(1)));
-    vec3 _1763;
+    vec3 _1434;
     if (neonEnabled)
     {
-        _1763 = texture(neonTexture, neonUv).xyz;
+        _1434 = texture(neonTexture, neonUv).xyz;
     }
     else
     {
-        _1763 = vec3(0.0);
+        _1434 = vec3(0.0);
     }
-    vec3 neonSample = _1763;
+    vec3 neonSample = _1434;
     if (ignoreLighting > 0.5)
     {
         outSceneColor = vec4((albedo + emissiveScene) + ((neonSample * 0.100000001490116119384765625) * glowMask), alpha);
@@ -793,15 +690,61 @@ void main()
     vec2 param_7 = faceUV;
     vec3 N = GetSurfaceMappedNormal(param_5, param_6, param_7);
     vec3 V = normalize(camera.cameraPosition.xyz - fragWorldPos);
-    if (camera.shadowState.w > 0.5)
+    if (camera.lightingSettings.x > 0.5)
     {
         vec3 color = (camera.ambient.xyz * camera.ambient.w) * albedo;
-        vec3 L = normalize(-camera.lightDirection.xyz);
-        vec3 param_8 = N;
-        vec3 param_9 = L;
-        float shadowFactor = ComputeShadowFactor(param_8, param_9);
+        float shadowFactor = 1.0;
+        float fresnelAmount = 1.0;
+        uint lightCount = min(lightData.counts.x, 64u);
+        Light light;
+        DirectionalLight dl;
+        for (uint i = 0u; i < lightCount; i++)
+        {
+            light.type = lightData.lights[i].type;
+            light.flags = lightData.lights[i].flags;
+            light.dataIndex = lightData.lights[i].dataIndex;
+            light.shadowIndex = lightData.lights[i].shadowIndex;
+            light.colorIntensity = lightData.lights[i].colorIntensity;
+            light.specular = lightData.lights[i].specular;
+            if ((light.flags & 1u) == 0u)
+            {
+                continue;
+            }
+            fresnelAmount = clamp(light.specular.z, 0.0, 1.0);
+            bool _1582 = light.type == 0u;
+            bool _1589;
+            if (_1582)
+            {
+                _1589 = light.shadowIndex != 4294967295u;
+            }
+            else
+            {
+                _1589 = _1582;
+            }
+            if (_1589)
+            {
+                dl.direction = lightData.directionalLights[light.dataIndex].direction;
+                dl.shadowCascadeSplits = lightData.directionalLights[light.dataIndex].shadowCascadeSplits;
+                dl.shadowParams = lightData.directionalLights[light.dataIndex].shadowParams;
+                dl.shadowBiasParams = lightData.directionalLights[light.dataIndex].shadowBiasParams;
+                dl.shadowState = lightData.directionalLights[light.dataIndex].shadowState;
+                dl.shadowMatrices[0] = lightData.directionalLights[light.dataIndex].shadowMatrices[0];
+                dl.shadowMatrices[1] = lightData.directionalLights[light.dataIndex].shadowMatrices[1];
+                dl.shadowMatrices[2] = lightData.directionalLights[light.dataIndex].shadowMatrices[2];
+                dl.shadowInvMatrices[0] = lightData.directionalLights[light.dataIndex].shadowInvMatrices[0];
+                dl.shadowInvMatrices[1] = lightData.directionalLights[light.dataIndex].shadowInvMatrices[1];
+                dl.shadowInvMatrices[2] = lightData.directionalLights[light.dataIndex].shadowInvMatrices[2];
+                vec3 L = normalize(-dl.direction.xyz);
+                int shadowMapBase = int(light.shadowIndex) * 3;
+                DirectionalLight param_8 = dl;
+                int param_9 = shadowMapBase;
+                vec3 param_10 = N;
+                vec3 param_11 = L;
+                shadowFactor = ComputeDirectionalShadowFactor(param_8, param_9, param_10, param_11);
+                break;
+            }
+        }
         color += ((fragVertexLighting * surfaceDetail) * shadowFactor);
-        float fresnelAmount = clamp(camera.lightSpecular.z, 0.0, 1.0);
         float reflectionWeight = clamp(metalness, 0.0, 1.0);
         if (reflectionWeight > 9.9999997473787516355514526367188e-05)
         {
@@ -812,9 +755,9 @@ void main()
                 env = camera.skyTint.xyz;
             }
             vec3 F0 = mix(vec3(0.039999999105930328369140625), albedo, vec3(metalness));
-            float param_10 = max(dot(N, V), 0.0);
-            vec3 param_11 = F0;
-            vec3 FenvSchlick = FresnelSchlick(param_10, param_11);
+            float param_12 = max(dot(N, V), 0.0);
+            vec3 param_13 = F0;
+            vec3 FenvSchlick = FresnelSchlick(param_12, param_13);
             vec3 Fenv = mix(F0, FenvSchlick, vec3(fresnelAmount));
             float smoothness = 1.0 - roughness;
             color += (((env * Fenv) * reflectionWeight) * (smoothness * smoothness));
@@ -825,40 +768,96 @@ void main()
         return;
     }
     vec3 color_1 = (camera.ambient.xyz * camera.ambient.w) * albedo;
-    vec3 L_1 = normalize(-camera.lightDirection.xyz);
-    vec3 H = normalize(V + L_1);
-    vec3 param_12 = N;
-    vec3 param_13 = L_1;
-    float shadowFactor_1 = ComputeShadowFactor(param_12, param_13);
-    vec3 lightColor = camera.lightColorIntensity.xyz * camera.lightColorIntensity.w;
-    float specularStrength = max(camera.lightSpecular.x, 0.0);
-    float shininess = max(camera.lightSpecular.y, 1.0);
-    float NdotL = max(dot(N, L_1), 0.0);
-    vec3 F0_1 = mix(vec3(0.039999999105930328369140625), albedo, vec3(metalness));
-    float lightShininessToRoughness = clamp(sqrt(2.0 / (shininess + 2.0)), 0.0500000007450580596923828125, 1.0);
-    float effectiveRoughness = max(roughness * lightShininessToRoughness, 0.04500000178813934326171875);
-    vec3 param_14 = N;
-    vec3 param_15 = H;
-    float param_16 = effectiveRoughness;
-    float NDF = DistributionGGX(param_14, param_15, param_16);
-    vec3 param_17 = N;
-    vec3 param_18 = V;
-    vec3 param_19 = L_1;
-    float param_20 = effectiveRoughness;
-    float G = GeometrySmith(param_17, param_18, param_19, param_20);
-    float fresnelAmount_1 = clamp(camera.lightSpecular.z, 0.0, 1.0);
-    float param_21 = max(dot(H, V), 0.0);
-    vec3 param_22 = F0_1;
-    vec3 Fschlick = FresnelSchlick(param_21, param_22);
-    vec3 F = mix(F0_1, Fschlick, vec3(fresnelAmount_1));
-    vec3 numerator = F * (NDF * G);
-    float denominator = max((4.0 * max(dot(N, V), 0.0)) * NdotL, 9.9999997473787516355514526367188e-06);
-    float smoothness_1 = 1.0 - roughness;
-    vec3 specular = ((numerator / vec3(denominator)) * specularStrength) * (smoothness_1 * smoothness_1);
-    vec3 kS = F;
-    vec3 kD = (vec3(1.0) - kS) * (1.0 - metalness);
-    vec3 diffuse = (kD * albedo) / vec3(3.1415927410125732421875);
-    color_1 += ((((diffuse + specular) * lightColor) * NdotL) * shadowFactor_1);
+    float fresnelAmountEnv = 1.0;
+    uint lightCount_1 = min(lightData.counts.x, 64u);
+    Light light_1;
+    for (uint i_1 = 0u; i_1 < lightCount_1; i_1++)
+    {
+        light_1.type = lightData.lights[i_1].type;
+        light_1.flags = lightData.lights[i_1].flags;
+        light_1.dataIndex = lightData.lights[i_1].dataIndex;
+        light_1.shadowIndex = lightData.lights[i_1].shadowIndex;
+        light_1.colorIntensity = lightData.lights[i_1].colorIntensity;
+        light_1.specular = lightData.lights[i_1].specular;
+        if ((light_1.flags & 1u) == 0u)
+        {
+            continue;
+        }
+        fresnelAmountEnv = clamp(light_1.specular.z, 0.0, 1.0);
+        break;
+    }
+    Light light_2;
+    DirectionalLight dl_1;
+    for (uint i_2 = 0u; i_2 < lightCount_1; i_2++)
+    {
+        light_2.type = lightData.lights[i_2].type;
+        light_2.flags = lightData.lights[i_2].flags;
+        light_2.dataIndex = lightData.lights[i_2].dataIndex;
+        light_2.shadowIndex = lightData.lights[i_2].shadowIndex;
+        light_2.colorIntensity = lightData.lights[i_2].colorIntensity;
+        light_2.specular = lightData.lights[i_2].specular;
+        if ((light_2.flags & 1u) == 0u)
+        {
+            continue;
+        }
+        if (light_2.type == 0u)
+        {
+            dl_1.direction = lightData.directionalLights[light_2.dataIndex].direction;
+            dl_1.shadowCascadeSplits = lightData.directionalLights[light_2.dataIndex].shadowCascadeSplits;
+            dl_1.shadowParams = lightData.directionalLights[light_2.dataIndex].shadowParams;
+            dl_1.shadowBiasParams = lightData.directionalLights[light_2.dataIndex].shadowBiasParams;
+            dl_1.shadowState = lightData.directionalLights[light_2.dataIndex].shadowState;
+            dl_1.shadowMatrices[0] = lightData.directionalLights[light_2.dataIndex].shadowMatrices[0];
+            dl_1.shadowMatrices[1] = lightData.directionalLights[light_2.dataIndex].shadowMatrices[1];
+            dl_1.shadowMatrices[2] = lightData.directionalLights[light_2.dataIndex].shadowMatrices[2];
+            dl_1.shadowInvMatrices[0] = lightData.directionalLights[light_2.dataIndex].shadowInvMatrices[0];
+            dl_1.shadowInvMatrices[1] = lightData.directionalLights[light_2.dataIndex].shadowInvMatrices[1];
+            dl_1.shadowInvMatrices[2] = lightData.directionalLights[light_2.dataIndex].shadowInvMatrices[2];
+            vec3 L_1 = normalize(-dl_1.direction.xyz);
+            vec3 H = normalize(V + L_1);
+            float shadowFactor_1 = 1.0;
+            if (light_2.shadowIndex != 4294967295u)
+            {
+                int shadowMapBase_1 = int(light_2.shadowIndex) * 3;
+                DirectionalLight param_14 = dl_1;
+                int param_15 = shadowMapBase_1;
+                vec3 param_16 = N;
+                vec3 param_17 = L_1;
+                shadowFactor_1 = ComputeDirectionalShadowFactor(param_14, param_15, param_16, param_17);
+            }
+            vec3 lightColor = light_2.colorIntensity.xyz * light_2.colorIntensity.w;
+            float specularStrength = max(light_2.specular.x, 0.0);
+            float shininess = max(light_2.specular.y, 1.0);
+            float NdotL = max(dot(N, L_1), 0.0);
+            vec3 F0_1 = mix(vec3(0.039999999105930328369140625), albedo, vec3(metalness));
+            float lightShininessToRoughness = clamp(sqrt(2.0 / (shininess + 2.0)), 0.0500000007450580596923828125, 1.0);
+            float effectiveRoughness = max(roughness * lightShininessToRoughness, 0.04500000178813934326171875);
+            vec3 param_18 = N;
+            vec3 param_19 = H;
+            float param_20 = effectiveRoughness;
+            float NDF = DistributionGGX(param_18, param_19, param_20);
+            vec3 param_21 = N;
+            vec3 param_22 = V;
+            vec3 param_23 = L_1;
+            float param_24 = effectiveRoughness;
+            float G = GeometrySmith(param_21, param_22, param_23, param_24);
+            float fresnelAmount_1 = clamp(light_2.specular.z, 0.0, 1.0);
+            float param_25 = max(dot(H, V), 0.0);
+            vec3 param_26 = F0_1;
+            vec3 Fschlick = FresnelSchlick(param_25, param_26);
+            vec3 F = mix(F0_1, Fschlick, vec3(fresnelAmount_1));
+            vec3 numerator = F * (NDF * G);
+            float denominator = max((4.0 * max(dot(N, V), 0.0)) * NdotL, 9.9999997473787516355514526367188e-06);
+            float smoothness_1 = 1.0 - roughness;
+            vec3 specular = ((numerator / vec3(denominator)) * specularStrength) * (smoothness_1 * smoothness_1);
+            vec3 kS = F;
+            vec3 kD = (vec3(1.0) - kS) * (1.0 - metalness);
+            vec3 diffuse = (kD * albedo) / vec3(3.1415927410125732421875);
+            color_1 += ((((diffuse + specular) * lightColor) * NdotL) * shadowFactor_1);
+        }
+    }
+    vec3 F0_2 = mix(vec3(0.039999999105930328369140625), albedo, vec3(metalness));
+    float smoothness_2 = 1.0 - roughness;
     float reflectionWeight_1 = clamp(metalness, 0.0, 1.0);
     if (reflectionWeight_1 > 9.9999997473787516355514526367188e-05)
     {
@@ -868,11 +867,11 @@ void main()
         {
             env_1 = camera.skyTint.xyz;
         }
-        float param_23 = max(dot(N, V), 0.0);
-        vec3 param_24 = F0_1;
-        vec3 FenvSchlick_1 = FresnelSchlick(param_23, param_24);
-        vec3 Fenv_1 = mix(F0_1, FenvSchlick_1, vec3(fresnelAmount_1));
-        color_1 += (((env_1 * Fenv_1) * reflectionWeight_1) * (smoothness_1 * smoothness_1));
+        float param_27 = max(dot(N, V), 0.0);
+        vec3 param_28 = F0_2;
+        vec3 FenvSchlick_1 = FresnelSchlick(param_27, param_28);
+        vec3 Fenv_1 = mix(F0_2, FenvSchlick_1, vec3(fresnelAmountEnv));
+        color_1 += (((env_1 * Fenv_1) * reflectionWeight_1) * (smoothness_2 * smoothness_2));
     }
     color_1 += emissiveScene;
     outSceneColor = vec4(color_1 + ((neonSample * 0.100000001490116119384765625) * glowMask), alpha);

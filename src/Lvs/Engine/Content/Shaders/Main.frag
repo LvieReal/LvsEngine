@@ -13,29 +13,44 @@ layout(set = 0, binding = 0) uniform CameraUBO {
     mat4 view;
     mat4 projection;
     vec4 cameraPosition;
-    vec4 lightDirection;
-    vec4 lightColorIntensity;
-    vec4 lightSpecular;
     vec4 ambient;
     vec4 skyTint;
     vec4 renderSettings;
-    mat4 shadowMatrices[3];
-    mat4 shadowInvMatrices[3];
-    vec4 shadowCascadeSplits;
-    vec4 shadowParams;
-    vec4 shadowAdaptiveBiasParams;
-    vec4 shadowState;
+    vec4 lightingSettings; // x: perVertexShadingEnabled
     vec4 cameraForward;
 } camera;
 
 layout(set = 0, binding = 1) uniform samplerCube skyboxTex;
 layout(set = 0, binding = 2) uniform sampler2D surfaceAtlas;
-layout(set = 0, binding = 3) uniform sampler2DShadow directionalShadowMap0;
-layout(set = 0, binding = 4) uniform sampler2DShadow directionalShadowMap1;
-layout(set = 0, binding = 5) uniform sampler2DShadow directionalShadowMap2;
-layout(set = 0, binding = 6) uniform sampler2D neonTexture;
-layout(set = 0, binding = 7) uniform sampler3D directionalShadowJitter;
-layout(set = 0, binding = 8) uniform sampler2D surfaceNormalAtlas;
+layout(set = 0, binding = 3) uniform sampler2DShadow directionalShadowMaps[6];
+layout(set = 0, binding = 4) uniform sampler2D neonTexture;
+layout(set = 0, binding = 5) uniform sampler3D directionalShadowJitter;
+layout(set = 0, binding = 6) uniform sampler2D surfaceNormalAtlas;
+
+struct Light {
+    uint type;
+    uint flags;
+    uint dataIndex;
+    uint shadowIndex;
+    vec4 colorIntensity;
+    vec4 specular; // x: strength, y: shininess, z: fresnelAmount
+};
+
+struct DirectionalLight {
+    vec4 direction;
+    vec4 shadowCascadeSplits;
+    vec4 shadowParams;
+    vec4 shadowBiasParams;
+    vec4 shadowState;
+    mat4 shadowMatrices[3];
+    mat4 shadowInvMatrices[3];
+};
+
+layout(set = 0, binding = 10, std430) readonly buffer LightsSSBO {
+    uvec4 counts; // x: lightCount
+    Light lights[64];
+    DirectionalLight directionalLights[64];
+} lightData;
 
 struct InstanceData {
     mat4 model;
@@ -202,101 +217,31 @@ const int SHADOW_SAMPLES_COUNT = 64;
 const int SHADOW_SAMPLES_HALF = SHADOW_SAMPLES_COUNT / 2;
 const float INV_SHADOW_SAMPLES = 1.0 / float(SHADOW_SAMPLES_COUNT);
 
-vec2 GetDirectionalShadowTexelSize(int cascadeIndex) {
-    ivec2 size = ivec2(1, 1);
-    if (cascadeIndex == 1) {
-        size = max(textureSize(directionalShadowMap1, 0), ivec2(1));
-    } else if (cascadeIndex == 2) {
-        size = max(textureSize(directionalShadowMap2, 0), ivec2(1));
-    } else {
-        size = max(textureSize(directionalShadowMap0, 0), ivec2(1));
-    }
+vec2 GetDirectionalShadowTexelSize(int shadowMapBase, int cascadeIndex) {
+    int idx = clamp(shadowMapBase + cascadeIndex, 0, 5);
+    ivec2 size = max(textureSize(directionalShadowMaps[idx], 0), ivec2(1));
     return 1.0 / vec2(size);
 }
 
-float SampleDirectionalShadowMap(int cascadeIndex, vec3 shadowCoord) {
-    if (cascadeIndex == 1) {
-        return texture(directionalShadowMap1, shadowCoord);
-    }
-    if (cascadeIndex == 2) {
-        return texture(directionalShadowMap2, shadowCoord);
-    }
-    return texture(directionalShadowMap0, shadowCoord);
+float SampleDirectionalShadowMap(int shadowMapBase, int cascadeIndex, vec3 shadowCoord) {
+    int idx = clamp(shadowMapBase + cascadeIndex, 0, 5);
+    return texture(directionalShadowMaps[idx], shadowCoord);
 }
 
-float ComputeDirectionalAdaptiveEpsilon(int cascadeIndex, float ndotl) {
-    vec2 texelSize = GetDirectionalShadowTexelSize(cascadeIndex);
-    float texelScale = max(texelSize.x, texelSize.y);
-    float base = max(0.0, camera.shadowParams.x) * texelScale * max(camera.shadowAdaptiveBiasParams.y, 0.0);
-
-    float cosTheta = clamp(abs(ndotl), 1e-3, 1.0);
-    float maxScale = max(camera.shadowAdaptiveBiasParams.z, 1.0);
-    float scaleFactor = min(1.0 / (cosTheta * cosTheta), maxScale);
-    return base * scaleFactor;
-}
-
-float ComputeDirectionalPotentialOccluderDepth(int cascadeIndex, vec2 shadowUv, vec3 normal, float fallbackDepth) {
-    vec2 ndc = (shadowUv * 2.0) - 1.0;
-
-    mat4 inv = camera.shadowInvMatrices[cascadeIndex];
-    vec4 worldNear4 = inv * vec4(ndc, 0.0, 1.0);
-    vec4 worldFar4 = inv * vec4(ndc, 1.0, 1.0);
-    vec3 worldNear = worldNear4.xyz / max(worldNear4.w, 1e-6);
-    vec3 worldFar = worldFar4.xyz / max(worldFar4.w, 1e-6);
-
-    vec3 rayDir = worldFar - worldNear;
-    float denom = dot(normal, rayDir);
-    if (abs(denom) <= 1e-6) {
-        return fallbackDepth;
-    }
-
-    float t = dot(normal, (fragWorldPos - worldNear)) / denom;
-    if (t < 0.0 || t > 1.0) {
-        return fallbackDepth;
-    }
-
-    vec3 worldPos = worldNear + (rayDir * t);
-    vec4 lightNdc = camera.shadowMatrices[cascadeIndex] * vec4(worldPos, 1.0);
-    return clamp(lightNdc.z, 0.0, 1.0);
-}
-
-float SampleDirectionalAdaptivePCF(int cascadeIndex, vec3 baseShadowCoord, float radiusTexels, vec3 normal, vec3 lightDir) {
-    int desiredTaps = clamp(int(camera.shadowParams.z + 0.5), 1, SHADOW_SAMPLES_COUNT);
+float SampleDirectionalPCF(DirectionalLight dl, int shadowMapBase, int cascadeIndex, vec3 baseShadowCoord, float radiusTexels, vec3 normal, vec3 lightDir) {
+    int desiredTaps = clamp(int(dl.shadowParams.z + 0.5), 1, SHADOW_SAMPLES_COUNT);
     float radius = max(0.0, radiusTexels);
     if (radius <= 1e-6 || desiredTaps <= 1) {
-        return SampleDirectionalShadowMap(cascadeIndex, baseShadowCoord);
+        return SampleDirectionalShadowMap(shadowMapBase, cascadeIndex, baseShadowCoord);
     }
 
-    vec2 texelSize = GetDirectionalShadowTexelSize(cascadeIndex);
+    vec2 texelSize = GetDirectionalShadowTexelSize(shadowMapBase, cascadeIndex);
     float texelScale = max(texelSize.x, texelSize.y);
     float fsize = radius * texelScale;
 
     float ndotl = clamp(dot(normal, lightDir), -1.0, 1.0);
-    bool useAdaptiveBias = camera.shadowAdaptiveBiasParams.x > 0.5;
-    float epsilon = useAdaptiveBias ? ComputeDirectionalAdaptiveEpsilon(cascadeIndex, ndotl) : 0.0;
 
-    float occluderDepth0 = baseShadowCoord.z;
-    float deltaBiasX = 0.0;
-    float deltaBiasY = 0.0;
-    if (useAdaptiveBias) {
-        vec2 shadowMapSize = 1.0 / texelSize;
-        vec2 uvCenter = (floor(baseShadowCoord.xy * shadowMapSize) + 0.5) / shadowMapSize;
-        vec2 uvMin = texelSize * 0.5;
-        vec2 uvMax = vec2(1.0) - uvMin;
-        uvCenter = clamp(uvCenter, uvMin, uvMax);
-
-        vec2 uvX = clamp(uvCenter + vec2(texelSize.x, 0.0), uvMin, uvMax);
-        vec2 uvY = clamp(uvCenter + vec2(0.0, texelSize.y), uvMin, uvMax);
-
-        float z0 = ComputeDirectionalPotentialOccluderDepth(cascadeIndex, uvCenter, normal, baseShadowCoord.z);
-        float zX = ComputeDirectionalPotentialOccluderDepth(cascadeIndex, uvX, normal, z0);
-        float zY = ComputeDirectionalPotentialOccluderDepth(cascadeIndex, uvY, normal, z0);
-        occluderDepth0 = z0;
-        deltaBiasX = zX - z0;
-        deltaBiasY = zY - z0;
-    }
-
-    vec3 jcoord = vec3(gl_FragCoord.xy * camera.shadowState.yz, 0.0);
+    vec3 jcoord = vec3(gl_FragCoord.xy * dl.shadowState.yz, 0.0);
     float shadowSum = 0.0;
 
     // Cheap pretest: up to 8 taps via jitter fetches.
@@ -311,24 +256,14 @@ float SampleDirectionalAdaptivePCF(int cascadeIndex, vec3 baseShadowCoord, float
         if (tapsDone < pretestTaps) {
             vec2 uvOffset = offset.xy * fsize;
             smCoord.xy = uvOffset + baseShadowCoord.xy;
-            if (useAdaptiveBias) {
-                vec2 texelOffset = uvOffset / texelSize;
-                float occluderDepth = occluderDepth0 + (deltaBiasX * texelOffset.x) + (deltaBiasY * texelOffset.y);
-                smCoord.z = clamp(occluderDepth - epsilon, 0.0, 1.0);
-            }
-            shadowSum += SampleDirectionalShadowMap(cascadeIndex, smCoord);
+            shadowSum += SampleDirectionalShadowMap(shadowMapBase, cascadeIndex, smCoord);
             tapsDone += 1;
         }
 
         if (tapsDone < pretestTaps) {
             vec2 uvOffset = offset.zw * fsize;
             smCoord.xy = uvOffset + baseShadowCoord.xy;
-            if (useAdaptiveBias) {
-                vec2 texelOffset = uvOffset / texelSize;
-                float occluderDepth = occluderDepth0 + (deltaBiasX * texelOffset.x) + (deltaBiasY * texelOffset.y);
-                smCoord.z = clamp(occluderDepth - epsilon, 0.0, 1.0);
-            }
-            shadowSum += SampleDirectionalShadowMap(cascadeIndex, smCoord);
+            shadowSum += SampleDirectionalShadowMap(shadowMapBase, cascadeIndex, smCoord);
             tapsDone += 1;
         }
     }
@@ -348,24 +283,14 @@ float SampleDirectionalAdaptivePCF(int cascadeIndex, vec3 baseShadowCoord, float
             if (tapsDone < desiredTaps) {
                 vec2 uvOffset = offset.xy * fsize;
                 smCoord.xy = uvOffset + baseShadowCoord.xy;
-                if (useAdaptiveBias) {
-                    vec2 texelOffset = uvOffset / texelSize;
-                    float occluderDepth = occluderDepth0 + (deltaBiasX * texelOffset.x) + (deltaBiasY * texelOffset.y);
-                    smCoord.z = clamp(occluderDepth - epsilon, 0.0, 1.0);
-                }
-                shadowSum += SampleDirectionalShadowMap(cascadeIndex, smCoord);
+                shadowSum += SampleDirectionalShadowMap(shadowMapBase, cascadeIndex, smCoord);
                 tapsDone += 1;
             }
 
             if (tapsDone < desiredTaps) {
                 vec2 uvOffset = offset.zw * fsize;
                 smCoord.xy = uvOffset + baseShadowCoord.xy;
-                if (useAdaptiveBias) {
-                    vec2 texelOffset = uvOffset / texelSize;
-                    float occluderDepth = occluderDepth0 + (deltaBiasX * texelOffset.x) + (deltaBiasY * texelOffset.y);
-                    smCoord.z = clamp(occluderDepth - epsilon, 0.0, 1.0);
-                }
-                shadowSum += SampleDirectionalShadowMap(cascadeIndex, smCoord);
+                shadowSum += SampleDirectionalShadowMap(shadowMapBase, cascadeIndex, smCoord);
                 tapsDone += 1;
             }
         }
@@ -375,29 +300,36 @@ float SampleDirectionalAdaptivePCF(int cascadeIndex, vec3 baseShadowCoord, float
     return shadowPretest;
 }
 
-float ComputeDirectionalBias(int cascadeIndex, vec3 normal, vec3 lightDir) {
-    vec2 texelSize = GetDirectionalShadowTexelSize(cascadeIndex);
+float ComputeDirectionalBias(DirectionalLight dl, int shadowMapBase, int cascadeIndex, vec3 normal, vec3 lightDir) {
+    vec2 texelSize = GetDirectionalShadowTexelSize(shadowMapBase, cascadeIndex);
     float texelScale = max(texelSize.x, texelSize.y);
     float ndotl = clamp(dot(normal, lightDir), 0.0, 1.0);
-    float biasTexels = camera.shadowParams.x * (1.0 + (1.0 - ndotl));
+    float constantBiasTexels = max(dl.shadowParams.x, 0.0);
+    float slopeBiasFactor = max(dl.shadowBiasParams.x, 0.0);
+    float maxBiasTexels = max(dl.shadowBiasParams.y, 0.0);
+    float tanTheta = sqrt(max(1.0 - (ndotl * ndotl), 0.0)) / max(ndotl, 1e-3);
+    float biasTexels = constantBiasTexels + (slopeBiasFactor * tanTheta);
+    if (maxBiasTexels > 0.0) {
+        biasTexels = min(biasTexels, maxBiasTexels);
+    }
     return biasTexels * texelScale;
 }
 
-float ComputeShadowFactor(vec3 normal, vec3 lightDir) {
-    if (camera.shadowState.x < 0.5) {
+float ComputeDirectionalShadowFactor(DirectionalLight dl, int shadowMapBase, vec3 normal, vec3 lightDir) {
+    if (dl.shadowState.x < 0.5) {
         return 1.0;
     }
 
-    int cascadeCount = clamp(int(camera.shadowCascadeSplits.w + 0.5), 1, 3);
+    int cascadeCount = clamp(int(dl.shadowCascadeSplits.w + 0.5), 1, 3);
     float viewDepth = max(dot(fragWorldPos - camera.cameraPosition.xyz, normalize(camera.cameraForward.xyz)), 0.0);
     int cascadeIndex = 0;
-    if (cascadeCount >= 3 && viewDepth > camera.shadowCascadeSplits.y) {
+    if (cascadeCount >= 3 && viewDepth > dl.shadowCascadeSplits.y) {
         cascadeIndex = 2;
-    } else if (cascadeCount >= 2 && viewDepth > camera.shadowCascadeSplits.x) {
+    } else if (cascadeCount >= 2 && viewDepth > dl.shadowCascadeSplits.x) {
         cascadeIndex = 1;
     }
 
-    vec4 lightClip = camera.shadowMatrices[cascadeIndex] * vec4(fragWorldPos, 1.0);
+    vec4 lightClip = dl.shadowMatrices[cascadeIndex] * vec4(fragWorldPos, 1.0);
     if (abs(lightClip.w) <= 1e-6) {
         return 1.0;
     }
@@ -412,31 +344,23 @@ float ComputeShadowFactor(vec3 normal, vec3 lightDir) {
         return 1.0;
     }
 
-    float softness = camera.shadowParams.y;
-    vec2 baseSize = vec2(max(textureSize(directionalShadowMap0, 0), ivec2(1)));
+    float softness = dl.shadowParams.y;
+    vec2 baseSize = vec2(max(textureSize(directionalShadowMaps[clamp(shadowMapBase + 0, 0, 5)], 0), ivec2(1)));
     vec2 cascadeSize = baseSize;
-    if (cascadeIndex == 1) {
-        cascadeSize = vec2(max(textureSize(directionalShadowMap1, 0), ivec2(1)));
-    } else if (cascadeIndex == 2) {
-        cascadeSize = vec2(max(textureSize(directionalShadowMap2, 0), ivec2(1)));
-    }
+    cascadeSize = vec2(max(textureSize(directionalShadowMaps[clamp(shadowMapBase + cascadeIndex, 0, 5)], 0), ivec2(1)));
     float baseRes = max(baseSize.x, baseSize.y);
     float cascadeRes = max(cascadeSize.x, cascadeSize.y);
     float resScale = cascadeRes / max(baseRes, 1.0);
     softness *= resScale;
-    float compareDepth = receiverDepth;
-    if (camera.shadowAdaptiveBiasParams.x < 0.5) {
-        float ndotl = clamp(dot(normal, lightDir), 0.0, 1.0);
-        float bias = ComputeDirectionalBias(cascadeIndex, normal, lightDir);
-        compareDepth = clamp(receiverDepth - bias, 0.0, 1.0);
-    }
-    float shadow = SampleDirectionalAdaptivePCF(cascadeIndex, vec3(shadowUv, compareDepth), softness, normal, lightDir);
+    float bias = ComputeDirectionalBias(dl, shadowMapBase, cascadeIndex, normal, lightDir);
+    float compareDepth = clamp(receiverDepth - bias, 0.0, 1.0);
+    float shadow = SampleDirectionalPCF(dl, shadowMapBase, cascadeIndex, vec3(shadowUv, compareDepth), softness, normal, lightDir);
 
     if (cascadeIndex == cascadeCount - 1) {
-        float fadeWidth = clamp(camera.shadowParams.w, 0.0, 1.0);
+        float fadeWidth = clamp(dl.shadowParams.w, 0.0, 1.0);
         if (fadeWidth > 1e-4) {
-            float fadeStart = camera.shadowCascadeSplits.z * (1.0 - fadeWidth);
-            float fade = clamp((viewDepth - fadeStart) / max(camera.shadowCascadeSplits.z - fadeStart, 1e-4), 0.0, 1.0);
+            float fadeStart = dl.shadowCascadeSplits.z * (1.0 - fadeWidth);
+            float fade = clamp((viewDepth - fadeStart) / max(dl.shadowCascadeSplits.z - fadeStart, 1e-4), 0.0, 1.0);
             shadow = mix(shadow, 1.0, fade);
         }
     }
@@ -495,13 +419,28 @@ void main() {
     vec3 N = GetSurfaceMappedNormal(fragLocalNormal, surfaceType, faceUV);
     vec3 V = normalize(camera.cameraPosition.xyz - fragWorldPos);
 
-    if (camera.shadowState.w > 0.5) {
+    if (camera.lightingSettings.x > 0.5) {
         vec3 color = (camera.ambient.rgb * camera.ambient.a) * albedo;
-        vec3 L = normalize(-camera.lightDirection.xyz);
-        float shadowFactor = ComputeShadowFactor(N, L);
+
+        float shadowFactor = 1.0;
+        float fresnelAmount = 1.0;
+        uint lightCount = min(lightData.counts.x, uint(64));
+        for (uint i = 0; i < lightCount; ++i) {
+            Light light = lightData.lights[i];
+            if ((light.flags & 1u) == 0u) {
+                continue;
+            }
+            fresnelAmount = clamp(light.specular.z, 0.0, 1.0);
+            if (light.type == 0u && light.shadowIndex != 0xFFFFFFFFu) {
+                DirectionalLight dl = lightData.directionalLights[light.dataIndex];
+                vec3 L = normalize(-dl.direction.xyz);
+                int shadowMapBase = int(light.shadowIndex) * 3;
+                shadowFactor = ComputeDirectionalShadowFactor(dl, shadowMapBase, N, L);
+                break;
+            }
+        }
         color += fragVertexLighting * surfaceDetail * shadowFactor;
 
-        float fresnelAmount = clamp(camera.lightSpecular.z, 0.0, 1.0);
         float reflectionWeight = clamp(metalness, 0.0, 1.0);
         if (reflectionWeight > 1e-4) {
             vec3 R = reflect(-V, N);
@@ -523,34 +462,62 @@ void main() {
 
     vec3 color = (camera.ambient.rgb * camera.ambient.a) * albedo;
 
-    vec3 L = normalize(-camera.lightDirection.xyz);
-    vec3 H = normalize(V + L);
-    float shadowFactor = ComputeShadowFactor(N, L);
+    float fresnelAmountEnv = 1.0;
+    uint lightCount = min(lightData.counts.x, uint(64));
+    for (uint i = 0; i < lightCount; ++i) {
+        Light light = lightData.lights[i];
+        if ((light.flags & 1u) == 0u) {
+            continue;
+        }
+        fresnelAmountEnv = clamp(light.specular.z, 0.0, 1.0);
+        break;
+    }
 
-    vec3 lightColor = camera.lightColorIntensity.rgb * camera.lightColorIntensity.a;
-    float specularStrength = max(camera.lightSpecular.x, 0.0);
-    float shininess = max(camera.lightSpecular.y, 1.0);
-    float NdotL = max(dot(N, L), 0.0);
+    for (uint i = 0; i < lightCount; ++i) {
+        Light light = lightData.lights[i];
+        if ((light.flags & 1u) == 0u) {
+            continue;
+        }
+
+        if (light.type == 0u) {
+            DirectionalLight dl = lightData.directionalLights[light.dataIndex];
+            vec3 L = normalize(-dl.direction.xyz);
+            vec3 H = normalize(V + L);
+
+            float shadowFactor = 1.0;
+            if (light.shadowIndex != 0xFFFFFFFFu) {
+                int shadowMapBase = int(light.shadowIndex) * 3;
+                shadowFactor = ComputeDirectionalShadowFactor(dl, shadowMapBase, N, L);
+            }
+
+            vec3 lightColor = light.colorIntensity.rgb * light.colorIntensity.a;
+            float specularStrength = max(light.specular.x, 0.0);
+            float shininess = max(light.specular.y, 1.0);
+            float NdotL = max(dot(N, L), 0.0);
+
+            vec3 F0 = mix(vec3(0.04), albedo, metalness);
+            float lightShininessToRoughness = clamp(sqrt(2.0 / (shininess + 2.0)), 0.05, 1.0);
+            float effectiveRoughness = max(roughness * lightShininessToRoughness, 0.045);
+            float NDF = DistributionGGX(N, H, effectiveRoughness);
+            float G = GeometrySmith(N, V, L, effectiveRoughness);
+            float fresnelAmount = clamp(light.specular.z, 0.0, 1.0);
+            vec3 Fschlick = FresnelSchlick(max(dot(H, V), 0.0), F0);
+            vec3 F = mix(F0, Fschlick, fresnelAmount);
+
+            vec3 numerator = NDF * G * F;
+            float denominator = max(4.0 * max(dot(N, V), 0.0) * NdotL, 1e-5);
+            float smoothness = 1.0 - roughness;
+            vec3 specular = (numerator / denominator) * specularStrength * (smoothness * smoothness);
+
+            vec3 kS = F;
+            vec3 kD = (vec3(1.0) - kS) * (1.0 - metalness);
+            vec3 diffuse = kD * albedo / PI;
+            color += (diffuse + specular) * lightColor * NdotL * shadowFactor;
+        }
+    }
 
     vec3 F0 = mix(vec3(0.04), albedo, metalness);
-    float lightShininessToRoughness = clamp(sqrt(2.0 / (shininess + 2.0)), 0.05, 1.0);
-    float effectiveRoughness = max(roughness * lightShininessToRoughness, 0.045);
-    float NDF = DistributionGGX(N, H, effectiveRoughness);
-    float G = GeometrySmith(N, V, L, effectiveRoughness);
-    float fresnelAmount = clamp(camera.lightSpecular.z, 0.0, 1.0);
-    vec3 Fschlick = FresnelSchlick(max(dot(H, V), 0.0), F0);
-    vec3 F = mix(F0, Fschlick, fresnelAmount);
-
-    vec3 numerator = NDF * G * F;
-    float denominator = max(4.0 * max(dot(N, V), 0.0) * NdotL, 1e-5);
     float smoothness = 1.0 - roughness;
-    vec3 specular = (numerator / denominator) * specularStrength * (smoothness * smoothness);
-
-    vec3 kS = F;
-    vec3 kD = (vec3(1.0) - kS) * (1.0 - metalness);
-    vec3 diffuse = kD * albedo / PI;
-    color += (diffuse + specular) * lightColor * NdotL * shadowFactor;
-
     float reflectionWeight = clamp(metalness, 0.0, 1.0);
     if (reflectionWeight > 1e-4) {
         vec3 R = reflect(-V, N);
@@ -559,7 +526,7 @@ void main() {
             env = camera.skyTint.rgb;
         }
         vec3 FenvSchlick = FresnelSchlick(max(dot(N, V), 0.0), F0);
-        vec3 Fenv = mix(F0, FenvSchlick, fresnelAmount);
+        vec3 Fenv = mix(F0, FenvSchlick, fresnelAmountEnv);
         color += env * Fenv * reflectionWeight * (smoothness * smoothness);
     }
 
