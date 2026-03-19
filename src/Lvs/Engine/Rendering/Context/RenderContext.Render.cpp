@@ -595,19 +595,19 @@ void RenderContext::Render() {
     }
 
     frameBindings[frameBindingCount++] = RHI::ResourceBinding{
-        .slot = 4,
+        .slot = 13,
         .kind = RHI::ResourceBindingKind::Texture2D,
         .texture = (blurFinalTarget_ != nullptr ? blurFinalTarget_->GetColorTexture(0) : fallbackBlackTexture_),
         .buffer = nullptr
     };
     frameBindings[frameBindingCount++] = RHI::ResourceBinding{
-        .slot = 5,
+        .slot = 14,
         .kind = RHI::ResourceBindingKind::Texture3D,
         .texture = shadowJitterTexture_,
         .buffer = nullptr
     };
     frameBindings[frameBindingCount++] = RHI::ResourceBinding{
-        .slot = 6,
+        .slot = 15,
         .kind = RHI::ResourceBindingKind::Texture2D,
         .texture = fallbackBlackTexture_, // Normal atlas is currently optional.
         .buffer = nullptr

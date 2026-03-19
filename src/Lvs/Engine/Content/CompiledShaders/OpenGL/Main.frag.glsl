@@ -55,10 +55,10 @@ layout(binding = 10, std430) readonly buffer LightsSSBO
 } lightData;
 
 layout(binding = 2) uniform sampler2D surfaceAtlas;
-layout(binding = 6) uniform sampler2D surfaceNormalAtlas;
+layout(binding = 15) uniform sampler2D surfaceNormalAtlas;
 layout(binding = 3) uniform sampler2DShadow directionalShadowMaps[6];
-layout(binding = 5) uniform sampler3D directionalShadowJitter;
-layout(binding = 4) uniform sampler2D neonTexture;
+layout(binding = 14) uniform sampler3D directionalShadowJitter;
+layout(binding = 13) uniform sampler2D neonTexture;
 layout(binding = 1) uniform samplerCube skyboxTex;
 
 layout(location = 1) in vec3 fragWorldPos;

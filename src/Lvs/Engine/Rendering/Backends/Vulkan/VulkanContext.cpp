@@ -779,21 +779,21 @@ void VulkanContext::InitializeBackendObjects() {
             .pImmutableSamplers = nullptr
         });
         bindings.push_back(VkDescriptorSetLayoutBinding{
-            .binding = 4,
+            .binding = 13,
             .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .descriptorCount = 1,
             .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
             .pImmutableSamplers = nullptr
         });
         bindings.push_back(VkDescriptorSetLayoutBinding{
-            .binding = 5,
+            .binding = 14,
             .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .descriptorCount = 1,
             .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
             .pImmutableSamplers = nullptr
         });
         bindings.push_back(VkDescriptorSetLayoutBinding{
-            .binding = 6,
+            .binding = 15,
             .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .descriptorCount = 1,
             .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
