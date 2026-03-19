@@ -11,11 +11,17 @@
       "displayName": "Studio Clang Debug",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/clang-debug",
+      "environment": {
+        "PATH": "C:/msys64/clang64/bin;$penv{PATH}"
+      },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_COMPILER": "C:/msys64/clang64/bin/clang.exe",
         "CMAKE_CXX_COMPILER": "C:/msys64/clang64/bin/clang++.exe",
+        "CMAKE_PREFIX_PATH": "C:/msys64/clang64",
+        "CMAKE_IGNORE_PREFIX_PATH": "C:/msys64/mingw64",
         "Qt6_DIR": "C:/msys64/clang64/lib/cmake/Qt6",
-        "LVS_STATIC_RUNTIME": "ON"
+        "LVS_STATIC_RUNTIME": "OFF"
       }
     },
     {
@@ -23,11 +29,17 @@
       "displayName": "Studio Clang Release",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/clang-release",
+      "environment": {
+        "PATH": "C:/msys64/clang64/bin;$penv{PATH}"
+      },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_C_COMPILER": "C:/msys64/clang64/bin/clang.exe",
         "CMAKE_CXX_COMPILER": "C:/msys64/clang64/bin/clang++.exe",
+        "CMAKE_PREFIX_PATH": "C:/msys64/clang64",
+        "CMAKE_IGNORE_PREFIX_PATH": "C:/msys64/mingw64",
         "Qt6_DIR": "C:/msys64/clang64/lib/cmake/Qt6",
-        "LVS_STATIC_RUNTIME": "ON"
+        "LVS_STATIC_RUNTIME": "OFF"
       }
     },
     {
@@ -35,12 +47,18 @@
       "displayName": "Studio Clang ASAN Debug",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/clang-asan-debug",
+      "environment": {
+        "PATH": "C:/msys64/clang64/bin;$penv{PATH}"
+      },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_COMPILER": "C:/msys64/clang64/bin/clang.exe",
         "CMAKE_CXX_COMPILER": "C:/msys64/clang64/bin/clang++.exe",
+        "CMAKE_PREFIX_PATH": "C:/msys64/clang64",
+        "CMAKE_IGNORE_PREFIX_PATH": "C:/msys64/mingw64",
         "Qt6_DIR": "C:/msys64/clang64/lib/cmake/Qt6",
         "LVS_ENABLE_ASAN": "ON",
-        "LVS_STATIC_RUNTIME": "ON"
+        "LVS_STATIC_RUNTIME": "OFF"
       }
     },
     {

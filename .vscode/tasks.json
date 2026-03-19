@@ -17,7 +17,7 @@
         {
             "label": "studio-asan-clang",
             "type": "shell",
-            "hide": true,
+            // "hide": true,
             "command": "cmake",
             "args": [
                 "--build",
@@ -66,8 +66,103 @@
             "problemMatcher": []
         },
         {
+            "label": "studio-configure-debug-clang",
+            "type": "shell",
+            "hide": true,
+            "command": "cmake",
+            "args": [
+                "--preset",
+                "studio-clang-debug"
+            ],
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "studio-debug-clang",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "studio-clang-debug",
+                "--parallel",
+                "${env:NUMBER_OF_PROCESSORS}"
+            ],
+            "dependsOn": "studio-configure-debug-clang",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "studio-package-debug-clang",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "studio-clang-debug",
+                "--target",
+                "lvs_studio_dist",
+                "--parallel",
+                "${env:NUMBER_OF_PROCESSORS}"
+            ],
+            "dependsOn": "studio-configure-debug-clang",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "studio-configure-release-clang",
+            "type": "shell",
+            "hide": true,
+            "command": "cmake",
+            "args": [
+                "--preset",
+                "studio-clang-release"
+            ],
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "studio-release-clang",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "studio-clang-release",
+                "--parallel",
+                "${env:NUMBER_OF_PROCESSORS}"
+            ],
+            "dependsOn": "studio-configure-release-clang",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "studio-package-release-clang",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "studio-clang-release",
+                "--target",
+                "lvs_studio_dist",
+                "--parallel",
+                "${env:NUMBER_OF_PROCESSORS}"
+            ],
+            "dependsOn": "studio-configure-release-clang",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
             "label": "studio-configure-debug-mingw",
             "type": "shell",
+            "hide": true,
             "command": "cmake",
             "args": [
                 "--preset",
@@ -118,6 +213,7 @@
         {
             "label": "studio-configure-release-mingw",
             "type": "shell",
+            "hide": true,
             "command": "cmake",
             "args": [
                 "--preset",
