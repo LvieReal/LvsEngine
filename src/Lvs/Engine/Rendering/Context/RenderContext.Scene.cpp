@@ -31,12 +31,21 @@ Common::CameraUniformData RenderContext::BuildCameraUniforms() {
     uniforms.ShadowMatrices[0] = Context::ToFloatMat4ColumnMajor(Math::Matrix4::Identity());
     uniforms.ShadowMatrices[1] = Context::ToFloatMat4ColumnMajor(Math::Matrix4::Identity());
     uniforms.ShadowMatrices[2] = Context::ToFloatMat4ColumnMajor(Math::Matrix4::Identity());
+    uniforms.ShadowInvMatrices[0] = Context::ToFloatMat4ColumnMajor(Math::Matrix4::Identity());
+    uniforms.ShadowInvMatrices[1] = Context::ToFloatMat4ColumnMajor(Math::Matrix4::Identity());
+    uniforms.ShadowInvMatrices[2] = Context::ToFloatMat4ColumnMajor(Math::Matrix4::Identity());
     uniforms.ShadowCascadeSplits = {0.0F, 0.0F, 0.0F, 0.0F};
     uniforms.ShadowParams = {
         shadowSettings_.Bias,
         shadowSettings_.BlurAmount,
         static_cast<float>(shadowSettings_.TapCount),
         shadowSettings_.FadeWidth
+    };
+    uniforms.ShadowAdaptiveBiasParams = {
+        shadowSettings_.AdaptiveBiasEnabled ? 1.0F : 0.0F,
+        shadowSettings_.AdaptiveBiasEpsilonScale,
+        shadowSettings_.AdaptiveBiasMaxScale,
+        0.0F
     };
     uniforms.ShadowState = {0.0F, 0.0F, 0.0F, 0.0F};
     uniforms.CameraForward = {0.0F, 0.0F, -1.0F, 0.0F};
@@ -128,6 +137,8 @@ Common::CameraUniformData RenderContext::BuildCameraUniforms() {
             for (int i = 0; i < Common::kMaxShadowCascades; ++i) {
                 uniforms.ShadowMatrices[static_cast<std::size_t>(i)] =
                     Context::ToFloatMat4ColumnMajor(computation.Matrices[static_cast<std::size_t>(i)]);
+                uniforms.ShadowInvMatrices[static_cast<std::size_t>(i)] =
+                    Context::ToFloatMat4ColumnMajor(computation.Matrices[static_cast<std::size_t>(i)].Inverse());
             }
             uniforms.ShadowCascadeSplits = {
                 computation.Split0,
@@ -140,6 +151,12 @@ Common::CameraUniformData RenderContext::BuildCameraUniforms() {
                 shadowSettings_.BlurAmount,
                 static_cast<float>(shadowSettings_.TapCount),
                 shadowSettings_.FadeWidth
+            };
+            uniforms.ShadowAdaptiveBiasParams = {
+                shadowSettings_.AdaptiveBiasEnabled ? 1.0F : 0.0F,
+                shadowSettings_.AdaptiveBiasEpsilonScale,
+                shadowSettings_.AdaptiveBiasMaxScale,
+                0.0F
             };
             uniforms.ShadowState[0] = 1.0F;
             uniforms.ShadowState[1] = shadowJitterScaleXY_;

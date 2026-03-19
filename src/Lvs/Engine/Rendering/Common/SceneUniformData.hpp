@@ -16,8 +16,10 @@ struct CameraUniformData {
     std::array<float, 4> SkyTint{};
     std::array<float, 4> RenderSettings{};
     std::array<std::array<float, 16>, 3> ShadowMatrices{};
+    std::array<std::array<float, 16>, 3> ShadowInvMatrices{};
     std::array<float, 4> ShadowCascadeSplits{};
     std::array<float, 4> ShadowParams{};
+    std::array<float, 4> ShadowAdaptiveBiasParams{};
     std::array<float, 4> ShadowState{};
     std::array<float, 4> CameraForward{};
 };

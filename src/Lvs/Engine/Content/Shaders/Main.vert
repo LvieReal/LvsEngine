@@ -14,8 +14,10 @@ layout(set = 0, binding = 0) uniform CameraUBO {
     vec4 skyTint;
     vec4 renderSettings;
     mat4 shadowMatrices[3];
+    mat4 shadowInvMatrices[3];
     vec4 shadowCascadeSplits;
     vec4 shadowParams;
+    vec4 shadowAdaptiveBiasParams;
     vec4 shadowState;
     vec4 cameraForward;
 } camera;

@@ -80,6 +80,27 @@ Core::ClassDescriptor& Lighting::Descriptor() {
             "Rendering",
             "Directional shadow depth bias (in shadow texels)."
         ));
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
+            "ShadowAdaptiveBiasEnabled",
+            true,
+            true,
+            "Rendering",
+            "Enable adaptive depth bias for soft shadow sampling."
+        ));
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
+            "ShadowAdaptiveBiasEpsilonScale",
+            1.0,
+            true,
+            "Rendering",
+            "Scales the adaptive epsilon used by the adaptive depth bias algorithm."
+        ));
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
+            "ShadowAdaptiveBiasMaxScale",
+            100.0,
+            true,
+            "Rendering",
+            "Maximum projective-aliasing scale factor for adaptive depth bias."
+        ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<int>(
             "DefaultShadowCascadeCount",
             3,

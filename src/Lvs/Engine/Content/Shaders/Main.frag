@@ -20,8 +20,10 @@ layout(set = 0, binding = 0) uniform CameraUBO {
     vec4 skyTint;
     vec4 renderSettings;
     mat4 shadowMatrices[3];
+    mat4 shadowInvMatrices[3];
     vec4 shadowCascadeSplits;
     vec4 shadowParams;
+    vec4 shadowAdaptiveBiasParams;
     vec4 shadowState;
     vec4 cameraForward;
 } camera;
@@ -222,7 +224,43 @@ float SampleDirectionalShadowMap(int cascadeIndex, vec3 shadowCoord) {
     return texture(directionalShadowMap0, shadowCoord);
 }
 
-float SampleDirectionalAdaptivePCF(int cascadeIndex, vec3 baseShadowCoord, float radiusTexels, float ndotl) {
+float ComputeDirectionalAdaptiveEpsilon(int cascadeIndex, float ndotl) {
+    vec2 texelSize = GetDirectionalShadowTexelSize(cascadeIndex);
+    float texelScale = max(texelSize.x, texelSize.y);
+    float base = max(0.0, camera.shadowParams.x) * texelScale * max(camera.shadowAdaptiveBiasParams.y, 0.0);
+
+    float cosTheta = clamp(abs(ndotl), 1e-3, 1.0);
+    float maxScale = max(camera.shadowAdaptiveBiasParams.z, 1.0);
+    float scaleFactor = min(1.0 / (cosTheta * cosTheta), maxScale);
+    return base * scaleFactor;
+}
+
+float ComputeDirectionalPotentialOccluderDepth(int cascadeIndex, vec2 shadowUv, vec3 normal, float fallbackDepth) {
+    vec2 ndc = (shadowUv * 2.0) - 1.0;
+
+    mat4 inv = camera.shadowInvMatrices[cascadeIndex];
+    vec4 worldNear4 = inv * vec4(ndc, 0.0, 1.0);
+    vec4 worldFar4 = inv * vec4(ndc, 1.0, 1.0);
+    vec3 worldNear = worldNear4.xyz / max(worldNear4.w, 1e-6);
+    vec3 worldFar = worldFar4.xyz / max(worldFar4.w, 1e-6);
+
+    vec3 rayDir = worldFar - worldNear;
+    float denom = dot(normal, rayDir);
+    if (abs(denom) <= 1e-6) {
+        return fallbackDepth;
+    }
+
+    float t = dot(normal, (fragWorldPos - worldNear)) / denom;
+    if (t < 0.0 || t > 1.0) {
+        return fallbackDepth;
+    }
+
+    vec3 worldPos = worldNear + (rayDir * t);
+    vec4 lightNdc = camera.shadowMatrices[cascadeIndex] * vec4(worldPos, 1.0);
+    return clamp(lightNdc.z, 0.0, 1.0);
+}
+
+float SampleDirectionalAdaptivePCF(int cascadeIndex, vec3 baseShadowCoord, float radiusTexels, vec3 normal, vec3 lightDir) {
     int desiredTaps = clamp(int(camera.shadowParams.z + 0.5), 1, SHADOW_SAMPLES_COUNT);
     float radius = max(0.0, radiusTexels);
     if (radius <= 1e-6 || desiredTaps <= 1) {
@@ -232,6 +270,32 @@ float SampleDirectionalAdaptivePCF(int cascadeIndex, vec3 baseShadowCoord, float
     vec2 texelSize = GetDirectionalShadowTexelSize(cascadeIndex);
     float texelScale = max(texelSize.x, texelSize.y);
     float fsize = radius * texelScale;
+
+    float ndotl = clamp(dot(normal, lightDir), -1.0, 1.0);
+    bool useAdaptiveBias = camera.shadowAdaptiveBiasParams.x > 0.5;
+    float epsilon = useAdaptiveBias ? ComputeDirectionalAdaptiveEpsilon(cascadeIndex, ndotl) : 0.0;
+
+    float occluderDepth0 = baseShadowCoord.z;
+    float deltaBiasX = 0.0;
+    float deltaBiasY = 0.0;
+    if (useAdaptiveBias) {
+        vec2 shadowMapSize = 1.0 / texelSize;
+        vec2 uvCenter = (floor(baseShadowCoord.xy * shadowMapSize) + 0.5) / shadowMapSize;
+        vec2 uvMin = texelSize * 0.5;
+        vec2 uvMax = vec2(1.0) - uvMin;
+        uvCenter = clamp(uvCenter, uvMin, uvMax);
+
+        vec2 uvX = clamp(uvCenter + vec2(texelSize.x, 0.0), uvMin, uvMax);
+        vec2 uvY = clamp(uvCenter + vec2(0.0, texelSize.y), uvMin, uvMax);
+
+        float z0 = ComputeDirectionalPotentialOccluderDepth(cascadeIndex, uvCenter, normal, baseShadowCoord.z);
+        float zX = ComputeDirectionalPotentialOccluderDepth(cascadeIndex, uvX, normal, z0);
+        float zY = ComputeDirectionalPotentialOccluderDepth(cascadeIndex, uvY, normal, z0);
+        occluderDepth0 = z0;
+        deltaBiasX = zX - z0;
+        deltaBiasY = zY - z0;
+    }
+
     vec3 jcoord = vec3(gl_FragCoord.xy * camera.shadowState.yz, 0.0);
     float shadowSum = 0.0;
 
@@ -245,13 +309,25 @@ float SampleDirectionalAdaptivePCF(int cascadeIndex, vec3 baseShadowCoord, float
 
         vec3 smCoord = baseShadowCoord;
         if (tapsDone < pretestTaps) {
-            smCoord.xy = (offset.xy * fsize) + baseShadowCoord.xy;
+            vec2 uvOffset = offset.xy * fsize;
+            smCoord.xy = uvOffset + baseShadowCoord.xy;
+            if (useAdaptiveBias) {
+                vec2 texelOffset = uvOffset / texelSize;
+                float occluderDepth = occluderDepth0 + (deltaBiasX * texelOffset.x) + (deltaBiasY * texelOffset.y);
+                smCoord.z = clamp(occluderDepth - epsilon, 0.0, 1.0);
+            }
             shadowSum += SampleDirectionalShadowMap(cascadeIndex, smCoord);
             tapsDone += 1;
         }
 
         if (tapsDone < pretestTaps) {
-            smCoord.xy = (offset.zw * fsize) + baseShadowCoord.xy;
+            vec2 uvOffset = offset.zw * fsize;
+            smCoord.xy = uvOffset + baseShadowCoord.xy;
+            if (useAdaptiveBias) {
+                vec2 texelOffset = uvOffset / texelSize;
+                float occluderDepth = occluderDepth0 + (deltaBiasX * texelOffset.x) + (deltaBiasY * texelOffset.y);
+                smCoord.z = clamp(occluderDepth - epsilon, 0.0, 1.0);
+            }
             shadowSum += SampleDirectionalShadowMap(cascadeIndex, smCoord);
             tapsDone += 1;
         }
@@ -270,13 +346,25 @@ float SampleDirectionalAdaptivePCF(int cascadeIndex, vec3 baseShadowCoord, float
 
             vec3 smCoord = baseShadowCoord;
             if (tapsDone < desiredTaps) {
-                smCoord.xy = (offset.xy * fsize) + baseShadowCoord.xy;
+                vec2 uvOffset = offset.xy * fsize;
+                smCoord.xy = uvOffset + baseShadowCoord.xy;
+                if (useAdaptiveBias) {
+                    vec2 texelOffset = uvOffset / texelSize;
+                    float occluderDepth = occluderDepth0 + (deltaBiasX * texelOffset.x) + (deltaBiasY * texelOffset.y);
+                    smCoord.z = clamp(occluderDepth - epsilon, 0.0, 1.0);
+                }
                 shadowSum += SampleDirectionalShadowMap(cascadeIndex, smCoord);
                 tapsDone += 1;
             }
 
             if (tapsDone < desiredTaps) {
-                smCoord.xy = (offset.zw * fsize) + baseShadowCoord.xy;
+                vec2 uvOffset = offset.zw * fsize;
+                smCoord.xy = uvOffset + baseShadowCoord.xy;
+                if (useAdaptiveBias) {
+                    vec2 texelOffset = uvOffset / texelSize;
+                    float occluderDepth = occluderDepth0 + (deltaBiasX * texelOffset.x) + (deltaBiasY * texelOffset.y);
+                    smCoord.z = clamp(occluderDepth - epsilon, 0.0, 1.0);
+                }
                 shadowSum += SampleDirectionalShadowMap(cascadeIndex, smCoord);
                 tapsDone += 1;
             }
@@ -336,10 +424,13 @@ float ComputeShadowFactor(vec3 normal, vec3 lightDir) {
     float cascadeRes = max(cascadeSize.x, cascadeSize.y);
     float resScale = cascadeRes / max(baseRes, 1.0);
     softness *= resScale;
-    float ndotl = clamp(dot(normal, lightDir), 0.0, 1.0);
-    float bias = ComputeDirectionalBias(cascadeIndex, normal, lightDir);
-    float compareDepth = clamp(receiverDepth - bias, 0.0, 1.0);
-    float shadow = SampleDirectionalAdaptivePCF(cascadeIndex, vec3(shadowUv, compareDepth), softness, ndotl);
+    float compareDepth = receiverDepth;
+    if (camera.shadowAdaptiveBiasParams.x < 0.5) {
+        float ndotl = clamp(dot(normal, lightDir), 0.0, 1.0);
+        float bias = ComputeDirectionalBias(cascadeIndex, normal, lightDir);
+        compareDepth = clamp(receiverDepth - bias, 0.0, 1.0);
+    }
+    float shadow = SampleDirectionalAdaptivePCF(cascadeIndex, vec3(shadowUv, compareDepth), softness, normal, lightDir);
 
     if (cascadeIndex == cascadeCount - 1) {
         float fadeWidth = clamp(camera.shadowParams.w, 0.0, 1.0);

@@ -115,6 +115,13 @@ void RenderContext::Render() {
             );
             desiredShadowSettings.TapCount = std::max(1, lightingService->GetProperty("DefaultShadowTapCount").toInt());
             desiredShadowSettings.Bias = static_cast<float>(std::max(0.0, lightingService->GetProperty("ShadowBias").toDouble()));
+            desiredShadowSettings.AdaptiveBiasEnabled = lightingService->GetProperty("ShadowAdaptiveBiasEnabled").toBool();
+            desiredShadowSettings.AdaptiveBiasEpsilonScale = static_cast<float>(
+                std::max(0.0, lightingService->GetProperty("ShadowAdaptiveBiasEpsilonScale").toDouble())
+            );
+            desiredShadowSettings.AdaptiveBiasMaxScale = static_cast<float>(
+                std::max(1.0, lightingService->GetProperty("ShadowAdaptiveBiasMaxScale").toDouble())
+            );
             desiredShadowSettings.CascadeCount =
                 std::max(1, std::min(Common::kMaxShadowCascades, lightingService->GetProperty("DefaultShadowCascadeCount").toInt()));
             desiredShadowSettings.MaxDistance = static_cast<float>(
