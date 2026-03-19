@@ -297,7 +297,12 @@ void RenderContext::UpdateDirtyInstanceData() {
             0.0F
         };
         drawInstance.SurfaceData0 = {0.0F, 0.0F, 0.0F, 0.0F};
-        drawInstance.SurfaceData1 = {0.0F, 0.0F, hasSurfaceAtlas_ ? 1.0F : 0.0F, 0.0F};
+        drawInstance.SurfaceData1 = {
+            0.0F,
+            0.0F,
+            hasSurfaceAtlas_ ? 1.0F : 0.0F,
+            hasSurfaceNormalAtlas_ ? 1.0F : 0.0F
+        };
         if (const auto partInstance = std::dynamic_pointer_cast<Objects::Part>(inst); partInstance != nullptr) {
             drawInstance.SurfaceData0 = {
                 static_cast<float>(partInstance->GetProperty("TopSurface").value<Enums::PartSurfaceType>()),
@@ -443,7 +448,12 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
             0.0F
         };
         drawInstance.SurfaceData0 = {0.0F, 0.0F, 0.0F, 0.0F};
-        drawInstance.SurfaceData1 = {0.0F, 0.0F, hasSurfaceAtlas_ ? 1.0F : 0.0F, 0.0F};
+        drawInstance.SurfaceData1 = {
+            0.0F,
+            0.0F,
+            hasSurfaceAtlas_ ? 1.0F : 0.0F,
+            hasSurfaceNormalAtlas_ ? 1.0F : 0.0F
+        };
         if (const auto partInstance = std::dynamic_pointer_cast<Objects::Part>(inst); partInstance != nullptr) {
             drawInstance.SurfaceData0 = {
                 static_cast<float>(partInstance->GetProperty("TopSurface").value<Enums::PartSurfaceType>()),

@@ -123,6 +123,7 @@ private:
     void TrimRetiredFrameResources();
     void UpdateSkyboxTexture();
     void UpdateSurfaceAtlasTexture();
+    void UpdateSurfaceNormalAtlasTexture();
     void ClearGeometryCache();
     void EnsureGeometryCache();
     void WatchNodeRecursive(const std::shared_ptr<Core::Instance>& node);
@@ -219,6 +220,9 @@ private:
 
     RHI::Texture surfaceAtlas_{};
     bool hasSurfaceAtlas_{false};
+
+    RHI::Texture surfaceNormalAtlas_{};
+    bool hasSurfaceNormalAtlas_{false};
 
     RHI::Texture shadowJitterTexture_{};
     bool hasShadowJitterTexture_{false};

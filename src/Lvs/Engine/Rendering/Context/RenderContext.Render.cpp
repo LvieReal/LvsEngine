@@ -76,6 +76,11 @@ void RenderContext::Render() {
             surfaceAtlas_ = {};
             hasSurfaceAtlas_ = false;
         }
+        if (hasSurfaceNormalAtlas_) {
+            GetRhiContext().DestroyTexture(surfaceNormalAtlas_);
+            surfaceNormalAtlas_ = {};
+            hasSurfaceNormalAtlas_ = false;
+        }
     }
     EnsurePostProcessTargets();
     EnsureFallbackTextures();
@@ -83,8 +88,10 @@ void RenderContext::Render() {
     EnsureShadowJitterTexture();
     UpdateSkyboxTexture();
     const bool hadSurfaceAtlas = hasSurfaceAtlas_;
+    const bool hadSurfaceNormalAtlas = hasSurfaceNormalAtlas_;
     UpdateSurfaceAtlasTexture();
-    if (hadSurfaceAtlas != hasSurfaceAtlas_) {
+    UpdateSurfaceNormalAtlasTexture();
+    if (hadSurfaceAtlas != hasSurfaceAtlas_ || hadSurfaceNormalAtlas != hasSurfaceNormalAtlas_) {
         MarkGeometryDataDirty();
     }
     SceneData scene{};
@@ -609,7 +616,7 @@ void RenderContext::Render() {
     frameBindings[frameBindingCount++] = RHI::ResourceBinding{
         .slot = 15,
         .kind = RHI::ResourceBindingKind::Texture2D,
-        .texture = fallbackBlackTexture_, // Normal atlas is currently optional.
+        .texture = hasSurfaceNormalAtlas_ ? surfaceNormalAtlas_ : fallbackBlackTexture_,
         .buffer = nullptr
     };
     frameBindings[frameBindingCount++] = RHI::ResourceBinding{

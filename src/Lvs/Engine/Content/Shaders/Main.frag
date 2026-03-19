@@ -185,7 +185,9 @@ vec3 SampleSurfaceColor(int surfaceType, vec2 uv) {
 
 vec3 GetSurfaceMappedNormal(vec3 localNormal, int surfaceType, vec2 uv) {
     if (!IsSurfaceEnabled() || !IsSurfaceNormalEnabled() || surfaceType == SMOOTH) {
-        return normalize(mat3(inst.model) * localNormal);
+        // Use normal matrix so non-uniform scale doesn't affect normal length/strength.
+        mat3 normalMat = transpose(inverse(mat3(inst.model)));
+        return normalize(normalMat * localNormal);
     }
 
     vec3 n = normalize(localNormal);
@@ -205,12 +207,21 @@ vec3 GetSurfaceMappedNormal(vec3 localNormal, int surfaceType, vec2 uv) {
 
     vec3 sampled = texture(surfaceNormalAtlas, GetSurfaceAtlasUV(surfaceType, uv)).rgb;
     vec3 tangentSpaceNormal = normalize((sampled * 2.0) - 1.0);
-    vec3 mappedLocal = normalize(
-        tangentLocal * tangentSpaceNormal.x +
-        bitangentLocal * tangentSpaceNormal.y +
-        n * tangentSpaceNormal.z
+
+    // Build a stable world-space TBN; this keeps normal map "intensity" consistent across scaled meshes.
+    mat3 modelMat = mat3(inst.model);
+    mat3 normalMat = transpose(inverse(modelMat));
+    vec3 normalWorld = normalize(normalMat * n);
+    vec3 tangentWorld = normalize(modelMat * tangentLocal);
+    vec3 bitangentWorld = normalize(cross(normalWorld, tangentWorld));
+    tangentWorld = normalize(cross(bitangentWorld, normalWorld));
+
+    vec3 mappedWorld = normalize(
+        tangentWorld * tangentSpaceNormal.x +
+        bitangentWorld * tangentSpaceNormal.y +
+        normalWorld * tangentSpaceNormal.z
     );
-    return normalize(mat3(inst.model) * mappedLocal);
+    return mappedWorld;
 }
 
 const int SHADOW_SAMPLES_COUNT = 64;

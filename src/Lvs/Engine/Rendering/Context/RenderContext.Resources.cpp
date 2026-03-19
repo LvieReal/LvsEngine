@@ -26,6 +26,11 @@ void RenderContext::ReleaseGpuResources() {
         surfaceAtlas_ = {};
         hasSurfaceAtlas_ = false;
     }
+    if (hasSurfaceNormalAtlas_ && (vkBackend_ != nullptr || glBackend_ != nullptr)) {
+        GetRhiContext().DestroyTexture(surfaceNormalAtlas_);
+        surfaceNormalAtlas_ = {};
+        hasSurfaceNormalAtlas_ = false;
+    }
     if (hasShadowJitterTexture_ && (vkBackend_ != nullptr || glBackend_ != nullptr)) {
         GetRhiContext().DestroyTexture(shadowJitterTexture_);
         shadowJitterTexture_ = {};
@@ -413,7 +418,7 @@ void RenderContext::UpdateSurfaceAtlasTexture() {
     if (hasSurfaceAtlas_) {
         return;
     }
-    const auto atlasPath = Utils::PathUtils::GetResourcePath("Surfaces/Surfaces2.png");
+    const auto atlasPath = Utils::PathUtils::GetResourcePath("Surfaces/Surfaces.png");
     if (!Utils::FileIO::Exists(atlasPath)) {
         return;
     }
@@ -436,6 +441,37 @@ void RenderContext::UpdateSurfaceAtlasTexture() {
         }
         surfaceAtlas_ = texture;
         hasSurfaceAtlas_ = true;
+    } catch (const std::exception&) {
+    }
+}
+
+void RenderContext::UpdateSurfaceNormalAtlasTexture() {
+    if (hasSurfaceNormalAtlas_) {
+        return;
+    }
+    const auto atlasPath = Utils::PathUtils::GetResourcePath("Surfaces/SurfacesNormals.png");
+    if (!Utils::FileIO::Exists(atlasPath)) {
+        return;
+    }
+
+    try {
+        const auto image = Utils::ImageIO::LoadRgba8(atlasPath);
+        RHI::Texture2DDesc atlasDesc{};
+        atlasDesc.width = image.Width;
+        atlasDesc.height = image.Height;
+        atlasDesc.format = RHI::Format::R8G8B8A8_UNorm;
+        atlasDesc.linearFiltering = true;
+        atlasDesc.generateMipmaps = requestedSurfaceMipmaps_;
+        atlasDesc.pixels = image.Pixels;
+        auto texture = GetRhiContext().CreateTexture2D(atlasDesc);
+        if (texture.graphic_handle_ptr == nullptr) {
+            return;
+        }
+        if (hasSurfaceNormalAtlas_) {
+            GetRhiContext().DestroyTexture(surfaceNormalAtlas_);
+        }
+        surfaceNormalAtlas_ = texture;
+        hasSurfaceNormalAtlas_ = true;
     } catch (const std::exception&) {
     }
 }
