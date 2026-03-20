@@ -1,16 +1,12 @@
 #pragma once
 
 #include "Lvs/Engine/Core/Instance.hpp"
+#include "Lvs/Engine/Core/Types.hpp"
 #include "Lvs/Engine/DataModel/DataModel.hpp"
 #include "Lvs/Engine/DataModel/Services/Service.hpp"
-
-#include <QHash>
-#include <QString>
+#include "Lvs/Engine/IO/IXml.hpp"
 
 #include <memory>
-
-class QXmlStreamReader;
-class QXmlStreamWriter;
 
 namespace Lvs::Engine::DataModel {
 
@@ -18,17 +14,17 @@ class Place {
 public:
     Place();
 
-    static std::shared_ptr<Place> LoadFromFile(const QString& filePath);
+    static std::shared_ptr<Place> LoadFromFile(const Core::String& filePath);
 
-    void SaveToFile(const QString& filePath);
+    void SaveToFile(const Core::String& filePath);
 
     std::shared_ptr<DataModel> GetDataModel() const;
-    std::shared_ptr<Core::Instance> FindInstanceById(const QString& instanceId) const;
+    std::shared_ptr<Core::Instance> FindInstanceById(const Core::String& instanceId) const;
 
-    std::shared_ptr<Service> FindService(const QString& name) const;
+    std::shared_ptr<Service> FindService(const Core::String& name) const;
 
-    QString GetFilePath() const;
-    void SetFilePath(const QString& path);
+    Core::String GetFilePath() const;
+    void SetFilePath(const Core::String& path);
 
     bool IsDirty() const;
     void MarkDirty(bool value = true);
@@ -37,19 +33,19 @@ public:
 
 private:
     void CreateDefaultScene();
-    void LoadFromXmlRoot(QXmlStreamReader& reader);
+    void LoadFromXmlRoot(IO::IXmlReader& reader);
     void PrepareServiceForLoad(const std::shared_ptr<Service>& service);
-    void SerializeInstanceRecursive(const std::shared_ptr<Core::Instance>& instance, QXmlStreamWriter& writer) const;
-    std::shared_ptr<Core::Instance> DeserializeInstanceRecursive(QXmlStreamReader& reader, const std::shared_ptr<Core::Instance>& parent);
-    void SerializeProperties(const std::shared_ptr<Core::Instance>& instance, QXmlStreamWriter& writer) const;
-    void DeserializeProperties(const std::shared_ptr<Core::Instance>& instance, QXmlStreamReader& reader);
-    QString EncodeValue(const QVariant& value) const;
-    QVariant DecodeValue(const Core::PropertyDefinition& definition, const QString& rawValue) const;
+    void SerializeInstanceRecursive(const std::shared_ptr<Core::Instance>& instance, IO::IXmlWriter& writer) const;
+    std::shared_ptr<Core::Instance> DeserializeInstanceRecursive(IO::IXmlReader& reader, const std::shared_ptr<Core::Instance>& parent);
+    void SerializeProperties(const std::shared_ptr<Core::Instance>& instance, IO::IXmlWriter& writer) const;
+    void DeserializeProperties(const std::shared_ptr<Core::Instance>& instance, IO::IXmlReader& reader);
+    Core::String EncodeValue(const Core::Variant& value) const;
+    Core::Variant DecodeValue(const Core::PropertyDefinition& definition, const Core::String& rawValue) const;
 
-    QString filePath_;
+    Core::String filePath_;
     bool dirty_{false};
     std::shared_ptr<DataModel> dataModel_;
-    QHash<QString, std::shared_ptr<Service>> services_;
+    Core::HashMap<Core::String, std::shared_ptr<Service>> services_;
 };
 
 } // namespace Lvs::Engine::DataModel

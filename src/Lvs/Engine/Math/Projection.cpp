@@ -1,5 +1,6 @@
 #include "Lvs/Engine/Math/Projection.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 namespace Lvs::Engine::Math::Projection {

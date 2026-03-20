@@ -1,5 +1,6 @@
 #include "Lvs/Studio/Widgets/Settings/SettingsWidget.hpp"
 
+#include "Lvs/Engine/Core/QtBridge.hpp"
 #include "Lvs/Engine/Enums/EnumMetadata.hpp"
 #include "Lvs/Engine/Utils/EngineDataPaths.hpp"
 #include "Lvs/Studio/Core/IconPackManager.hpp"
@@ -64,7 +65,7 @@ QWidget* CreateActionEditor(QWidget* parent, const QString& actionId) {
     if (actionId == "OpenRootFolder") {
         auto* button = new QPushButton("Open", parent);
         QObject::connect(button, &QPushButton::clicked, button, []() {
-            const QString root = Lvs::Engine::Utils::EngineDataPaths::RootDir();
+            const QString root = Lvs::Engine::Core::QtBridge::ToQString(Lvs::Engine::Utils::EngineDataPaths::RootDir());
             QDesktopServices::openUrl(QUrl::fromLocalFile(root));
         });
         return button;
@@ -97,15 +98,16 @@ void UpdateEditorValue(QWidget* editor, const QString& key, const QVariant& valu
     }
     if (auto* combo = qobject_cast<QComboBox*>(editor); combo != nullptr) {
         const QSignalBlocker blocker(combo);
-        static_cast<void>(key);
-        if (Lvs::Engine::Enums::Metadata::IsRegisteredEnumType(value.typeId())) {
-            const int currentValue = Lvs::Engine::Enums::Metadata::IntFromVariant(value);
+        const auto& meta = Core::Settings::All().value(key);
+        if (!meta.EnumType.isEmpty()) {
+            const int currentValue = value.toInt();
             for (int i = 0; i < combo->count(); ++i) {
                 if (combo->itemData(i).toInt() == currentValue) {
                     combo->setCurrentIndex(i);
                     return;
                 }
             }
+            return;
         }
         combo->setCurrentText(value.toString());
     }
@@ -310,24 +312,21 @@ QWidget* SettingsWidget::CreateEditor(const QString& key) {
         return combo;
     }
 
-    if (Engine::Enums::Metadata::IsRegisteredEnumType(defaultValue.typeId())) {
+    if (!meta.EnumType.isEmpty()) {
         auto* combo = new QComboBox(settingsPanel_);
         combo->setEditable(false);
 
-        const int typeId = defaultValue.typeId();
-        const auto options = Engine::Enums::Metadata::OptionsForType(typeId);
+        const auto enumTypeStd = Engine::Core::QtBridge::ToStdString(meta.EnumType);
+        const auto options = Engine::Enums::Metadata::OptionsForEnum(enumTypeStd);
         for (const auto& opt : options) {
             combo->addItem(QString::fromUtf8(opt.Name), opt.Value);
         }
 
-        QVariant current = value;
-        if (current.typeId() != typeId) {
-            current = Engine::Enums::Metadata::CoerceVariant(typeId, current);
+        bool ok = false;
+        int currentValue = value.toInt(&ok);
+        if (!ok) {
+            currentValue = defaultValue.toInt();
         }
-        if (!current.isValid()) {
-            current = defaultValue;
-        }
-        const int currentValue = Engine::Enums::Metadata::IntFromVariant(current);
         for (int i = 0; i < combo->count(); ++i) {
             if (combo->itemData(i).toInt() == currentValue) {
                 combo->setCurrentIndex(i);
@@ -335,12 +334,12 @@ QWidget* SettingsWidget::CreateEditor(const QString& key) {
             }
         }
 
-        connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged), combo, [combo, key, typeId](const int index) {
+        connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged), combo, [combo, key](const int index) {
             if (index < 0) {
                 return;
             }
             const int selectedValue = combo->itemData(index).toInt();
-            Core::Settings::Set(key, Engine::Enums::Metadata::VariantFromInt(typeId, selectedValue));
+            Core::Settings::Set(key, selectedValue);
         });
 
         return combo;

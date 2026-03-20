@@ -1,5 +1,6 @@
 #include "Lvs/Engine/Core/CameraController.hpp"
 
+#include "Lvs/Engine/Core/Variant.hpp"
 #include "Lvs/Engine/Math/CFrame.hpp"
 #include "Lvs/Engine/Objects/Camera.hpp"
 
@@ -38,7 +39,7 @@ void CameraController::Move(const Math::Vector3& direction, const double dt, con
     const double moveSpeed = slow ? slowSpeed_ : speed_;
     const auto cframe = camera_->GetProperty("CFrame").value<Math::CFrame>();
     const auto newPos = cframe.Position + direction * moveSpeed * dt;
-    camera_->SetProperty("CFrame", QVariant::fromValue(Math::CFrame::LookAt(newPos, newPos + cframe.LookVector())));
+    camera_->SetProperty("CFrame", Variant::From(Math::CFrame::LookAt(newPos, newPos + cframe.LookVector())));
 }
 
 Math::Vector3 CameraController::GetForward() const {
@@ -98,7 +99,7 @@ void CameraController::ApplyRotation() const {
                              .Unit();
 
     const auto pos = camera_->GetProperty("CFrame").value<Math::CFrame>().Position;
-    camera_->SetProperty("CFrame", QVariant::fromValue(Math::CFrame::LookAt(pos, pos + forward)));
+    camera_->SetProperty("CFrame", Variant::From(Math::CFrame::LookAt(pos, pos + forward)));
 }
 
 } // namespace Lvs::Engine::Core

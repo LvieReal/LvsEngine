@@ -1,7 +1,8 @@
 #include "Lvs/Studio/Controllers/TopBarController.hpp"
 
-#include "Lvs/Engine/Core/RegularError.hpp"
-#include "Lvs/Engine/Core/Window.hpp"
+#include "Lvs/Engine/Core/QtBridge.hpp"
+#include "Lvs/Studio/Core/RegularError.hpp"
+#include "Lvs/Studio/Core/Window.hpp"
 #include "Lvs/Engine/DataModel/Place.hpp"
 #include "Lvs/Engine/DataModel/PlaceManager.hpp"
 #include "Lvs/Studio/Core/DockManager.hpp"
@@ -91,7 +92,7 @@ void TopBarController::BuildFileMenu() {
 
     QObject::connect(openAction_, &QAction::triggered, &window_, [this]() {
         const QString defaultPath = placeManager_.GetCurrentPlace() != nullptr
-            ? placeManager_.GetCurrentPlace()->GetFilePath()
+            ? Engine::Core::QtBridge::ToQString(placeManager_.GetCurrentPlace()->GetFilePath())
             : QString{};
         const QString selectedPath = QFileDialog::getOpenFileName(
             &window_,
@@ -108,7 +109,7 @@ void TopBarController::BuildFileMenu() {
 
         try {
             window_.ShowBusy("Opening place...");
-            placeManager_.OpenPlaceFromFile(selectedPath);
+            placeManager_.OpenPlaceFromFile(Engine::Core::QtBridge::ToStdString(selectedPath));
             window_.HideBusy("Ready");
             RefreshFileActions();
             RefreshViewActions();
@@ -213,7 +214,7 @@ QString TopBarController::PromptSavePath() const {
         return {};
     }
 
-    QString defaultPath = currentPlace->GetFilePath();
+    QString defaultPath = Engine::Core::QtBridge::ToQString(currentPlace->GetFilePath());
     if (defaultPath.isEmpty()) {
         defaultPath = Core::PlaceFileUtils::DefaultUntitledFileName();
     }
@@ -237,7 +238,7 @@ void TopBarController::SaveCurrentPlaceToPath(const QString& path) const {
 
     window_.ShowBusy("Saving place...");
     try {
-        placeManager_.SaveCurrentPlaceToFile(path);
+        placeManager_.SaveCurrentPlaceToFile(Engine::Core::QtBridge::ToStdString(path));
         window_.HideBusy("Ready");
     } catch (...) {
         window_.HideBusy();

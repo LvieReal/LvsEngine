@@ -8,9 +8,9 @@ namespace Lvs::Engine::Objects {
 Core::ClassDescriptor& SelectionBox::Descriptor() {
     static Core::ClassDescriptor descriptor("SelectionBox", &Core::Instance::Descriptor());
     static const bool initialized = []() {
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<std::shared_ptr<Core::Instance>>(
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Core::Variant::InstanceRef>(
             "Adornee",
-            nullptr,
+            {},
             true,
             "Data",
             {},

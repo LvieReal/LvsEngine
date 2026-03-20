@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Lvs/Engine/DataModel/Place.hpp"
+#include "Lvs/Engine/Core/Types.hpp"
 #include "Lvs/Engine/Utils/Signal.hpp"
 
 #include <memory>
@@ -14,8 +15,8 @@ public:
     [[nodiscard]] std::shared_ptr<Place> GetCurrentPlace() const;
 
     std::shared_ptr<Place> NewPlace();
-    std::shared_ptr<Place> OpenPlaceFromFile(const QString& filePath);
-    void SaveCurrentPlaceToFile(const QString& filePath) const;
+    std::shared_ptr<Place> OpenPlaceFromFile(const Core::String& filePath);
+    void SaveCurrentPlaceToFile(const Core::String& filePath) const;
     void ClosePlace();
 
     Utils::Signal<const std::shared_ptr<Place>&> PlaceOpened;

@@ -1,13 +1,14 @@
 #pragma once
 
 #include "Lvs/Engine/Core/ObjectBase.hpp"
+#include "Lvs/Engine/Core/Types.hpp"
+#include "Lvs/Engine/Core/Variant.hpp"
 #include "Lvs/Engine/Utils/Signal.hpp"
-
-#include <QMetaType>
-#include <QVariant>
 
 #include <functional>
 #include <memory>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace Lvs::Engine::DataModel {
@@ -18,7 +19,7 @@ namespace Lvs::Engine::Core {
 
 class Instance : public ObjectBase, public std::enable_shared_from_this<Instance> {
 public:
-    using PropertyChangedSignal = Utils::Signal<const QString&, const QVariant&>;
+    using PropertyChangedSignal = Utils::Signal<const String&, const Variant&>;
     using PropertyInvalidatedSignal = Utils::Signal<>;
     using InstanceSignal = Utils::Signal<const std::shared_ptr<Instance>&>;
     using PropertyChangedConnection = PropertyChangedSignal::Connection;
@@ -30,15 +31,21 @@ public:
 
     static ClassDescriptor& Descriptor();
 
-    [[nodiscard]] const QString& GetId() const;
-    [[nodiscard]] QString GetClassName() const;
-    [[nodiscard]] QString GetFullPath() const;
+    [[nodiscard]] const String& GetId() const;
+    [[nodiscard]] String GetClassName() const;
+    [[nodiscard]] String GetFullPath() const;
 
     [[nodiscard]] virtual bool IsService() const;
     [[nodiscard]] virtual bool IsHiddenService() const;
     [[nodiscard]] virtual bool IsInsertable() const;
 
-    virtual void SetProperty(const QString& name, const QVariant& value);
+    virtual void SetProperty(const String& name, const Variant& value);
+
+    template <class T>
+        requires(!std::is_same_v<std::remove_cvref_t<T>, Variant>)
+    void SetProperty(const String& name, T&& value) {
+        SetProperty(name, Variant::From(std::forward<T>(value)));
+    }
 
     virtual bool CanParentTo(const std::shared_ptr<Instance>& parent) const;
     virtual bool CanAcceptChild(const std::shared_ptr<Instance>& child) const;
@@ -74,7 +81,7 @@ private:
         const std::shared_ptr<DataModel::DataModel>& newDataModel
     );
 
-    QString id_;
+    String id_;
     std::weak_ptr<Instance> parent_;
     std::vector<std::shared_ptr<Instance>> children_;
     bool isService_{false};
@@ -83,5 +90,3 @@ private:
 };
 
 } // namespace Lvs::Engine::Core
-
-Q_DECLARE_METATYPE(std::shared_ptr<Lvs::Engine::Core::Instance>)

@@ -2,7 +2,6 @@
 
 #include "Lvs/Engine/Math/Vector3.hpp"
 
-#include <QMetaType>
 
 #include <array>
 
@@ -30,5 +29,3 @@ private:
 };
 
 } // namespace Lvs::Engine::Math
-
-Q_DECLARE_METATYPE(Lvs::Engine::Math::Matrix4)

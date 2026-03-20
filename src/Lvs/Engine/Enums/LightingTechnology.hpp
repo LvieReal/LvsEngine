@@ -1,6 +1,6 @@
 #pragma once
 
-#include <QMetaType>
+#include "Lvs/Engine/Core/EnumTraits.hpp"
 
 namespace Lvs::Engine::Enums {
 
@@ -10,4 +10,7 @@ enum class LightingTechnology {
 
 } // namespace Lvs::Engine::Enums
 
-Q_DECLARE_METATYPE(Lvs::Engine::Enums::LightingTechnology)
+template <>
+struct Lvs::Engine::Core::EnumTraits<Lvs::Engine::Enums::LightingTechnology> {
+    static constexpr std::string_view Name = "LightingTechnology";
+};

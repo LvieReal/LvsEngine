@@ -1,5 +1,5 @@
-#include "Lvs/Engine/Core/CriticalError.hpp"
-#include "Lvs/Engine/Core/CrashHandler.hpp"
+#include "Lvs/Studio/Core/CriticalError.hpp"
+#include "Lvs/Studio/Core/CrashHandler.hpp"
 
 #include <QCoreApplication>
 #include <QMessageBox>

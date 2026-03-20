@@ -3,6 +3,8 @@
 #include "Lvs/Engine/Objects/Skybox.hpp"
 #include "Lvs/Engine/Rendering/Common/EnvironmentLookup.hpp"
 
+#include <cctype>
+
 namespace Lvs::Engine::Rendering::Common {
 
 SkyboxSettingsSnapshot SkyboxSettingsResolver::Resolve(const std::shared_ptr<DataModel::Place>& place) const {
@@ -11,15 +13,27 @@ SkyboxSettingsSnapshot SkyboxSettingsResolver::Resolve(const std::shared_ptr<Dat
     const auto defaults = std::make_shared<Objects::Skybox>();
     const std::shared_ptr<Objects::Skybox> source = snapshot.Source != nullptr ? snapshot.Source : defaults;
 
-    const auto resolvePathOrDefault = [&source, &defaults](const char* propertyName) {
-        const auto value = source->GetProperty(propertyName).toString().trimmed().toStdString();
-        if (!value.empty()) {
-            return value;
+    const auto resolvePathOrDefault = [&source, &defaults](const char* propertyName) -> std::filesystem::path {
+        auto trimCopy = [](const std::string& in) -> std::string {
+            size_t start = 0;
+            size_t end = in.size();
+            while (start < end && std::isspace(static_cast<unsigned char>(in[start])) != 0) {
+                ++start;
+            }
+            while (end > start && std::isspace(static_cast<unsigned char>(in[end - 1])) != 0) {
+                --end;
+            }
+            return in.substr(start, end - start);
+        };
+
+        const std::string raw = trimCopy(source->GetProperty(propertyName).toString());
+        if (!raw.empty()) {
+            return std::filesystem::path(raw);
         }
-        return defaults->GetProperty(propertyName).toString().trimmed().toStdString();
+        return std::filesystem::path(trimCopy(defaults->GetProperty(propertyName).toString()));
     };
 
-    snapshot.Faces = {
+    snapshot.Faces = std::array<std::filesystem::path, 6>{
         resolvePathOrDefault("RightTexture"),
         resolvePathOrDefault("LeftTexture"),
         resolvePathOrDefault("UpTexture"),

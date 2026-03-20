@@ -1,25 +1,24 @@
 #include "Lvs/Engine/Core/ClassDescriptor.hpp"
 
-#include <QHash>
-
 #include <algorithm>
+#include <unordered_map>
 
 namespace Lvs::Engine::Core {
 
 namespace {
-QHash<QString, const ClassDescriptor*>& Registry() {
-    static QHash<QString, const ClassDescriptor*> registry;
+std::unordered_map<String, const ClassDescriptor*>& Registry() {
+    static std::unordered_map<String, const ClassDescriptor*> registry;
     return registry;
 }
 } // namespace
 
-ClassDescriptor::ClassDescriptor(QString className, const ClassDescriptor* baseDescriptor)
+ClassDescriptor::ClassDescriptor(String className, const ClassDescriptor* baseDescriptor)
     : className_(std::move(className)),
       baseDescriptor_(baseDescriptor) {
     if (baseDescriptor_ != nullptr) {
         propertyDefinitions_ = baseDescriptor_->PropertyDefinitions();
-        for (auto it = propertyDefinitions_.cbegin(); it != propertyDefinitions_.cend(); ++it) {
-            nextPropertyOrder_ = std::max(nextPropertyOrder_, it->RegistrationOrder + 1);
+        for (const auto& [_, def] : propertyDefinitions_) {
+            nextPropertyOrder_ = std::max(nextPropertyOrder_, def.RegistrationOrder + 1);
         }
     }
 }
@@ -27,15 +26,15 @@ ClassDescriptor::ClassDescriptor(QString className, const ClassDescriptor* baseD
 void ClassDescriptor::RegisterProperty(const PropertyDefinition& propertyDefinition) {
     PropertyDefinition definition = propertyDefinition;
     const auto existing = propertyDefinitions_.find(definition.Name);
-    if (existing != propertyDefinitions_.end() && existing->RegistrationOrder >= 0) {
-        definition.RegistrationOrder = existing->RegistrationOrder;
+    if (existing != propertyDefinitions_.end() && existing->second.RegistrationOrder >= 0) {
+        definition.RegistrationOrder = existing->second.RegistrationOrder;
     } else if (definition.RegistrationOrder < 0) {
         definition.RegistrationOrder = nextPropertyOrder_++;
     }
     propertyDefinitions_[definition.Name] = definition;
 }
 
-const QString& ClassDescriptor::ClassName() const {
+const String& ClassDescriptor::ClassName() const {
     return className_;
 }
 
@@ -43,16 +42,20 @@ const ClassDescriptor* ClassDescriptor::BaseDescriptor() const {
     return baseDescriptor_;
 }
 
-const QMap<QString, PropertyDefinition>& ClassDescriptor::PropertyDefinitions() const {
+const HashMap<String, PropertyDefinition>& ClassDescriptor::PropertyDefinitions() const {
     return propertyDefinitions_;
 }
 
 void ClassDescriptor::RegisterClassDescriptor(const ClassDescriptor* descriptor) {
-    Registry().insert(descriptor->ClassName(), descriptor);
+    Registry().insert({descriptor->ClassName(), descriptor});
 }
 
-const ClassDescriptor* ClassDescriptor::Get(const QString& className) {
-    return Registry().value(className, nullptr);
+const ClassDescriptor* ClassDescriptor::Get(const String& className) {
+    const auto it = Registry().find(className);
+    if (it == Registry().end()) {
+        return nullptr;
+    }
+    return it->second;
 }
 
 } // namespace Lvs::Engine::Core

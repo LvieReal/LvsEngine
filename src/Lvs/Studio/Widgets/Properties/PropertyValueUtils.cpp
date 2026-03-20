@@ -1,6 +1,7 @@
 #include "Lvs/Studio/Widgets/Properties/PropertyValueUtils.hpp"
 
 #include "Lvs/Engine/Enums/EnumMetadata.hpp"
+#include "Lvs/Engine/Core/QtBridge.hpp"
 
 #include <QRegularExpression>
 
@@ -8,16 +9,17 @@
 
 namespace Lvs::Studio::Widgets::Properties::ValueUtils {
 
-QList<EnumOption> EnumOptionsForType(const int typeId) {
+QList<EnumOption> EnumOptionsForEnum(const QString& enumType) {
     QList<EnumOption> options;
-    for (const auto& option : Lvs::Engine::Enums::Metadata::OptionsForType(typeId)) {
+    const auto enumTypeStd = Lvs::Engine::Core::QtBridge::ToStdString(enumType);
+    for (const auto& option : Lvs::Engine::Enums::Metadata::OptionsForEnum(enumTypeStd)) {
         options.push_back({QString::fromUtf8(option.Name), option.Value});
     }
     return options;
 }
 
-QString EnumNameFromTypeAndInt(const int typeId, const int value) {
-    const QList<EnumOption> options = EnumOptionsForType(typeId);
+QString EnumNameFromEnumAndInt(const QString& enumType, const int value) {
+    const QList<EnumOption> options = EnumOptionsForEnum(enumType);
     for (const auto& option : options) {
         if (option.Value == value) {
             return option.Name;
@@ -26,8 +28,9 @@ QString EnumNameFromTypeAndInt(const int typeId, const int value) {
     return QString::number(value);
 }
 
-QVariant EnumVariantFromTypeAndInt(const int typeId, const int value) {
-    return Lvs::Engine::Enums::Metadata::VariantFromInt(typeId, value);
+QVariant EnumVariantFromEnumAndInt(const QString& enumType, const int value) {
+    const auto enumTypeStd = Lvs::Engine::Core::QtBridge::ToStdString(enumType);
+    return Lvs::Engine::Core::QtBridge::ToQVariant(Lvs::Engine::Enums::Metadata::VariantFromInt(enumTypeStd, value));
 }
 
 QString FormatVector3(const Lvs::Engine::Math::Vector3& value) {

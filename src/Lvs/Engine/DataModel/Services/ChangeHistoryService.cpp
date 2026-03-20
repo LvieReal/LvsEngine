@@ -32,7 +32,7 @@ bool ChangeHistoryService::IsRecording() const {
     return recordingGroup_ != nullptr;
 }
 
-void ChangeHistoryService::BeginRecording(const QString& name) {
+void ChangeHistoryService::BeginRecording(const Core::String& name) {
     if (recordingGroup_ != nullptr) {
         throw std::runtime_error("Already recording.");
     }

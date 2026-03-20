@@ -1,4 +1,5 @@
 #include "Lvs/AppInfo.hpp"
+#include "Lvs/Engine/Core/QtBridge.hpp"
 #include "Lvs/Engine/Utils/SourcePath.hpp"
 
 #include <QFile>
@@ -25,7 +26,7 @@ const AppInfoData& LoadInfo() {
         AppInfoData out;
         QFile file(":/config/AppInfo.json");
         if (!file.open(QIODevice::ReadOnly)) {
-            file.setFileName(Engine::Utils::SourcePath::GetSourcePath("config/AppInfo.json"));
+            file.setFileName(Engine::Core::QtBridge::ToQString(Engine::Utils::SourcePath::GetSourcePath("config/AppInfo.json")));
             if (!file.open(QIODevice::ReadOnly)) {
                 return out;
             }

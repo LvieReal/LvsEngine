@@ -1,7 +1,6 @@
 #pragma once
 
-#include <QMetaType>
-#include <QString>
+#include "Lvs/Engine/Core/Types.hpp"
 
 #include <array>
 
@@ -25,10 +24,8 @@ struct Vector3 {
     [[nodiscard]] double Magnitude() const;
     [[nodiscard]] Vector3 Unit() const;
 
-    [[nodiscard]] QString ToString() const;
+    [[nodiscard]] Core::String ToString() const;
     [[nodiscard]] bool operator==(const Vector3& other) const;
 };
 
 } // namespace Lvs::Engine::Math
-
-Q_DECLARE_METATYPE(Lvs::Engine::Math::Vector3)

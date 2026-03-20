@@ -1,4 +1,4 @@
-#include "Lvs/Engine/Core/Viewport.hpp"
+#include "Lvs/Studio/Core/Viewport.hpp"
 
 #include "Lvs/Engine/Core/CameraController.hpp"
 #include "Lvs/Engine/DataModel/Services/Workspace.hpp"
@@ -6,7 +6,6 @@
 #include "Lvs/Engine/Objects/BasePart.hpp"
 #include "Lvs/Engine/Objects/Camera.hpp"
 
-#include <QVariant>
 #include <Qt>
 
 #include <algorithm>
@@ -84,7 +83,12 @@ std::shared_ptr<Objects::Camera> Viewport::GetCurrentCamera() const {
     if (workspace_ == nullptr) {
         return nullptr;
     }
-    return workspace_->GetProperty("CurrentCamera").value<std::shared_ptr<Objects::Camera>>();
+    const auto cameraVar = workspace_->GetProperty("CurrentCamera");
+    if (!cameraVar.Is<Core::Variant::InstanceRef>()) {
+        return nullptr;
+    }
+    const auto locked = cameraVar.Get<Core::Variant::InstanceRef>().lock();
+    return std::dynamic_pointer_cast<Objects::Camera>(locked);
 }
 
 std::optional<Utils::Ray> Viewport::BuildRay(const double x, const double y) const {
@@ -131,7 +135,7 @@ void Viewport::FocusOnBounds(const Math::AABB& bounds) {
     const Math::Vector3 newPosition = center - direction * distance;
     const Math::Vector3 lookDirection = (center - newPosition).Unit();
 
-    camera->SetProperty("CFrame", QVariant::fromValue(Math::CFrame::LookAt(newPosition, center)));
+    camera->SetProperty("CFrame", Math::CFrame::LookAt(newPosition, center));
 
     constexpr double radToDeg = 180.0 / 3.14159265358979323846;
     const double newPitch = std::asin(lookDirection.y) * radToDeg;

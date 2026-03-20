@@ -3,8 +3,9 @@
 #include "Lvs/Engine/Context.hpp"
 #include "Lvs/Engine/Core/EditorToolState.hpp"
 #include "Lvs/Engine/Core/Instance.hpp"
-#include "Lvs/Engine/Core/RegularError.hpp"
-#include "Lvs/Engine/Core/Viewport.hpp"
+#include "Lvs/Engine/Core/QtBridge.hpp"
+#include "Lvs/Studio/Core/RegularError.hpp"
+#include "Lvs/Studio/Core/Viewport.hpp"
 #include "Lvs/Engine/DataModel/Services/ChangeHistoryService.hpp"
 #include "Lvs/Engine/DataModel/ClassRegistry.hpp"
 #include "Lvs/Engine/DataModel/Place.hpp"
@@ -156,7 +157,7 @@ bool StudioQuickActions::TryShowExplorerContextMenu(
     if (QTreeWidgetItem* item = explorer.itemAt(explorer.mapFromGlobal(globalPos)); item != nullptr) {
         const QString instanceId = item->data(0, Qt::UserRole).toString();
         if (!instanceId.isEmpty() && place != nullptr) {
-            selectionService->Set(place->FindInstanceById(instanceId));
+            selectionService->Set(place->FindInstanceById(Engine::Core::QtBridge::ToStdString(instanceId)));
         }
     }
 
@@ -605,7 +606,7 @@ void StudioQuickActions::GroupSelection() const {
         }
 
         const QString className = hasAnyParts ? "Model" : "Folder";
-        const auto group = Engine::DataModel::ClassRegistry::CreateInstance(className);
+        const auto group = Engine::DataModel::ClassRegistry::CreateInstance(Engine::Core::QtBridge::ToStdString(className));
         if (group == nullptr) {
             return;
         }
@@ -680,7 +681,7 @@ void StudioQuickActions::UngroupSelection() const {
             if (inst == nullptr || inst->GetParent() == nullptr) {
                 continue;
             }
-            const QString cls = inst->GetClassName();
+            const auto cls = inst->GetClassName();
             if (cls != "Model" && cls != "Folder") {
                 continue;
             }
@@ -793,11 +794,11 @@ void StudioQuickActions::PopulateInsertMenu(
 
     bool hasAction = false;
     const auto classGroups = Engine::DataModel::ClassRegistry::GetClassesByCategory();
-    for (auto categoryIt = classGroups.cbegin(); categoryIt != classGroups.cend(); ++categoryIt) {
-        auto* categoryMenu = menu.addMenu(categoryIt.key());
+    for (const auto& [category, classInfos] : classGroups) {
+        auto* categoryMenu = menu.addMenu(Engine::Core::QtBridge::ToQString(category));
         bool hasCategoryAction = false;
 
-        for (const auto& classInfo : categoryIt.value()) {
+        for (const auto& classInfo : classInfos) {
             const auto probe = classInfo.Factory();
             if (probe == nullptr || !probe->IsInsertable()) {
                 continue;
@@ -806,14 +807,15 @@ void StudioQuickActions::PopulateInsertMenu(
                 continue;
             }
 
-            QAction* action = categoryMenu->addAction(classInfo.Name);
+            const QString classNameQt = Engine::Core::QtBridge::ToQString(classInfo.Name);
+            QAction* action = categoryMenu->addAction(classNameQt);
             const QPixmap icon = GetIconPackManager().GetPixmapForInstance(probe);
             if (!icon.isNull()) {
                 action->setIcon(QIcon(icon));
             }
 
-            QObject::connect(action, &QAction::triggered, window_, [this, parent, className = classInfo.Name]() {
-                InsertObject(parent, className, QCursor::pos());
+            QObject::connect(action, &QAction::triggered, window_, [this, parent, classNameQt]() {
+                InsertObject(parent, classNameQt, QCursor::pos());
             });
 
             hasAction = true;
@@ -841,7 +843,7 @@ void StudioQuickActions::InsertObject(
             return;
         }
 
-        const auto created = Engine::DataModel::ClassRegistry::CreateInstance(className);
+        const auto created = Engine::DataModel::ClassRegistry::CreateInstance(Engine::Core::QtBridge::ToStdString(className));
         if (created == nullptr || !created->IsInsertable()) {
             return;
         }
@@ -856,9 +858,15 @@ void StudioQuickActions::InsertObject(
         if (const auto createdPart = std::dynamic_pointer_cast<Engine::Objects::BasePart>(created); createdPart != nullptr &&
             viewport_ != nullptr && place != nullptr) {
             const auto workspace = std::dynamic_pointer_cast<Engine::DataModel::Workspace>(place->FindService("Workspace"));
-            const auto camera = workspace != nullptr
-                ? workspace->GetProperty("CurrentCamera").value<std::shared_ptr<Engine::Objects::Camera>>()
-                : nullptr;
+            std::shared_ptr<Engine::Objects::Camera> camera;
+            if (workspace != nullptr) {
+                const auto cameraProp = workspace->GetProperty("CurrentCamera");
+                if (cameraProp.Is<Engine::Core::Variant::InstanceRef>()) {
+                    camera = std::dynamic_pointer_cast<Engine::Objects::Camera>(
+                        cameraProp.Get<Engine::Core::Variant::InstanceRef>().lock()
+                    );
+                }
+            }
 
             if (camera != nullptr && viewport_->isVisible() && viewport_->width() > 0 && viewport_->height() > 0) {
                 const QPoint local = QPoint(viewport_->width() / 2, viewport_->height() / 2);
@@ -897,7 +905,7 @@ void StudioQuickActions::InsertObject(
                     newPosition = hitPoint + (normal * (pushOut + 1e-3));
                 }
 
-                createdPart->SetProperty("Position", QVariant::fromValue(newPosition));
+                createdPart->SetProperty("Position", newPosition);
             }
         }
 
@@ -997,7 +1005,7 @@ bool StudioQuickActions::ShowContextMenu(
             if (inst == nullptr || inst->GetParent() == nullptr) {
                 continue;
             }
-            const QString cls = inst->GetClassName();
+            const auto cls = inst->GetClassName();
             if (cls == "Model" || cls == "Folder") {
                 canUngroup = true;
                 break;
@@ -1092,7 +1100,7 @@ void StudioQuickActions::PasteToParent(
 
         auto recordAll = [&](const bool beginGroup) {
             if (historyService != nullptr && beginGroup) {
-                historyService->BeginRecording(historyLabel);
+                historyService->BeginRecording(Engine::Core::QtBridge::ToStdString(historyLabel));
             }
             try {
                 for (const auto& proto : clipboardPrototypes_) {
@@ -1168,7 +1176,7 @@ void StudioQuickActions::PasteToParents(
 
         auto recordAll = [&](const bool beginGroup) {
             if (historyService != nullptr && beginGroup) {
-                historyService->BeginRecording(historyLabel);
+                historyService->BeginRecording(Engine::Core::QtBridge::ToStdString(historyLabel));
             }
             try {
                 for (const auto& parent : uniqueParents) {
@@ -1256,11 +1264,11 @@ std::shared_ptr<Engine::Core::Instance> StudioQuickActions::CloneRecursive(
 
     const auto& properties = source->GetProperties();
     for (auto it = properties.cbegin(); it != properties.cend(); ++it) {
-        const auto& definition = it->Definition();
+        const auto& definition = it->second.Definition();
         if (definition.ReadOnly || definition.Name == "ClassName" || definition.IsInstanceReference) {
             continue;
         }
-        clone->SetProperty(definition.Name, it->Get());
+        clone->SetProperty(definition.Name, it->second.Get());
     }
 
     for (const auto& child : source->GetChildren()) {

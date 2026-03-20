@@ -7,6 +7,7 @@
 #include "Lvs/Engine/DataModel/Services/Selection.hpp"
 #include "Lvs/Engine/DataModel/Services/ServiceRegistry.hpp"
 #include "Lvs/Engine/DataModel/Services/Workspace.hpp"
+#include "Lvs/Engine/IO/Providers.hpp"
 #include "Lvs/Engine/Enums/EnumMetadata.hpp"
 #include "Lvs/Engine/Enums/LightingComputationMode.hpp"
 #include "Lvs/Engine/Enums/LightingTechnology.hpp"
@@ -28,20 +29,41 @@
 #include "Lvs/Engine/Objects/Skybox.hpp"
 #include "Lvs/Engine/Objects/Folder.hpp"
 
-#include <QDir>
-#include <QFile>
-#include <QFileInfo>
-#include <QVariant>
-#include <QXmlStreamReader>
-#include <QXmlStreamWriter>
-
 #include <array>
+#include <cstdint>
+#include <filesystem>
+#include <iomanip>
+#include <limits>
+#include <sstream>
 #include <stdexcept>
+#include <string_view>
+#include <vector>
 
 namespace Lvs::Engine::DataModel {
 
 namespace {
 constexpr auto FILE_FORMAT_VERSION = "1";
+
+[[nodiscard]] Core::String GetAttr(IO::IXmlReader& reader, const Core::String& name) {
+    const auto attrs = reader.Attributes();
+    const auto it = attrs.find(name);
+    return it == attrs.end() ? Core::String{} : it->second;
+}
+
+[[nodiscard]] std::vector<Core::String> Split(const Core::String& s, const char delim) {
+    std::vector<Core::String> out;
+    size_t start = 0;
+    while (start <= s.size()) {
+        const size_t pos = s.find(delim, start);
+        if (pos == Core::String::npos) {
+            out.emplace_back(s.substr(start));
+            break;
+        }
+        out.emplace_back(s.substr(start, pos - start));
+        start = pos + 1;
+    }
+    return out;
+}
 
 void EnsureBuiltinRegistrations() {
     static const bool initialized = []() {
@@ -72,21 +94,26 @@ void EnsureWorkspaceCurrentCamera(const std::shared_ptr<Workspace>& workspace) {
         return;
     }
 
-    auto currentCamera = workspace->GetProperty("CurrentCamera").value<std::shared_ptr<Objects::Camera>>();
-    if (currentCamera != nullptr && currentCamera->GetParent() != nullptr) {
-        return;
+    const auto currentVar = workspace->GetProperty("CurrentCamera");
+    if (currentVar.Is<Core::Variant::InstanceRef>()) {
+        if (const auto locked = currentVar.Get<Core::Variant::InstanceRef>().lock()) {
+            if (const auto camera = std::dynamic_pointer_cast<Objects::Camera>(locked);
+                camera != nullptr && camera->GetParent() != nullptr) {
+                return;
+            }
+        }
     }
 
     for (const auto& child : workspace->GetChildren()) {
         if (const auto camera = std::dynamic_pointer_cast<Objects::Camera>(child); camera != nullptr) {
-            workspace->SetProperty("CurrentCamera", QVariant::fromValue(camera));
+            workspace->SetProperty("CurrentCamera", Core::Variant::InstanceRef{camera});
             return;
         }
     }
 
     auto camera = std::make_shared<Objects::Camera>();
     camera->SetParent(workspace);
-    workspace->SetProperty("CurrentCamera", QVariant::fromValue(camera));
+    workspace->SetProperty("CurrentCamera", Core::Variant::InstanceRef{camera});
 }
 
 } // namespace
@@ -95,59 +122,81 @@ Place::Place() {
     CreateDefaultScene();
 }
 
-std::shared_ptr<Place> Place::LoadFromFile(const QString& filePath) {
-    QFile file(filePath);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        throw std::runtime_error(QString("Failed to open place file: %1").arg(filePath).toStdString());
+std::shared_ptr<Place> Place::LoadFromFile(const Core::String& filePath) {
+    const auto fs = IO::Providers::GetFileSystem();
+    const auto xml = IO::Providers::GetXml();
+    if (!fs || !xml) {
+        throw std::runtime_error("Place::LoadFromFile requires IO providers (FileSystem + Xml) to be registered.");
     }
 
-    QXmlStreamReader reader(&file);
-    if (!reader.readNextStartElement() || reader.name() != "Place") {
+    const auto text = fs->ReadAllText(filePath);
+    if (!text) {
+        throw std::runtime_error("Failed to read place file: " + filePath);
+    }
+
+    auto reader = xml->CreateReaderFromText(*text);
+    if (!reader || !reader->ReadNextStartElement() || reader->Name() != "Place") {
         throw std::runtime_error("Invalid place file: expected root <Place>.");
+    }
+    if (reader->HasError()) {
+        throw std::runtime_error("Invalid place file: " + reader->ErrorString());
     }
 
     auto place = std::make_shared<Place>();
-    place->LoadFromXmlRoot(reader);
+    place->LoadFromXmlRoot(*reader);
     place->SetFilePath(filePath);
     place->MarkDirty(false);
     return place;
 }
 
-void Place::SaveToFile(const QString& filePath) {
-    QFileInfo info(filePath);
-    QDir().mkpath(info.absolutePath());
-
-    QFile file(filePath);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
-        throw std::runtime_error(QString("Failed to write place file: %1").arg(filePath).toStdString());
+void Place::SaveToFile(const Core::String& filePath) {
+    const auto fs = IO::Providers::GetFileSystem();
+    const auto xml = IO::Providers::GetXml();
+    if (!fs || !xml) {
+        throw std::runtime_error("Place::SaveToFile requires IO providers (FileSystem + Xml) to be registered.");
     }
 
-    QXmlStreamWriter writer(&file);
-    writer.setAutoFormatting(true);
-    writer.writeStartDocument();
-    writer.writeStartElement("Place");
-    writer.writeAttribute("Version", FILE_FORMAT_VERSION);
+    const std::filesystem::path path(filePath);
+    const auto parent = path.parent_path();
+    if (!parent.empty()) {
+        const auto parentStr = parent.string();
+        if (!fs->MkdirP(parentStr)) {
+            throw std::runtime_error("Failed to create directory: " + parentStr);
+        }
+    }
 
-    for (auto it = services_.cbegin(); it != services_.cend(); ++it) {
-        const auto& service = it.value();
+    auto writer = xml->CreateWriter();
+    if (!writer) {
+        throw std::runtime_error("XML provider returned a null writer.");
+    }
+
+    writer->WriteStartDocument();
+    writer->WriteStartElement("Place");
+    writer->WriteAttribute("Version", FILE_FORMAT_VERSION);
+
+    for (const auto& [serviceName, service] : services_) {
         if (service->IsHiddenService()) {
             continue;
         }
 
-        writer.writeStartElement("Service");
-        writer.writeAttribute("Name", it.key());
-        SerializeProperties(service, writer);
+        writer->WriteStartElement("Service");
+        writer->WriteAttribute("Name", serviceName);
+        SerializeProperties(service, *writer);
 
-        writer.writeStartElement("Instances");
+        writer->WriteStartElement("Instances");
         for (const auto& child : service->GetChildren()) {
-            SerializeInstanceRecursive(child, writer);
+            SerializeInstanceRecursive(child, *writer);
         }
-        writer.writeEndElement(); // Instances
-        writer.writeEndElement(); // Service
+        writer->WriteEndElement(); // Instances
+        writer->WriteEndElement(); // Service
     }
 
-    writer.writeEndElement(); // Place
-    writer.writeEndDocument();
+    writer->WriteEndElement(); // Place
+    writer->WriteEndDocument();
+
+    if (!fs->WriteAllText(filePath, writer->GetText())) {
+        throw std::runtime_error("Failed to write place file: " + filePath);
+    }
 
     SetFilePath(filePath);
     MarkDirty(false);
@@ -157,19 +206,23 @@ std::shared_ptr<DataModel> Place::GetDataModel() const {
     return dataModel_;
 }
 
-std::shared_ptr<Core::Instance> Place::FindInstanceById(const QString& instanceId) const {
+std::shared_ptr<Core::Instance> Place::FindInstanceById(const Core::String& instanceId) const {
+    if (dataModel_ == nullptr) {
+        return nullptr;
+    }
     return dataModel_->FindInstanceById(instanceId);
 }
 
-std::shared_ptr<Service> Place::FindService(const QString& name) const {
-    return services_.value(name);
+std::shared_ptr<Service> Place::FindService(const Core::String& name) const {
+    const auto it = services_.find(name);
+    return it == services_.end() ? nullptr : it->second;
 }
 
-QString Place::GetFilePath() const {
+Core::String Place::GetFilePath() const {
     return filePath_;
 }
 
-void Place::SetFilePath(const QString& path) {
+void Place::SetFilePath(const Core::String& path) {
     filePath_ = path;
 }
 
@@ -187,7 +240,7 @@ void Place::Destroy() {
         dataModel_.reset();
     }
 
-    for (auto& service : services_) {
+    for (auto& [_, service] : services_) {
         service->Destroy();
     }
     services_.clear();
@@ -202,7 +255,7 @@ void Place::CreateDefaultScene() {
     for (const auto& createService : ServiceRegistry::GetServiceClasses()) {
         auto service = createService();
         service->SetParent(dataModel_);
-        services_.insert(service->GetClassName(), service);
+        services_.insert_or_assign(service->GetClassName(), service);
 
         if (const auto workspace = std::dynamic_pointer_cast<Workspace>(service); workspace != nullptr) {
             workspace->InitializeDefaultObjects();
@@ -216,45 +269,46 @@ void Place::CreateDefaultScene() {
         workspaceService != nullptr) {
         auto basePlate = std::make_shared<Objects::Part>();
         basePlate->SetProperty("Name", "BasePlate");
-        basePlate->SetProperty("Size", QVariant::fromValue(Math::Vector3{128.0, 4.0, 128.0}));
+        basePlate->SetProperty("Anchored", true);
+        basePlate->SetProperty("Size", Math::Vector3{128.0, 4.0, 128.0});
         basePlate->SetParent(workspaceService);
     }
 
     MarkDirty(false);
 }
 
-void Place::LoadFromXmlRoot(QXmlStreamReader& reader) {
-    while (reader.readNextStartElement()) {
-        if (reader.name() != "Service") {
-            reader.skipCurrentElement();
+void Place::LoadFromXmlRoot(IO::IXmlReader& reader) {
+    while (reader.ReadNextStartElement()) {
+        if (reader.Name() != "Service") {
+            reader.SkipCurrentElement();
             continue;
         }
 
-        const QString serviceName = reader.attributes().value("Name").toString();
+        const Core::String serviceName = GetAttr(reader, "Name");
         auto service = FindService(serviceName);
         if (service == nullptr) {
-            reader.skipCurrentElement();
+            reader.SkipCurrentElement();
             continue;
         }
 
         PrepareServiceForLoad(service);
 
-        while (reader.readNextStartElement()) {
-            if (reader.name() == "Properties") {
+        while (reader.ReadNextStartElement()) {
+            if (reader.Name() == "Properties") {
                 DeserializeProperties(service, reader);
                 continue;
             }
-            if (reader.name() == "Instances") {
-                while (reader.readNextStartElement()) {
-                    if (reader.name() == "Instance") {
+            if (reader.Name() == "Instances") {
+                while (reader.ReadNextStartElement()) {
+                    if (reader.Name() == "Instance") {
                         DeserializeInstanceRecursive(reader, service);
                     } else {
-                        reader.skipCurrentElement();
+                        reader.SkipCurrentElement();
                     }
                 }
                 continue;
             }
-            reader.skipCurrentElement();
+            reader.SkipCurrentElement();
         }
     }
 
@@ -269,225 +323,208 @@ void Place::PrepareServiceForLoad(const std::shared_ptr<Service>& service) {
     }
 }
 
-void Place::SerializeInstanceRecursive(const std::shared_ptr<Core::Instance>& instance, QXmlStreamWriter& writer) const {
+void Place::SerializeInstanceRecursive(const std::shared_ptr<Core::Instance>& instance, IO::IXmlWriter& writer) const {
     if (!instance->IsInsertable()) {
         return;
     }
 
-    writer.writeStartElement("Instance");
-    writer.writeAttribute("Class", instance->GetClassName());
+    writer.WriteStartElement("Instance");
+    writer.WriteAttribute("Class", instance->GetClassName());
     SerializeProperties(instance, writer);
 
-    writer.writeStartElement("Children");
+    writer.WriteStartElement("Children");
     for (const auto& child : instance->GetChildren()) {
         SerializeInstanceRecursive(child, writer);
     }
-    writer.writeEndElement(); // Children
-    writer.writeEndElement(); // Instance
+    writer.WriteEndElement(); // Children
+    writer.WriteEndElement(); // Instance
 }
 
 std::shared_ptr<Core::Instance> Place::DeserializeInstanceRecursive(
-    QXmlStreamReader& reader,
+    IO::IXmlReader& reader,
     const std::shared_ptr<Core::Instance>& parent
 ) {
-    const QString className = reader.attributes().value("Class").toString();
-    if (className.isEmpty()) {
-        reader.skipCurrentElement();
+    const Core::String className = GetAttr(reader, "Class");
+    if (className.empty()) {
+        reader.SkipCurrentElement();
         return nullptr;
     }
 
     auto instance = ClassRegistry::CreateInstance(className);
 
-    while (reader.readNextStartElement()) {
-        if (reader.name() == "Properties") {
+    while (reader.ReadNextStartElement()) {
+        if (reader.Name() == "Properties") {
             DeserializeProperties(instance, reader);
             continue;
         }
-        if (reader.name() == "Children") {
-            while (reader.readNextStartElement()) {
-                if (reader.name() == "Instance") {
+        if (reader.Name() == "Children") {
+            while (reader.ReadNextStartElement()) {
+                if (reader.Name() == "Instance") {
                     DeserializeInstanceRecursive(reader, instance);
                 } else {
-                    reader.skipCurrentElement();
+                    reader.SkipCurrentElement();
                 }
             }
             continue;
         }
-        reader.skipCurrentElement();
+        reader.SkipCurrentElement();
     }
 
     instance->SetParent(parent);
     return instance;
 }
 
-void Place::SerializeProperties(const std::shared_ptr<Core::Instance>& instance, QXmlStreamWriter& writer) const {
-    writer.writeStartElement("Properties");
+void Place::SerializeProperties(const std::shared_ptr<Core::Instance>& instance, IO::IXmlWriter& writer) const {
+    writer.WriteStartElement("Properties");
 
-    for (auto it = instance->GetProperties().cbegin(); it != instance->GetProperties().cend(); ++it) {
-        const auto& property = it.value();
+    for (const auto& [_, property] : instance->GetProperties()) {
         const auto& definition = property.Definition();
 
         if (!definition.Serializable || definition.Name == "ClassName" || definition.IsInstanceReference) {
             continue;
         }
 
-        const QString encoded = EncodeValue(property.Get());
-        writer.writeStartElement("Property");
-        writer.writeAttribute("Name", definition.Name);
-        writer.writeAttribute("Type", QString::fromUtf8(definition.Type.name()));
-        writer.writeCharacters(encoded);
-        writer.writeEndElement();
+        const Core::String encoded = EncodeValue(property.Get());
+        writer.WriteStartElement("Property");
+        writer.WriteAttribute("Name", definition.Name);
+        writer.WriteAttribute("Type", std::to_string(static_cast<int>(definition.Type)));
+        writer.WriteCharacters(encoded);
+        writer.WriteEndElement();
     }
 
-    writer.writeEndElement(); // Properties
+    writer.WriteEndElement(); // Properties
 }
 
-void Place::DeserializeProperties(const std::shared_ptr<Core::Instance>& instance, QXmlStreamReader& reader) {
-    while (reader.readNextStartElement()) {
-        if (reader.name() != "Property") {
-            reader.skipCurrentElement();
+void Place::DeserializeProperties(const std::shared_ptr<Core::Instance>& instance, IO::IXmlReader& reader) {
+    while (reader.ReadNextStartElement()) {
+        if (reader.Name() != "Property") {
+            reader.SkipCurrentElement();
             continue;
         }
 
-        const QString propertyName = reader.attributes().value("Name").toString();
-        const QString rawValue = reader.readElementText();
-        if (propertyName.isEmpty() || propertyName == "ClassName") {
+        const Core::String propertyNameStd = GetAttr(reader, "Name");
+        const Core::String rawValue = reader.ReadElementText();
+        if (propertyNameStd.empty() || propertyNameStd == "ClassName") {
             continue;
         }
 
         const auto& props = instance->GetProperties();
-        const auto it = props.constFind(propertyName);
-        if (it == props.cend()) {
+        const auto it = props.find(propertyNameStd);
+        if (it == props.end()) {
             continue;
         }
 
-        const auto& definition = it->Definition();
+        const auto& definition = it->second.Definition();
         if (definition.IsInstanceReference) {
             continue;
         }
 
-        instance->SetProperty(propertyName, DecodeValue(definition, rawValue));
+        instance->SetProperty(propertyNameStd, DecodeValue(definition, rawValue));
     }
 }
 
-QString Place::EncodeValue(const QVariant& value) const {
-    if (!value.isValid() || value.isNull()) {
+Core::String Place::EncodeValue(const Core::Variant& value) const {
+    if (!value.IsValid() || value.IsNull()) {
         return {};
     }
 
-    if (value.typeId() == QMetaType::Bool) {
+    auto encodeDouble = [](const double v) -> Core::String {
+        std::ostringstream oss;
+        oss.setf(std::ios::fmtflags(0), std::ios::floatfield);
+        oss << std::setprecision(std::numeric_limits<double>::max_digits10) << v;
+        return oss.str();
+    };
+
+    switch (value.GetTypeId()) {
+    case Core::TypeId::Invalid:
+        return {};
+    case Core::TypeId::Bool:
         return value.toBool() ? "true" : "false";
+    case Core::TypeId::Int:
+        return std::to_string(value.toLongLong());
+    case Core::TypeId::Enum:
+        return std::to_string(value.toInt());
+    case Core::TypeId::Double:
+        return encodeDouble(value.toDouble());
+    case Core::TypeId::Vector3: {
+        const auto v = value.Get<Math::Vector3>();
+        return encodeDouble(v.x) + "," + encodeDouble(v.y) + "," + encodeDouble(v.z);
     }
-    if (value.typeId() == QMetaType::Int) {
-        return QString::number(value.toInt());
+    case Core::TypeId::Color3: {
+        const auto c = value.Get<Math::Color3>();
+        return encodeDouble(c.r) + "," + encodeDouble(c.g) + "," + encodeDouble(c.b);
     }
-    if (value.typeId() == QMetaType::Double) {
-        return QString::number(value.toDouble(), 'g', 17);
-    }
-    if (value.typeId() == QMetaType::fromType<Math::Vector3>().id()) {
-        const auto v = value.value<Math::Vector3>();
-        return QString("%1,%2,%3")
-            .arg(QString::number(v.x, 'g', 17))
-            .arg(QString::number(v.y, 'g', 17))
-            .arg(QString::number(v.z, 'g', 17));
-    }
-    if (value.typeId() == QMetaType::fromType<Math::Color3>().id()) {
-        const auto c = value.value<Math::Color3>();
-        return QString("%1,%2,%3")
-            .arg(QString::number(c.r, 'g', 17))
-            .arg(QString::number(c.g, 'g', 17))
-            .arg(QString::number(c.b, 'g', 17));
-    }
-    if (value.typeId() == QMetaType::fromType<Math::CFrame>().id()) {
-        const auto c = value.value<Math::CFrame>();
+    case Core::TypeId::CFrame: {
+        const auto c = value.Get<Math::CFrame>();
         const auto p = c.Position;
         const auto r = c.Right;
         const auto u = c.Up;
         const auto b = c.Back;
-        return QString("%1,%2,%3;%4,%5,%6;%7,%8,%9;%10,%11,%12")
-            .arg(QString::number(p.x, 'g', 17))
-            .arg(QString::number(p.y, 'g', 17))
-            .arg(QString::number(p.z, 'g', 17))
-            .arg(QString::number(r.x, 'g', 17))
-            .arg(QString::number(r.y, 'g', 17))
-            .arg(QString::number(r.z, 'g', 17))
-            .arg(QString::number(u.x, 'g', 17))
-            .arg(QString::number(u.y, 'g', 17))
-            .arg(QString::number(u.z, 'g', 17))
-            .arg(QString::number(b.x, 'g', 17))
-            .arg(QString::number(b.y, 'g', 17))
-            .arg(QString::number(b.z, 'g', 17));
+        return encodeDouble(p.x) + "," + encodeDouble(p.y) + "," + encodeDouble(p.z) + ";"
+            + encodeDouble(r.x) + "," + encodeDouble(r.y) + "," + encodeDouble(r.z) + ";"
+            + encodeDouble(u.x) + "," + encodeDouble(u.y) + "," + encodeDouble(u.z) + ";"
+            + encodeDouble(b.x) + "," + encodeDouble(b.y) + "," + encodeDouble(b.z);
     }
-    if (Enums::Metadata::IsRegisteredEnumType(value.typeId())) {
-        return QString::number(Enums::Metadata::IntFromVariant(value));
+    case Core::TypeId::String:
+        return value.Get<Core::String>();
+    case Core::TypeId::InstanceRef:
+    case Core::TypeId::ByteArray:
+        return {};
     }
 
     return value.toString();
 }
 
-QVariant Place::DecodeValue(const Core::PropertyDefinition& definition, const QString& rawValue) const {
-    const int typeId = definition.Type.id();
+Core::Variant Place::DecodeValue(const Core::PropertyDefinition& definition, const Core::String& rawValue) const {
+    const Core::TypeId typeId = definition.Type;
 
-    if (typeId == QMetaType::QString) {
-        return rawValue;
+    if (typeId == Core::TypeId::String) {
+        return Core::Variant::From(rawValue);
     }
-    if (typeId == QMetaType::Bool) {
-        const QString normalized = rawValue.trimmed().toLower();
-        return normalized == "1" || normalized == "true" || normalized == "yes" || normalized == "on";
-    }
-    if (typeId == QMetaType::Int) {
-        return rawValue.toInt();
-    }
-    if (typeId == QMetaType::Double) {
-        return rawValue.toDouble();
-    }
-    if (typeId == QMetaType::fromType<Math::Vector3>().id()) {
-        const auto parts = rawValue.split(',');
-        if (parts.size() != 3) {
+    if (typeId == Core::TypeId::Vector3) {
+        const auto parts = Split(rawValue, ',');
+        if (parts.size() != 3U) {
             throw std::runtime_error("Invalid Vector3 serialized value.");
         }
-        return QVariant::fromValue(Math::Vector3{
-            parts[0].toDouble(),
-            parts[1].toDouble(),
-            parts[2].toDouble()
+        return Core::Variant::From(Math::Vector3{
+            std::stod(parts[0]),
+            std::stod(parts[1]),
+            std::stod(parts[2])
         });
     }
-    if (typeId == QMetaType::fromType<Math::Color3>().id()) {
-        const auto parts = rawValue.split(',');
-        if (parts.size() != 3) {
+    if (typeId == Core::TypeId::Color3) {
+        const auto parts = Split(rawValue, ',');
+        if (parts.size() != 3U) {
             throw std::runtime_error("Invalid Color3 serialized value.");
         }
-        return QVariant::fromValue(Math::Color3{
-            parts[0].toDouble(),
-            parts[1].toDouble(),
-            parts[2].toDouble()
+        return Core::Variant::From(Math::Color3{
+            std::stod(parts[0]),
+            std::stod(parts[1]),
+            std::stod(parts[2])
         });
     }
-    if (typeId == QMetaType::fromType<Math::CFrame>().id()) {
-        const auto segs = rawValue.split(';');
-        if (segs.size() != 4) {
+    if (typeId == Core::TypeId::CFrame) {
+        const auto segs = Split(rawValue, ';');
+        if (segs.size() != 4U) {
             throw std::runtime_error("Invalid CFrame serialized value.");
         }
-        auto parseVec = [](const QString& part) -> Math::Vector3 {
-            const auto vals = part.split(',');
-            if (vals.size() != 3) {
+        auto parseVec = [](const Core::String& part) -> Math::Vector3 {
+            const auto vals = Split(part, ',');
+            if (vals.size() != 3U) {
                 throw std::runtime_error("Invalid CFrame vector segment.");
             }
-            return {vals[0].toDouble(), vals[1].toDouble(), vals[2].toDouble()};
+            return {std::stod(vals[0]), std::stod(vals[1]), std::stod(vals[2])};
         };
-        return QVariant::fromValue(Math::CFrame{
+        return Core::Variant::From(Math::CFrame{
             parseVec(segs[0]),
             parseVec(segs[1]),
             parseVec(segs[2]),
             parseVec(segs[3])
         });
     }
-    if (Enums::Metadata::IsRegisteredEnumType(typeId)) {
-        return Enums::Metadata::VariantFromInt(typeId, rawValue.toInt());
-    }
 
-    QVariant value = rawValue;
-    value.convert(definition.Type);
+    Core::Variant value = Core::Variant::From(rawValue);
+    value.Convert(typeId);
     return value;
 }
 

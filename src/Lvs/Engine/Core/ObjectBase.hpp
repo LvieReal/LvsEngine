@@ -1,11 +1,11 @@
 #pragma once
 
 #include "Lvs/Engine/Core/ClassDescriptor.hpp"
+#include "Lvs/Engine/Core/EnumTraits.hpp"
 #include "Lvs/Engine/Core/Property.hpp"
-
-#include <QMap>
-#include <QString>
-#include <QVariant>
+#include "Lvs/Engine/Core/TypeId.hpp"
+#include "Lvs/Engine/Core/Types.hpp"
+#include "Lvs/Engine/Core/Variant.hpp"
 
 namespace Lvs::Engine::Core {
 
@@ -16,41 +16,49 @@ public:
 
     template <typename T>
     static PropertyDefinition MakePropertyDefinition(
-        const QString& name,
+        const String& name,
         const T& defaultValue = T{},
         const bool serializable = true,
-        const QString& category = "Data",
-        const QString& description = {},
+        const String& category = "Data",
+        const String& description = {},
         const bool readOnly = false,
-        const QStringList& customTags = {},
-        const QVariantMap& customAttributes = {},
+        const StringList& customTags = {},
+        const HashMap<String, Variant>& customAttributes = {},
         const bool isInstanceReference = false
     ) {
+        TypeId typeId = TypeIdOf<T>();
+        HashMap<String, Variant> attributes = customAttributes;
+        if constexpr (std::is_enum_v<T>) {
+            typeId = TypeId::Enum;
+            if constexpr (HasEnumName<T>()) {
+                attributes.insert_or_assign("EnumType", Variant::From(String(EnumTraits<T>::Name)));
+            }
+        }
         return PropertyDefinition{
             .Name = name,
-            .Type = QMetaType::fromType<T>(),
-            .Default = QVariant::fromValue(defaultValue),
+            .Type = typeId,
+            .Default = Variant::From(defaultValue),
             .Serializable = serializable,
             .Category = category,
             .Description = description,
             .ReadOnly = readOnly,
             .CustomTags = customTags,
-            .CustomAttributes = customAttributes,
+            .CustomAttributes = std::move(attributes),
             .IsInstanceReference = isInstanceReference
         };
     }
 
     [[nodiscard]] const ClassDescriptor& GetClassDescriptor() const;
-    [[nodiscard]] const QMap<QString, Property>& GetProperties() const;
-    [[nodiscard]] QMap<QString, Property>& GetProperties();
-    [[nodiscard]] QVariant GetProperty(const QString& name) const;
-    void SetProperty(const QString& name, const QVariant& value);
-    Property& GetPropertyObject(const QString& name);
-    const Property& GetPropertyObject(const QString& name) const;
+    [[nodiscard]] const HashMap<String, Property>& GetProperties() const;
+    [[nodiscard]] HashMap<String, Property>& GetProperties();
+    [[nodiscard]] Variant GetProperty(const String& name) const;
+    void SetProperty(const String& name, const Variant& value);
+    Property& GetPropertyObject(const String& name);
+    const Property& GetPropertyObject(const String& name) const;
 
 private:
     const ClassDescriptor* classDescriptor_{nullptr};
-    QMap<QString, Property> properties_;
+    HashMap<String, Property> properties_;
 };
 
 } // namespace Lvs::Engine::Core

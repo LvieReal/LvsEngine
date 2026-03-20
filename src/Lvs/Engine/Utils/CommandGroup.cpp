@@ -2,7 +2,7 @@
 
 namespace Lvs::Engine::Utils {
 
-CommandGroup::CommandGroup(QString name)
+CommandGroup::CommandGroup(Core::String name)
     : name_(std::move(name)) {
 }
 
@@ -22,7 +22,7 @@ void CommandGroup::Undo() const {
     }
 }
 
-const QString& CommandGroup::Name() const {
+const Core::String& CommandGroup::Name() const {
     return name_;
 }
 

@@ -1,6 +1,6 @@
 #include "Lvs/Studio/Core/DockManager.hpp"
 
-#include "Lvs/Engine/Core/Window.hpp"
+#include "Lvs/Studio/Core/Window.hpp"
 #include "Lvs/Studio/Core/Settings.hpp"
 #include "Lvs/Studio/Widgets/Explorer/ExplorerDock.hpp"
 #include "Lvs/Studio/Widgets/Output/OutputDock.hpp"

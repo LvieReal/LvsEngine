@@ -19,6 +19,8 @@ target_link_libraries(lvs_core
         assimp::assimp
 )
 
+target_compile_definitions(lvs_core PUBLIC LVS_WITH_QT_BRIDGE)
+
 if(WIN32)
     target_link_libraries(lvs_core PUBLIC opengl32)
 endif()

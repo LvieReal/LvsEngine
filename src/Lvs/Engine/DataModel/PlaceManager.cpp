@@ -18,7 +18,7 @@ std::shared_ptr<Place> PlaceManager::NewPlace() {
     return currentPlace_;
 }
 
-std::shared_ptr<Place> PlaceManager::OpenPlaceFromFile(const QString& filePath) {
+std::shared_ptr<Place> PlaceManager::OpenPlaceFromFile(const Core::String& filePath) {
     auto place = Place::LoadFromFile(filePath);
     if (currentPlace_ != nullptr) {
         ClosePlace();
@@ -28,7 +28,7 @@ std::shared_ptr<Place> PlaceManager::OpenPlaceFromFile(const QString& filePath) 
     return currentPlace_;
 }
 
-void PlaceManager::SaveCurrentPlaceToFile(const QString& filePath) const {
+void PlaceManager::SaveCurrentPlaceToFile(const Core::String& filePath) const {
     if (currentPlace_ == nullptr) {
         throw std::runtime_error("No active place to save.");
     }

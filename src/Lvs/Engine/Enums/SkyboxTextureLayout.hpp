@@ -1,6 +1,6 @@
 #pragma once
 
-#include <QMetaType>
+#include "Lvs/Engine/Core/EnumTraits.hpp"
 
 namespace Lvs::Engine::Enums {
 
@@ -11,4 +11,7 @@ enum class SkyboxTextureLayout {
 
 } // namespace Lvs::Engine::Enums
 
-Q_DECLARE_METATYPE(Lvs::Engine::Enums::SkyboxTextureLayout)
+template <>
+struct Lvs::Engine::Core::EnumTraits<Lvs::Engine::Enums::SkyboxTextureLayout> {
+    static constexpr std::string_view Name = "SkyboxTextureLayout";
+};

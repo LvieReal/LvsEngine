@@ -1,29 +1,27 @@
 #pragma once
 
 #include "Lvs/Engine/Core/PropertyDefinition.hpp"
-
-#include <QMap>
-#include <QString>
+#include "Lvs/Engine/Core/Types.hpp"
 
 namespace Lvs::Engine::Core {
 
 class ClassDescriptor {
 public:
-    ClassDescriptor(QString className, const ClassDescriptor* baseDescriptor = nullptr);
+    ClassDescriptor(String className, const ClassDescriptor* baseDescriptor = nullptr);
 
     void RegisterProperty(const PropertyDefinition& propertyDefinition);
 
-    [[nodiscard]] const QString& ClassName() const;
+    [[nodiscard]] const String& ClassName() const;
     [[nodiscard]] const ClassDescriptor* BaseDescriptor() const;
-    [[nodiscard]] const QMap<QString, PropertyDefinition>& PropertyDefinitions() const;
+    [[nodiscard]] const HashMap<String, PropertyDefinition>& PropertyDefinitions() const;
 
     static void RegisterClassDescriptor(const ClassDescriptor* descriptor);
-    static const ClassDescriptor* Get(const QString& className);
+    static const ClassDescriptor* Get(const String& className);
 
 private:
-    QString className_;
+    String className_;
     const ClassDescriptor* baseDescriptor_{nullptr};
-    QMap<QString, PropertyDefinition> propertyDefinitions_;
+    HashMap<String, PropertyDefinition> propertyDefinitions_;
     int nextPropertyOrder_{0};
 };
 

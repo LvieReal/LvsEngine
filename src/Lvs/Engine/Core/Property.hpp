@@ -1,9 +1,8 @@
 #pragma once
 
 #include "Lvs/Engine/Core/PropertyDefinition.hpp"
+#include "Lvs/Engine/Core/Variant.hpp"
 #include "Lvs/Engine/Utils/Signal.hpp"
-
-#include <QVariant>
 
 namespace Lvs::Engine::Core {
 
@@ -12,14 +11,14 @@ public:
     explicit Property(PropertyDefinition definition);
 
     [[nodiscard]] const PropertyDefinition& Definition() const;
-    [[nodiscard]] const QVariant& Get() const;
-    void Set(const QVariant& value);
+    [[nodiscard]] const Variant& Get() const;
+    void Set(const Variant& value);
 
-    Utils::Signal<const QVariant&, const QVariant&> Changed;
+    Utils::Signal<const Variant&, const Variant&> Changed;
 
 private:
     PropertyDefinition definition_;
-    QVariant value_;
+    Variant value_;
 };
 
 } // namespace Lvs::Engine::Core

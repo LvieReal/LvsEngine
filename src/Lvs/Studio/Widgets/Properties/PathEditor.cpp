@@ -1,5 +1,6 @@
 #include "Lvs/Studio/Widgets/Properties/PathEditor.hpp"
 
+#include "Lvs/Engine/Core/QtBridge.hpp"
 #include "Lvs/Engine/Utils/SourcePath.hpp"
 
 #include <QFileDialog>
@@ -114,11 +115,11 @@ QString PathEditor::AsVirtualPath(const QString& path) {
     }
 
     try {
-        return Engine::Utils::SourcePath::OsToCorePath(clean);
+        return Engine::Core::QtBridge::ToQString(Engine::Utils::SourcePath::OsToCorePath(Engine::Core::QtBridge::ToStdString(clean)));
     } catch (...) {
     }
     try {
-        return Engine::Utils::SourcePath::OsToLocalPath(clean);
+        return Engine::Core::QtBridge::ToQString(Engine::Utils::SourcePath::OsToLocalPath(Engine::Core::QtBridge::ToStdString(clean)));
     } catch (...) {
     }
     return clean;
@@ -128,19 +129,19 @@ QString PathEditor::AsOsPath(const QString& path) {
     if (path.isEmpty()) {
         return {};
     }
-    return Engine::Utils::SourcePath::ToOsPath(path.trimmed());
+    return Engine::Core::QtBridge::ToQString(Engine::Utils::SourcePath::ToOsPath(Engine::Core::QtBridge::ToStdString(path.trimmed())));
 }
 
 void PathEditor::OnBrowse() {
     QString currentPath = AsOsPath(path());
     if (currentPath.isEmpty()) {
-        currentPath = Engine::Utils::SourcePath::GetSourcePath({});
+        currentPath = Engine::Core::QtBridge::ToQString(Engine::Utils::SourcePath::GetSourcePath({}));
     }
 
     QFileInfo info(currentPath);
     QString startDir = info.isDir() ? info.absoluteFilePath() : info.absolutePath();
     if (startDir.isEmpty()) {
-        startDir = Engine::Utils::SourcePath::GetSourcePath({});
+        startDir = Engine::Core::QtBridge::ToQString(Engine::Utils::SourcePath::GetSourcePath({}));
     }
 
     const QString selectedPath = QFileDialog::getOpenFileName(this, "Select File", startDir, BuildFileFilter());
@@ -156,4 +157,3 @@ void PathEditor::OnBrowse() {
 }
 
 } // namespace Lvs::Studio::Widgets::Properties
-

@@ -1,6 +1,7 @@
 #pragma once
 
-#include <QVariant>
+#include "Lvs/Engine/Core/Types.hpp"
+#include "Lvs/Engine/Core/Variant.hpp"
 
 #include <memory>
 
@@ -21,9 +22,9 @@ class SetPropertyCommand final : public Command {
 public:
     SetPropertyCommand(
         std::shared_ptr<Core::Instance> instance,
-        QString propertyName,
-        QVariant oldValue,
-        QVariant newValue
+        Core::String propertyName,
+        Core::Variant oldValue,
+        Core::Variant newValue
     );
 
     void Do() override;
@@ -31,9 +32,9 @@ public:
 
 private:
     std::shared_ptr<Core::Instance> instance_;
-    QString propertyName_;
-    QVariant oldValue_;
-    QVariant newValue_;
+    Core::String propertyName_;
+    Core::Variant oldValue_;
+    Core::Variant newValue_;
 };
 
 class ReparentCommand final : public Command {

@@ -10,9 +10,6 @@
 #include "Lvs/Engine/Rendering/Common/OverlayPrimitive.hpp"
 #include "Lvs/Engine/Utils/Raycast.hpp"
 
-#include <QHash>
-#include <QString>
-
 #include <memory>
 #include <optional>
 #include <vector>
@@ -52,7 +49,7 @@ public:
 
 private:
     struct AxisDef {
-        QString Name;
+        String Name;
         Math::Vector3 Direction;
         Math::Color3 Color;
     };
@@ -77,12 +74,12 @@ private:
         const Math::Vector3& linePoint,
         const Math::Vector3& lineDirection
     ) const;
-    [[nodiscard]] std::optional<QString> FindClosestAxis(const Utils::Ray& ray, bool includeMoveShaft) const;
-    [[nodiscard]] Math::Color3 AxisColor(const QString& axisName) const;
+    [[nodiscard]] std::optional<String> FindClosestAxis(const Utils::Ray& ray, bool includeMoveShaft) const;
+    [[nodiscard]] Math::Color3 AxisColor(const String& axisName) const;
 
     std::shared_ptr<Objects::Camera> camera_;
     std::vector<AxisState> axes_;
-    QHash<QString, AxisDef> axisByName_;
+    HashMap<String, AxisDef> axisByName_;
     std::vector<RenderPrimitive> renderPrimitives_;
 
     struct DragSnapshot {
@@ -105,8 +102,8 @@ private:
     bool selectionDirty_{true};
     std::vector<Core::Instance::PropertyChangedConnection> selectedPartPropertyChanged_;
     std::vector<Core::Instance::InstanceConnection> selectedPartAncestryChanged_;
-    QString hoveredAxis_;
-    QString activeAxis_;
+    String hoveredAxis_;
+    String activeAxis_;
     Math::Vector3 activeAxisDirection_{};
     std::optional<Math::Vector3> dragStartPoint_;
     Math::Vector3 dragCenter_{};

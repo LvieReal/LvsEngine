@@ -1,6 +1,6 @@
 #include "Lvs/Studio/Controllers/ToolbarController.hpp"
 
-#include "Lvs/Engine/Core/Window.hpp"
+#include "Lvs/Studio/Core/Window.hpp"
 #include "Lvs/Studio/Core/IconPackManager.hpp"
 
 #include <QAction>

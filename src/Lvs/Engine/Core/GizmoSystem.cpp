@@ -7,8 +7,6 @@
 #include "Lvs/Engine/Objects/Camera.hpp"
 #include "Lvs/Engine/Utils/InstanceSelection.hpp"
 
-#include <QVariant>
-
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -41,7 +39,7 @@ void GizmoSystem::Bind(const std::shared_ptr<Objects::Camera>& camera) {
     };
     axes_.reserve(defs.size());
     for (const auto& axis : defs) {
-        axisByName_.insert(axis.Name, axis);
+        axisByName_.insert_or_assign(axis.Name, axis);
         axes_.push_back(AxisState{.Axis = axis});
     }
 }
@@ -102,7 +100,7 @@ void GizmoSystem::Update(const std::shared_ptr<DataModel::Selection>& selection,
             if (part == nullptr) {
                 continue;
             }
-            selectedPartPropertyChanged_.push_back(part->PropertyChanged.Connect([this](const QString& name, const QVariant&) {
+            selectedPartPropertyChanged_.push_back(part->PropertyChanged.Connect([this](const String& name, const Variant&) {
                 if (name == "CFrame" || name == "Size" || name == "Position" || name == "Rotation") {
                     selectionDirty_ = true;
                 }
@@ -145,11 +143,11 @@ void GizmoSystem::Update(const std::shared_ptr<DataModel::Selection>& selection,
 }
 
 void GizmoSystem::UpdateHover(const Utils::Ray& ray) {
-    if (!visible_ || !activeAxis_.isEmpty()) {
+    if (!visible_ || !activeAxis_.empty()) {
         return;
     }
     const auto axis = FindClosestAxis(ray, activeTool_ == Tool::MoveTool);
-    hoveredAxis_ = axis.has_value() ? axis.value() : QString{};
+    hoveredAxis_ = axis.value_or(String{});
     RefreshRenderPrimitives();
 }
 
@@ -164,7 +162,7 @@ bool GizmoSystem::TryBeginDrag(const Utils::Ray& ray) {
     }
 
     activeAxis_ = axis.value();
-    activeAxisDirection_ = AxisDirection(axisByName_.value(activeAxis_));
+    activeAxisDirection_ = AxisDirection(axisByName_.at(activeAxis_));
     startPosition_ = targetPart_->GetProperty("Position").value<Math::Vector3>();
     startSize_ = targetPart_->GetProperty("Size").value<Math::Vector3>();
 
@@ -193,7 +191,7 @@ bool GizmoSystem::TryBeginDrag(const Utils::Ray& ray) {
 }
 
 void GizmoSystem::UpdateDrag(const Utils::Ray& ray) {
-    if (targetPart_ == nullptr || activeAxis_.isEmpty() || !dragStartPoint_.has_value() || !hasDragCenter_) {
+    if (targetPart_ == nullptr || activeAxis_.empty() || !dragStartPoint_.has_value() || !hasDragCenter_) {
         return;
     }
 
@@ -218,9 +216,9 @@ void GizmoSystem::UpdateDrag(const Utils::Ray& ray) {
             const auto parent = snap.Part->GetParent();
             if (const auto parentPart = std::dynamic_pointer_cast<Objects::BasePart>(parent); parentPart != nullptr) {
                 const auto local = parentPart->GetWorldCFrame().Inverse() * next;
-                snap.Part->SetProperty("CFrame", QVariant::fromValue(local));
+                snap.Part->SetProperty("CFrame", Variant::From(local));
             } else {
-                snap.Part->SetProperty("CFrame", QVariant::fromValue(next));
+                snap.Part->SetProperty("CFrame", Variant::From(next));
             }
         }
         return;
@@ -260,11 +258,11 @@ void GizmoSystem::UpdateDrag(const Utils::Ray& ray) {
             const auto parent = snap.Part->GetParent();
             if (const auto parentPart = std::dynamic_pointer_cast<Objects::BasePart>(parent); parentPart != nullptr) {
                 const auto local = parentPart->GetWorldCFrame().Inverse() * next;
-                snap.Part->SetProperty("CFrame", QVariant::fromValue(local));
+                snap.Part->SetProperty("CFrame", Variant::From(local));
             } else {
-                snap.Part->SetProperty("CFrame", QVariant::fromValue(next));
+                snap.Part->SetProperty("CFrame", Variant::From(next));
             }
-            snap.Part->SetProperty("Size", QVariant::fromValue(newSize));
+            snap.Part->SetProperty("Size", Variant::From(newSize));
         }
         return;
     }
@@ -314,11 +312,11 @@ void GizmoSystem::UpdateDrag(const Utils::Ray& ray) {
     const auto parent = snap.Part->GetParent();
     if (const auto parentPart = std::dynamic_pointer_cast<Objects::BasePart>(parent); parentPart != nullptr) {
         const auto local = parentPart->GetWorldCFrame().Inverse() * next;
-        snap.Part->SetProperty("CFrame", QVariant::fromValue(local));
+        snap.Part->SetProperty("CFrame", Variant::From(local));
     } else {
-        snap.Part->SetProperty("CFrame", QVariant::fromValue(next));
+        snap.Part->SetProperty("CFrame", Variant::From(next));
     }
-    snap.Part->SetProperty("Size", QVariant::fromValue(newSize));
+    snap.Part->SetProperty("Size", Variant::From(newSize));
 }
 
 void GizmoSystem::EndDrag() {
@@ -548,9 +546,9 @@ std::optional<Math::Vector3> GizmoSystem::ClosestPointOnLineToRay(
     return linePoint + a * s;
 }
 
-std::optional<QString> GizmoSystem::FindClosestAxis(const Utils::Ray& ray, const bool includeMoveShaft) const {
+std::optional<String> GizmoSystem::FindClosestAxis(const Utils::Ray& ray, const bool includeMoveShaft) const {
     static const Math::AABB localUnitAabb{{-0.5, -0.5, -0.5}, {0.5, 0.5, 0.5}};
-    QString closestAxis;
+    String closestAxis;
     double closestDistance = std::numeric_limits<double>::infinity();
 
     for (const auto& axis : axes_) {
@@ -570,14 +568,15 @@ std::optional<QString> GizmoSystem::FindClosestAxis(const Utils::Ray& ray, const
         }
     }
 
-    if (closestAxis.isEmpty()) {
+    if (closestAxis.empty()) {
         return std::nullopt;
     }
     return closestAxis;
 }
 
-Math::Color3 GizmoSystem::AxisColor(const QString& axisName) const {
-    const Math::Color3 base = axisByName_.value(axisName).Color;
+Math::Color3 GizmoSystem::AxisColor(const String& axisName) const {
+    const auto it = axisByName_.find(axisName);
+    const Math::Color3 base = it != axisByName_.end() ? it->second.Color : Math::Color3{};
     if (activeAxis_ == axisName) {
         return {1.0, 1.0, 0.1};
     }

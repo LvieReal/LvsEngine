@@ -7,15 +7,17 @@ namespace Lvs::Engine::Objects {
 Core::ClassDescriptor& MeshPart::Descriptor() {
     static Core::ClassDescriptor descriptor("MeshPart", &BasePart::Descriptor());
     static const bool initialized = []() {
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<QString>(
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Core::String>(
             "ContentId",
             {},
             true,
             "Appearance",
             {},
             false,
-            {"IsPath"},
-            {{"FileExtensions", QStringList{".obj", ".fbx", ".gltf", ".glb", ".dae", ".3ds", ".blend", ".stl", ".ply"}}}
+            Core::StringList{"IsPath"},
+            Core::HashMap<Core::String, Core::Variant>{
+                {"FileExtensions", Core::Variant::From(Core::String(".obj;.fbx;.gltf;.glb;.dae;.3ds;.blend;.stl;.ply"))}
+            }
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
             "SmoothNormals", true, true, "Appearance"

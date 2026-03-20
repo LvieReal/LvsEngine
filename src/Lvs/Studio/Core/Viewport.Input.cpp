@@ -1,7 +1,7 @@
-#include "Lvs/Engine/Core/Viewport.hpp"
+#include "Lvs/Studio/Core/Viewport.hpp"
 
 #include "Lvs/Engine/Core/CameraController.hpp"
-#include "Lvs/Engine/Core/ViewportToolLayer.hpp"
+#include "Lvs/Studio/Core/ViewportToolLayer.hpp"
 #include "Lvs/Engine/Utils/Benchmark.hpp"
 
 #include <QCursor>

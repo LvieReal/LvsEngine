@@ -17,9 +17,9 @@ struct EnumOption {
     int Value;
 };
 
-QList<EnumOption> EnumOptionsForType(int typeId);
-QString EnumNameFromTypeAndInt(int typeId, int value);
-QVariant EnumVariantFromTypeAndInt(int typeId, int value);
+QList<EnumOption> EnumOptionsForEnum(const QString& enumType);
+QString EnumNameFromEnumAndInt(const QString& enumType, int value);
+QVariant EnumVariantFromEnumAndInt(const QString& enumType, int value);
 
 QString FormatVector3(const Lvs::Engine::Math::Vector3& value);
 bool TryParseVector3(const QString& text, Lvs::Engine::Math::Vector3& out);
@@ -33,4 +33,3 @@ QColor ToQColor(const Lvs::Engine::Math::Color3& value);
 Lvs::Engine::Math::Color3 FromQColor(const QColor& value);
 
 } // namespace Lvs::Studio::Widgets::Properties::ValueUtils
-

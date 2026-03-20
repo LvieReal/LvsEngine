@@ -1,132 +1,189 @@
 #include "Lvs/Engine/Utils/SourcePath.hpp"
 
-#include <QCoreApplication>
-#include <QDir>
-#include <QFileInfo>
-
-#include <cstring>
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
+#include <filesystem>
 #include <stdexcept>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 
 namespace Lvs::Engine::Utils::SourcePath {
 
 namespace {
 
-QString Normalize(const QString& path) {
-    return QDir::cleanPath(QFileInfo(path).absoluteFilePath());
+Core::String ToUtf8String(const std::filesystem::path& path) {
+    const auto u8 = path.u8string();
+    return Core::String(reinterpret_cast<const char*>(u8.data()), u8.size());
 }
 
-QString FindAnchorDir() {
-    QStringList roots = {QDir::currentPath()};
-    if (QCoreApplication::instance() != nullptr) {
-        roots.push_back(QCoreApplication::applicationDirPath());
+std::filesystem::path NormalizePath(const std::filesystem::path& path) {
+    if (path.empty()) {
+        return {};
+    }
+    std::error_code ec;
+    std::filesystem::path abs = std::filesystem::absolute(path, ec);
+    abs = abs.lexically_normal();
+    return abs;
+}
+
+bool StartsWithInsensitive(const Core::String& text, const Core::String& prefix) {
+    if (prefix.size() > text.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < prefix.size(); ++i) {
+        const auto a = static_cast<unsigned char>(text[i]);
+        const auto b = static_cast<unsigned char>(prefix[i]);
+        if (std::tolower(a) != std::tolower(b)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::filesystem::path FindAnchorDir() {
+    std::vector<std::filesystem::path> roots;
+    roots.push_back(std::filesystem::current_path());
+
+    const Core::String exeDir = GetExecutablePath();
+    if (!exeDir.empty()) {
+        roots.push_back(std::filesystem::path(exeDir));
     }
 
-    for (const QString& root : roots) {
-        QDir dir(root);
+    for (auto root : roots) {
+        root = NormalizePath(root);
         for (int i = 0; i < 6; ++i) {
-            if (QFileInfo::exists(dir.filePath("src/Lvs/Engine/Content"))) {
-                return dir.absolutePath();
+            if (std::filesystem::exists(root / "src" / "Lvs" / "Engine" / "Content")) {
+                return root;
             }
-            if (QFileInfo::exists(dir.filePath("Lvs/Engine/Content"))) {
-                return dir.absolutePath();
+            if (std::filesystem::exists(root / "Lvs" / "Engine" / "Content")) {
+                return root;
             }
-            if (!dir.cdUp()) {
+            if (!root.has_parent_path()) {
                 break;
             }
+            root = root.parent_path();
         }
     }
 
-    return QDir::currentPath();
+    return NormalizePath(std::filesystem::current_path());
 }
 
-QString ResourceRoot() {
-    static const QString root = []() {
-        const QString anchor = FindAnchorDir();
-        const QString devPath = QDir(anchor).filePath("src/Lvs/Engine/Content");
-        if (QFileInfo::exists(devPath)) {
-            return Normalize(devPath);
+std::filesystem::path ResourceRootPath() {
+    static const std::filesystem::path root = []() {
+        const std::filesystem::path anchor = FindAnchorDir();
+        const std::filesystem::path devPath = anchor / "src" / "Lvs" / "Engine" / "Content";
+        if (std::filesystem::exists(devPath)) {
+            return NormalizePath(devPath);
         }
-        return Normalize(QDir(anchor).filePath("Lvs/Engine/Content"));
+        return NormalizePath(anchor / "Lvs" / "Engine" / "Content");
     }();
     return root;
 }
 
-QString SourceRoot() {
-    static const QString root = Normalize(FindAnchorDir());
+std::filesystem::path SourceRootPath() {
+    static const std::filesystem::path root = NormalizePath(FindAnchorDir());
     return root;
 }
 
-QString RelativeNormalized(const QString& path) {
-    return QDir::cleanPath(path).replace('\\', '/');
+Core::String RelativeNormalized(const std::filesystem::path& path) {
+    return path.lexically_normal().generic_string();
+}
+
+bool IsSubpath(const std::filesystem::path& base, const std::filesystem::path& target) {
+    const auto baseStr = ToUtf8String(NormalizePath(base));
+    const auto targetStr = ToUtf8String(NormalizePath(target));
+#if defined(_WIN32)
+    return StartsWithInsensitive(targetStr, baseStr);
+#else
+    return targetStr.rfind(baseStr, 0) == 0;
+#endif
 }
 
 } // namespace
 
-QString GetExecutablePath() {
-    return QCoreApplication::applicationDirPath();
+Core::String GetExecutablePath() {
+#if defined(_WIN32)
+    std::wstring buffer;
+    buffer.resize(32768);
+    const DWORD len = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+    if (len == 0 || len >= buffer.size()) {
+        return {};
+    }
+    buffer.resize(len);
+    const std::filesystem::path exePath(buffer);
+    return ToUtf8String(exePath.parent_path());
+#else
+    // Portable fallback.
+    return ToUtf8String(std::filesystem::current_path());
+#endif
 }
 
-QString GetSourcePath(const QString& path) {
-    return Normalize(QDir(SourceRoot()).filePath(path));
+Core::String GetSourcePath(const Core::String& path) {
+    return ToUtf8String(NormalizePath(SourceRootPath() / std::filesystem::path(path)));
 }
 
-QString GetResourcePath(const QString& path) {
-    return Normalize(QDir(ResourceRoot()).filePath(path));
+Core::String GetResourcePath(const Core::String& path) {
+    return ToUtf8String(NormalizePath(ResourceRootPath() / std::filesystem::path(path)));
 }
 
-QString OsToCorePath(const QString& path) {
-    const QString base = Normalize(GetResourcePath({}));
-    const QString target = Normalize(path);
+Core::String OsToCorePath(const Core::String& path) {
+    const std::filesystem::path base = NormalizePath(std::filesystem::path(GetResourcePath({})));
+    const std::filesystem::path target = NormalizePath(std::filesystem::path(path));
 
-    if (!target.startsWith(base, Qt::CaseInsensitive)) {
-        throw std::runtime_error(QString("Path '%1' is not inside core resources").arg(path).toStdString());
+    if (!IsSubpath(base, target)) {
+        throw std::runtime_error("Path is not inside core resources");
     }
 
-    QString rel = QDir(base).relativeFilePath(target);
-    rel = RelativeNormalized(rel);
-    return QString("%1%2").arg(CORE_PATH_FORMAT, rel);
+    const std::filesystem::path rel = target.lexically_relative(base);
+    return Core::String(CORE_PATH_FORMAT) + RelativeNormalized(rel);
 }
 
-QString OsToLocalPath(const QString& path) {
-    const QString base = Normalize(GetSourcePath({}));
-    const QString target = Normalize(path);
+Core::String OsToLocalPath(const Core::String& path) {
+    const std::filesystem::path base = NormalizePath(std::filesystem::path(GetSourcePath({})));
+    const std::filesystem::path target = NormalizePath(std::filesystem::path(path));
 
-    if (!target.startsWith(base, Qt::CaseInsensitive)) {
-        throw std::runtime_error(QString("Path '%1' is not inside local source").arg(path).toStdString());
+    if (!IsSubpath(base, target)) {
+        throw std::runtime_error("Path is not inside local source");
     }
 
-    QString rel = QDir(base).relativeFilePath(target);
-    rel = RelativeNormalized(rel);
-    return QString("%1%2").arg(LOCAL_PATH_FORMAT, rel);
+    const std::filesystem::path rel = target.lexically_relative(base);
+    return Core::String(LOCAL_PATH_FORMAT) + RelativeNormalized(rel);
 }
 
-QString CorePathToOs(const QString& path) {
-    if (!path.startsWith(CORE_PATH_FORMAT)) {
+Core::String CorePathToOs(const Core::String& path) {
+    if (path.rfind(CORE_PATH_FORMAT, 0) != 0) {
         throw std::runtime_error("Invalid core path");
     }
-    const QString rel = path.mid(static_cast<int>(strlen(CORE_PATH_FORMAT)));
-    return Normalize(GetResourcePath(rel));
+    const Core::String rel = path.substr(std::char_traits<char>::length(CORE_PATH_FORMAT));
+    return GetResourcePath(rel);
 }
 
-QString LocalPathToOs(const QString& path) {
-    if (!path.startsWith(LOCAL_PATH_FORMAT)) {
+Core::String LocalPathToOs(const Core::String& path) {
+    if (path.rfind(LOCAL_PATH_FORMAT, 0) != 0) {
         throw std::runtime_error("Invalid local path");
     }
-    const QString rel = path.mid(static_cast<int>(strlen(LOCAL_PATH_FORMAT)));
-    return Normalize(GetSourcePath(rel));
+    const Core::String rel = path.substr(std::char_traits<char>::length(LOCAL_PATH_FORMAT));
+    return GetSourcePath(rel);
 }
 
-QString ToOsPath(const QString& path) {
-    if (path.isEmpty()) {
+Core::String ToOsPath(const Core::String& path) {
+    if (path.empty()) {
         return path;
     }
-    if (path.startsWith(CORE_PATH_FORMAT)) {
+    if (path.rfind(CORE_PATH_FORMAT, 0) == 0) {
         return CorePathToOs(path);
     }
-    if (path.startsWith(LOCAL_PATH_FORMAT)) {
+    if (path.rfind(LOCAL_PATH_FORMAT, 0) == 0) {
         return LocalPathToOs(path);
     }
-    return Normalize(path);
+    return ToUtf8String(NormalizePath(std::filesystem::path(path)));
 }
 
 } // namespace Lvs::Engine::Utils::SourcePath
+

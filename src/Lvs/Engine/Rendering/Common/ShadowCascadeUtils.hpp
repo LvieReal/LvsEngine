@@ -6,7 +6,7 @@
 #include <cstdint>
 
 namespace Lvs::Engine::Math {
-class Vector3;
+struct Vector3;
 }
 
 namespace Lvs::Engine::Objects {

@@ -1,5 +1,6 @@
-#include "Lvs/Engine/Core/SessionLog.hpp"
+#include "Lvs/Studio/Core/SessionLog.hpp"
 
+#include "Lvs/Engine/Core/QtBridge.hpp"
 #include "Lvs/Engine/Utils/EngineDataPaths.hpp"
 
 #include <QCoreApplication>
@@ -58,11 +59,11 @@ QString MakeLogFilePath(const QString& sessionName) {
     const QString safe = SanitizeFileComponent(sessionName);
     const QString ts = QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss_zzz");
     const qint64 pid = QCoreApplication::applicationPid();
-    return QDir(Utils::EngineDataPaths::LogsDir()).filePath(QString("%1_%2_%3.log").arg(safe, ts).arg(pid));
+    return QDir(QtBridge::ToQString(Utils::EngineDataPaths::LogsDir())).filePath(QString("%1_%2_%3.log").arg(safe, ts).arg(pid));
 }
 
 void PruneOldLogsLocked(const QString& keepAbsolutePath) {
-    const QString logsDirPath = Utils::EngineDataPaths::LogsDir();
+    const QString logsDirPath = QtBridge::ToQString(Utils::EngineDataPaths::LogsDir());
     QDir logsDir(logsDirPath);
     const QFileInfoList files = logsDir.entryInfoList(QStringList() << "*.log", QDir::Files | QDir::NoSymLinks);
 

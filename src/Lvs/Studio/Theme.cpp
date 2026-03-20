@@ -1,5 +1,6 @@
 ﻿#include "Lvs/Studio/Theme.hpp"
 
+#include "Lvs/Engine/Core/QtBridge.hpp"
 #include "Lvs/Engine/Enums/EnumMetadata.hpp"
 #include "Lvs/Engine/Enums/Theme.hpp"
 #include "Lvs/Engine/Utils/SourcePath.hpp"
@@ -32,7 +33,7 @@ void ApplyThemeValue(const Engine::Enums::Theme theme)
 void ApplyTheme(QApplication& app) {
     app.setStyle("Fusion");
 
-    const QString fontPath = Engine::Utils::SourcePath::GetResourcePath("Fonts/MontserratMedium.otf");
+    const QString fontPath = Engine::Core::QtBridge::ToQString(Engine::Utils::SourcePath::GetResourcePath("Fonts/MontserratMedium.otf"));
     const int fontId = QFontDatabase::addApplicationFont(fontPath);
     if (fontId != -1)
     {
@@ -50,12 +51,14 @@ void ApplyTheme(QApplication& app) {
         "Theme",
         [&app](const QVariant& value) {
             static_cast<void>(app);
-            const int typeId = QMetaType::fromType<Engine::Enums::Theme>().id();
-            QVariant coerced = Engine::Enums::Metadata::CoerceVariant(typeId, value);
-            if (!coerced.isValid()) {
-                coerced = QVariant::fromValue(Engine::Enums::Theme::Auto);
-            }
-            ApplyThemeValue(coerced.value<Engine::Enums::Theme>());
+            const Engine::Core::String enumType = Engine::Core::String(Engine::Core::EnumTraits<Engine::Enums::Theme>::Name);
+            const Engine::Core::Variant coerced = Engine::Enums::Metadata::CoerceVariant(
+                enumType,
+                Engine::Core::QtBridge::ToStdVariant(value)
+            );
+            const int themeInt = coerced.IsValid() ? coerced.toInt(static_cast<int>(Engine::Enums::Theme::Auto))
+                                                   : static_cast<int>(Engine::Enums::Theme::Auto);
+            ApplyThemeValue(static_cast<Engine::Enums::Theme>(themeInt));
         },
         true
     );

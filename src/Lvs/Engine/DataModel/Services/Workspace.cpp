@@ -9,9 +9,9 @@ namespace Lvs::Engine::DataModel {
 Core::ClassDescriptor& Workspace::Descriptor() {
     static Core::ClassDescriptor descriptor("Workspace", &Service::Descriptor());
     static const bool initialized = []() {
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<std::shared_ptr<Objects::Camera>>(
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Core::Variant::InstanceRef>(
             "CurrentCamera",
-            nullptr,
+            {},
             true,
             "Data",
             {},
@@ -38,7 +38,7 @@ Workspace::Workspace()
 void Workspace::InitializeDefaultObjects() {
     auto camera = std::make_shared<Objects::Camera>();
     camera->SetParent(shared_from_this());
-    SetProperty("CurrentCamera", QVariant::fromValue(camera));
+    SetProperty("CurrentCamera", Core::Variant::InstanceRef{camera});
 }
 
 } // namespace Lvs::Engine::DataModel

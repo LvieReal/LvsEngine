@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Lvs/Engine/Core/Variant.hpp"
+#include "Lvs/Engine/Core/Types.hpp"
 #include "Lvs/Engine/Utils/Signal.hpp"
 #include "Lvs/Studio/Core/Settings.hpp"
 
@@ -94,7 +96,7 @@ private:
     struct InstanceConnections {
         Engine::Utils::Signal<const std::shared_ptr<Engine::Core::Instance>&>::Connection ChildAdded;
         Engine::Utils::Signal<const std::shared_ptr<Engine::Core::Instance>&>::Connection ChildRemoved;
-        Engine::Utils::Signal<const QString&, const QVariant&>::Connection PropertyChanged;
+        Engine::Utils::Signal<const Engine::Core::String&, const Engine::Core::Variant&>::Connection PropertyChanged;
     };
 
     std::shared_ptr<Engine::DataModel::Place> place_;

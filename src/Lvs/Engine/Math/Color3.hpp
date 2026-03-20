@@ -1,7 +1,6 @@
 #pragma once
 
-#include <QMetaType>
-#include <QString>
+#include "Lvs/Engine/Core/Types.hpp"
 
 namespace Lvs::Engine::Math {
 
@@ -10,10 +9,8 @@ struct Color3 {
     double g{1.0};
     double b{1.0};
 
-    [[nodiscard]] QString ToString() const;
+    [[nodiscard]] Core::String ToString() const;
     [[nodiscard]] bool operator==(const Color3& other) const;
 };
 
 } // namespace Lvs::Engine::Math
-
-Q_DECLARE_METATYPE(Lvs::Engine::Math::Color3)

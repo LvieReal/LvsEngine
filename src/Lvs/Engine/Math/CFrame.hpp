@@ -3,7 +3,6 @@
 #include "Lvs/Engine/Math/Matrix4.hpp"
 #include "Lvs/Engine/Math/Vector3.hpp"
 
-#include <QMetaType>
 
 namespace Lvs::Engine::Math {
 
@@ -39,5 +38,3 @@ public:
 };
 
 } // namespace Lvs::Engine::Math
-
-Q_DECLARE_METATYPE(Lvs::Engine::Math::CFrame)

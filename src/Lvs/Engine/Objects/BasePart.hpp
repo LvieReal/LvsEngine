@@ -16,7 +16,8 @@ public:
     [[nodiscard]] Math::Vector3 GetWorldPosition();
     [[nodiscard]] Math::Vector3 GetWorldRotation();
 
-    void SetProperty(const QString& name, const QVariant& value) override;
+    using Core::Instance::SetProperty;
+    void SetProperty(const Core::String& name, const Core::Variant& value) override;
 
 private:
     void MarkTransformDirty();

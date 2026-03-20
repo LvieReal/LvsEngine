@@ -1,7 +1,8 @@
 #include "Lvs/Studio/Widgets/Explorer/ExplorerWidget.hpp"
 
 #include "Lvs/Engine/Core/Instance.hpp"
-#include "Lvs/Engine/Core/RegularError.hpp"
+#include "Lvs/Engine/Core/QtBridge.hpp"
+#include "Lvs/Studio/Core/RegularError.hpp"
 #include "Lvs/Engine/DataModel/Services/ChangeHistoryService.hpp"
 #include "Lvs/Engine/DataModel/ClassRegistry.hpp"
 #include "Lvs/Engine/DataModel/DataModel.hpp"
@@ -121,7 +122,7 @@ void ExplorerWidget::SetSelection(const std::vector<std::shared_ptr<Engine::Core
         if (instance == nullptr) {
             continue;
         }
-        const QString id = instance->GetId();
+        const QString id = Engine::Core::QtBridge::ToQString(instance->GetId());
         if (!id.isEmpty()) {
             desired.insert(id);
         }
@@ -149,7 +150,7 @@ void ExplorerWidget::SetSelection(const std::vector<std::shared_ptr<Engine::Core
     if (!instances.empty()) {
         const auto& primary = instances.front();
         if (primary != nullptr) {
-            primaryItem = instanceToItem_.value(primary->GetId(), nullptr);
+            primaryItem = instanceToItem_.value(Engine::Core::QtBridge::ToQString(primary->GetId()), nullptr);
         }
     }
 
@@ -172,7 +173,7 @@ void ExplorerWidget::SetSelection(const std::vector<std::shared_ptr<Engine::Core
         if (instance == nullptr) {
             continue;
         }
-        if (QTreeWidgetItem* item = instanceToItem_.value(instance->GetId(), nullptr); item != nullptr) {
+        if (QTreeWidgetItem* item = instanceToItem_.value(Engine::Core::QtBridge::ToQString(instance->GetId()), nullptr); item != nullptr) {
             item->setSelected(true);
         }
     }
@@ -216,7 +217,7 @@ void ExplorerWidget::startDrag(Qt::DropActions supportedActions) {
         if (instance == nullptr || instance->IsService()) {
             return;
         }
-        const QString instanceId = instance->GetId();
+        const QString instanceId = Engine::Core::QtBridge::ToQString(instance->GetId());
         if (instanceId.isEmpty()) {
             return;
         }
@@ -406,7 +407,7 @@ void ExplorerWidget::AddInstanceRecursive(
 	if (!showHiddenServices_ && instance->IsHiddenService()) {
 	    return;
 	}
-	const QString instanceId = instance->GetId();
+	const QString instanceId = Engine::Core::QtBridge::ToQString(instance->GetId());
 	if (instanceId.isEmpty()) {
 	    return;
 	}
@@ -466,7 +467,7 @@ void ExplorerWidget::AddInstanceRecursive(
     }
     rowLayout->addWidget(iconLabel);
 
-	auto* nameLabel = new QLabel(instance->GetProperty("Name").toString(), rowWidget);
+	auto* nameLabel = new QLabel(Engine::Core::QtBridge::ToQString(instance->GetProperty("Name").toString()), rowWidget);
 	nameLabel->setMouseTracking(true);
 	nameLabel->setDisabled(isHiddenService);
 	rowLayout->addWidget(nameLabel);
@@ -500,12 +501,12 @@ void ExplorerWidget::AddInstanceRecursive(
         RemoveInstanceRecursive(child);
     });
     connections.PropertyChanged = instance->PropertyChanged.Connect(
-        [this, id = instanceId](const QString& propertyName, const QVariant& value) {
+        [this, id = instanceId](const Engine::Core::String& propertyName, const Engine::Core::Variant& value) {
             if (propertyName != "Name") {
                 return;
             }
             if (QLabel* label = instanceToNameLabel_.value(id, nullptr); label != nullptr) {
-                label->setText(value.toString());
+                label->setText(Engine::Core::QtBridge::ToQString(value.toString()));
                 if (QTreeWidgetItem* item = instanceToItem_.value(id, nullptr); item != nullptr) {
                     UpdateColumnWidthForItem(item);
                 }
@@ -550,7 +551,7 @@ void ExplorerWidget::RemoveInstanceRecursive(const std::shared_ptr<Engine::Core:
         RemoveInstanceRecursive(child);
     }
 
-    const QString id = instance->GetId();
+    const QString id = Engine::Core::QtBridge::ToQString(instance->GetId());
     DisconnectInstanceConnections(id);
     QTreeWidgetItem* item = instanceToItem_.take(id);
     instanceToNameLabel_.remove(id);
@@ -653,7 +654,7 @@ std::shared_ptr<Engine::Core::Instance> ExplorerWidget::ResolveItemInstance(cons
 
     if (const auto dataModel = std::dynamic_pointer_cast<Engine::DataModel::DataModel>(rootInstance_);
         dataModel != nullptr) {
-        return dataModel->FindInstanceById(instanceId);
+        return dataModel->FindInstanceById(Engine::Core::QtBridge::ToStdString(instanceId));
     }
     return nullptr;
 }
@@ -675,7 +676,7 @@ std::vector<std::shared_ptr<Engine::Core::Instance>> ExplorerWidget::ResolveMime
     out.reserve(tokens.size());
     std::unordered_set<const Engine::Core::Instance*> seen;
     for (const auto& token : tokens) {
-        const auto inst = dataModel->FindInstanceById(token.trimmed());
+        const auto inst = dataModel->FindInstanceById(Engine::Core::QtBridge::ToStdString(token.trimmed()));
         if (inst == nullptr) {
             continue;
         }
@@ -888,11 +889,11 @@ void ExplorerWidget::ShowInsertPopup(const std::shared_ptr<Engine::Core::Instanc
     bool hasAction = false;
 
     const auto classGroups = Engine::DataModel::ClassRegistry::GetClassesByCategory();
-    for (auto categoryIt = classGroups.cbegin(); categoryIt != classGroups.cend(); ++categoryIt) {
-        auto* categoryMenu = menu.addMenu(categoryIt.key());
+    for (const auto& [category, classInfos] : classGroups) {
+        auto* categoryMenu = menu.addMenu(Engine::Core::QtBridge::ToQString(category));
         bool hasCategoryAction = false;
 
-        for (const auto& classInfo : categoryIt.value()) {
+        for (const auto& classInfo : classInfos) {
             const auto probe = classInfo.Factory();
             if (probe == nullptr || !probe->IsInsertable()) {
                 continue;
@@ -901,7 +902,7 @@ void ExplorerWidget::ShowInsertPopup(const std::shared_ptr<Engine::Core::Instanc
                 continue;
             }
 
-            QAction* action = categoryMenu->addAction(classInfo.Name);
+            QAction* action = categoryMenu->addAction(Engine::Core::QtBridge::ToQString(classInfo.Name));
             const QPixmap icon = Core::GetIconPackManager().GetPixmapForInstance(probe);
             if (!icon.isNull()) {
                 action->setIcon(QIcon(icon));
@@ -938,7 +939,7 @@ void ExplorerWidget::ShowInsertPopup(const std::shared_ptr<Engine::Core::Instanc
         return;
     }
 
-    const QPushButton* plus = instanceToPlusButton_.value(parent->GetId(), nullptr);
+    const QPushButton* plus = instanceToPlusButton_.value(Engine::Core::QtBridge::ToQString(parent->GetId()), nullptr);
     const QPoint popupPos = plus != nullptr ? plus->mapToGlobal(QPoint(0, plus->height())) : QCursor::pos();
     menu.exec(popupPos);
 }
@@ -949,7 +950,7 @@ void ExplorerWidget::ShowItemPlusButton(QTreeWidgetItem* item) {
         return;
     }
 
-    if (QPushButton* plusButton = instanceToPlusButton_.value(instance->GetId(), nullptr); plusButton != nullptr) {
+    if (QPushButton* plusButton = instanceToPlusButton_.value(Engine::Core::QtBridge::ToQString(instance->GetId()), nullptr); plusButton != nullptr) {
         plusButton->show();
     }
 }
@@ -960,7 +961,7 @@ void ExplorerWidget::HideItemPlusButton(QTreeWidgetItem* item) {
         return;
     }
 
-    if (QPushButton* plusButton = instanceToPlusButton_.value(instance->GetId(), nullptr); plusButton != nullptr) {
+    if (QPushButton* plusButton = instanceToPlusButton_.value(Engine::Core::QtBridge::ToQString(instance->GetId()), nullptr); plusButton != nullptr) {
         plusButton->hide();
     }
 }
@@ -981,7 +982,7 @@ void ExplorerWidget::RefreshIcons() {
     if (const auto dataModel = std::dynamic_pointer_cast<Engine::DataModel::DataModel>(rootInstance_);
         dataModel != nullptr) {
         for (auto it = instanceToIconLabel_.begin(); it != instanceToIconLabel_.end(); ++it) {
-            const auto instance = dataModel->FindInstanceById(it.key());
+            const auto instance = dataModel->FindInstanceById(Engine::Core::QtBridge::ToStdString(it.key()));
             if (instance == nullptr) {
                 continue;
             }

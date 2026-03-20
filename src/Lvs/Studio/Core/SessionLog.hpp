@@ -15,4 +15,3 @@ void Error(const QString& message);
 [[nodiscard]] QString CurrentFilePath();
 
 } // namespace Lvs::Engine::Core::SessionLog
-

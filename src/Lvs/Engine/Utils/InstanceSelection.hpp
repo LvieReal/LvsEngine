@@ -161,10 +161,14 @@ inline std::shared_ptr<Objects::BasePart> ResolveLocalSpaceTargetPart(
     }
 
     if (selectionPrimary->GetClassName() == "Model") {
-        const auto primaryRef = selectionPrimary->GetProperty("PrimaryPart").value<std::shared_ptr<Core::Instance>>();
-        if (const auto asPart = std::dynamic_pointer_cast<Objects::BasePart>(primaryRef);
-            asPart != nullptr && asPart->GetParent() != nullptr) {
-            return asPart;
+        const auto primaryVar = selectionPrimary->GetProperty("PrimaryPart");
+        if (primaryVar.Is<Core::Variant::InstanceRef>()) {
+            if (const auto locked = primaryVar.Get<Core::Variant::InstanceRef>().lock()) {
+                if (const auto asPart = std::dynamic_pointer_cast<Objects::BasePart>(locked);
+                    asPart != nullptr && asPart->GetParent() != nullptr) {
+                    return asPart;
+                }
+            }
         }
     }
 

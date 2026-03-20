@@ -1,5 +1,6 @@
 #include "Lvs/Studio/Core/StudioPaths.hpp"
 
+#include "Lvs/Engine/Core/QtBridge.hpp"
 #include "Lvs/Engine/Utils/EngineDataPaths.hpp"
 #include "Lvs/Studio/Core/Settings.hpp"
 
@@ -17,7 +18,7 @@ QString LocalAssetsDir() {
     }
 
     if (path.isEmpty()) {
-        path = Engine::Utils::EngineDataPaths::DefaultLocalAssetsDir();
+        path = Engine::Core::QtBridge::ToQString(Engine::Utils::EngineDataPaths::DefaultLocalAssetsDir());
     }
 
     QDir().mkpath(path);
@@ -25,4 +26,3 @@ QString LocalAssetsDir() {
 }
 
 } // namespace Lvs::Studio::Core::StudioPaths
-

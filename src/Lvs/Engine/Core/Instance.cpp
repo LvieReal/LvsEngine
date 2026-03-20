@@ -3,24 +3,57 @@
 #include "Lvs/Engine/DataModel/DataModel.hpp"
 #include "Lvs/Engine/Utils/Benchmark.hpp"
 
-#include <QUuid>
-
 #include <algorithm>
+#include <array>
+#include <cstdint>
+#include <random>
+#include <sstream>
 #include <stdexcept>
 
 namespace Lvs::Engine::Core {
 
 namespace {
+String GenerateUuidString() {
+    std::array<uint8_t, 16> bytes{};
+    std::random_device rd;
+    std::mt19937_64 gen(rd());
+    std::uniform_int_distribution<uint32_t> dist(0, 0xFFFFFFFFu);
+
+    for (size_t i = 0; i < bytes.size(); i += 4) {
+        const uint32_t v = dist(gen);
+        bytes[i + 0] = static_cast<uint8_t>((v >> 0) & 0xFFu);
+        bytes[i + 1] = static_cast<uint8_t>((v >> 8) & 0xFFu);
+        bytes[i + 2] = static_cast<uint8_t>((v >> 16) & 0xFFu);
+        bytes[i + 3] = static_cast<uint8_t>((v >> 24) & 0xFFu);
+    }
+
+    // RFC 4122-ish version/variant bits (best-effort, only for formatting consistency).
+    bytes[6] = static_cast<uint8_t>((bytes[6] & 0x0Fu) | 0x40u);
+    bytes[8] = static_cast<uint8_t>((bytes[8] & 0x3Fu) | 0x80u);
+
+    std::ostringstream oss;
+    oss.setf(std::ios::hex, std::ios::basefield);
+    oss.fill('0');
+    for (size_t i = 0; i < bytes.size(); ++i) {
+        if (i == 4 || i == 6 || i == 8 || i == 10) {
+            oss << '-';
+        }
+        oss.width(2);
+        oss << static_cast<unsigned int>(bytes[i]);
+    }
+    return oss.str();
+}
+
 ClassDescriptor& BaseDescriptor() {
     static ClassDescriptor descriptor("Instance", nullptr);
     static const bool initialized = []() {
         descriptor.RegisterProperty(
-            ObjectBase::MakePropertyDefinition<QString>("Name", QString{})
+            ObjectBase::MakePropertyDefinition<String>("Name", String{})
         );
         descriptor.RegisterProperty(
-            ObjectBase::MakePropertyDefinition<QString>(
+            ObjectBase::MakePropertyDefinition<String>(
                 "ClassName",
-                QString{},
+                String{},
                 true,
                 "Data",
                 {},
@@ -41,30 +74,30 @@ Instance::Instance()
 
 Instance::Instance(const ClassDescriptor& descriptor)
     : ObjectBase(descriptor),
-      id_(QUuid::createUuid().toString(QUuid::WithoutBraces)) {
-    const QString className = GetClassName();
-    SetProperty("Name", className);
-    SetProperty("ClassName", className);
+      id_(GenerateUuidString()) {
+    const String className = GetClassName();
+    SetProperty("Name", Variant::From(className));
+    SetProperty("ClassName", Variant::From(className));
 }
 
 ClassDescriptor& Instance::Descriptor() {
     return BaseDescriptor();
 }
 
-const QString& Instance::GetId() const {
+const String& Instance::GetId() const {
     return id_;
 }
 
-QString Instance::GetClassName() const {
+String Instance::GetClassName() const {
     return GetClassDescriptor().ClassName();
 }
 
-QString Instance::GetFullPath() const {
+String Instance::GetFullPath() const {
     const auto parent = GetParent();
     if (parent == nullptr) {
         return GetClassName();
     }
-    return QString("%1.%2").arg(parent->GetFullPath(), GetClassName());
+    return parent->GetFullPath() + "." + GetClassName();
 }
 
 bool Instance::IsService() const {
@@ -79,7 +112,7 @@ bool Instance::IsInsertable() const {
     return isInsertable_;
 }
 
-void Instance::SetProperty(const QString& name, const QVariant& value) {
+void Instance::SetProperty(const String& name, const Variant& value) {
     ObjectBase::SetProperty(name, value);
     PropertyChanged.Fire(name, GetProperty(name));
     PropertyInvalidated.Fire();

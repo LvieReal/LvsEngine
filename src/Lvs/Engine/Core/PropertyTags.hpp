@@ -1,15 +1,15 @@
 #pragma once
 
-#include <QPair>
-#include <QString>
+#include "Lvs/Engine/Core/Types.hpp"
 
 #include <optional>
+#include <utility>
 
 namespace Lvs::Engine::Core::PropertyTags {
 
 inline constexpr auto VISIBLE_IF_TAG_PREFIX = "VisibleIf:";
 
-QString BuildVisibleIfTag(const QString& propertyName, const QString& expectedValue);
-std::optional<QPair<QString, QString>> ParseVisibleIfTag(const QString& tag);
+String BuildVisibleIfTag(const String& propertyName, const String& expectedValue);
+std::optional<std::pair<String, String>> ParseVisibleIfTag(const String& tag);
 
 } // namespace Lvs::Engine::Core::PropertyTags

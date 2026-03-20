@@ -1,10 +1,11 @@
 #include "Lvs/Launcher/Launcher.hpp"
 
 #include "Lvs/Engine/Bootstrap.hpp"
-#include "Lvs/Engine/Core/CrashHandler.hpp"
-#include "Lvs/Engine/Core/CriticalError.hpp"
-#include "Lvs/Engine/Core/SessionLog.hpp"
-#include "Lvs/Engine/Core/Window.hpp"
+#include "Lvs/Studio/Core/CrashHandler.hpp"
+#include "Lvs/Studio/Core/CriticalError.hpp"
+#include "Lvs/Studio/Core/SessionLog.hpp"
+#include "Lvs/Studio/Core/Window.hpp"
+#include "Lvs/Engine/Core/QtBridge.hpp"
 #include "Lvs/Engine/Rendering/IRenderContext.hpp"
 #include "Lvs/Engine/Utils/SourcePath.hpp"
 #include "Lvs/Engine/Utils/Benchmark.hpp"
@@ -33,7 +34,9 @@ int Run(int argc, char* argv[], const BuildType buildType, const char* appName, 
         const QString iconInput = QString::fromUtf8(appIconPath);
         const QString iconPath = QFileInfo::exists(iconInput)
             ? iconInput
-            : Engine::Utils::SourcePath::GetResourcePath(iconInput);
+            : Engine::Core::QtBridge::ToQString(
+                Engine::Utils::SourcePath::GetResourcePath(Engine::Core::QtBridge::ToStdString(iconInput))
+            );
         if (QFileInfo::exists(iconPath)) {
             app.setWindowIcon(QIcon(iconPath));
         }
@@ -41,7 +44,7 @@ int Run(int argc, char* argv[], const BuildType buildType, const char* appName, 
 
     try {
         Engine::Core::Window window(QString::fromUtf8(appName));
-        const auto context = Engine::Bootstrap::Run(window);
+        const auto context = Engine::Bootstrap::Run();
 
         if (buildType == BuildType::Studio) {
             Studio::Bootstrap::Run(app, window, context);

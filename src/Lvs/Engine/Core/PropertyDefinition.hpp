@@ -1,23 +1,21 @@
 #pragma once
 
-#include <QMetaType>
-#include <QString>
-#include <QStringList>
-#include <QVariant>
-#include <QVariantMap>
+#include "Lvs/Engine/Core/TypeId.hpp"
+#include "Lvs/Engine/Core/Types.hpp"
+#include "Lvs/Engine/Core/Variant.hpp"
 
 namespace Lvs::Engine::Core {
 
 struct PropertyDefinition {
-    QString Name;
-    QMetaType Type;
-    QVariant Default;
+    String Name;
+    TypeId Type{TypeId::Invalid};
+    Variant Default;
     bool Serializable{true};
-    QString Category{"Data"};
-    QString Description;
+    String Category{"Data"};
+    String Description;
     bool ReadOnly{false};
-    QStringList CustomTags;
-    QVariantMap CustomAttributes;
+    StringList CustomTags;
+    HashMap<String, Variant> CustomAttributes;
     bool IsInstanceReference{false};
     int RegistrationOrder{-1};
 };

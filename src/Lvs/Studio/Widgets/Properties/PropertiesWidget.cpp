@@ -3,12 +3,15 @@
 #include "Lvs/Engine/Core/Instance.hpp"
 #include "Lvs/Engine/Core/Property.hpp"
 #include "Lvs/Engine/Core/PropertyTags.hpp"
-#include "Lvs/Engine/Core/RegularError.hpp"
+#include "Lvs/Engine/Core/QtBridge.hpp"
+#include "Lvs/Studio/Core/RegularError.hpp"
+#include "Lvs/Engine/Enums/EnumMetadata.hpp"
 #include "Lvs/Engine/DataModel/Services/ChangeHistoryService.hpp"
 #include "Lvs/Engine/DataModel/Place.hpp"
 #include "Lvs/Engine/Math/Color3.hpp"
 #include "Lvs/Engine/Utils/Command.hpp"
 #include "Lvs/Studio/Core/IconPackManager.hpp"
+#include "Lvs/Studio/Core/QtMetaTypes.hpp"
 #include "Lvs/Studio/Widgets/Properties/PathEditor.hpp"
 #include "Lvs/Studio/Widgets/Properties/PropertyEditorUtils.hpp"
 #include "Lvs/Studio/Widgets/Properties/PropertyValueUtils.hpp"
@@ -37,6 +40,37 @@ namespace Lvs::Studio::Widgets::Properties {
 
 namespace {
 constexpr int COLUMN_WIDTH = 100;
+
+bool HasCustomTag(const Engine::Core::StringList& tags, const char* tag) {
+    return std::find(tags.begin(), tags.end(), tag) != tags.end();
+}
+
+int ToQtMetaTypeId(const Engine::Core::TypeId type) {
+    switch (type) {
+    case Engine::Core::TypeId::Bool:
+        return QMetaType::Bool;
+    case Engine::Core::TypeId::Int:
+        return QMetaType::Int;
+    case Engine::Core::TypeId::Double:
+        return QMetaType::Double;
+    case Engine::Core::TypeId::String:
+        return QMetaType::QString;
+    case Engine::Core::TypeId::Enum:
+        return QMetaType::Int;
+    case Engine::Core::TypeId::Vector3:
+        return QMetaType::fromType<Lvs::Engine::Math::Vector3>().id();
+    case Engine::Core::TypeId::Color3:
+        return QMetaType::fromType<Lvs::Engine::Math::Color3>().id();
+    case Engine::Core::TypeId::CFrame:
+        return QMetaType::fromType<Lvs::Engine::Math::CFrame>().id();
+    case Engine::Core::TypeId::InstanceRef:
+        return QMetaType::QString;
+    case Engine::Core::TypeId::ByteArray:
+    case Engine::Core::TypeId::Invalid:
+        return QMetaType::UnknownType;
+    }
+    return QMetaType::UnknownType;
+}
 
 } // namespace
 
@@ -171,27 +205,24 @@ void PropertiesWidget::BindInstances(const std::vector<std::shared_ptr<Engine::C
     instance_ = instances_.front();
 
     struct OrderedProperty {
-        QString Name;
-        QString Category;
+        Engine::Core::String Name;
+        Engine::Core::String Category;
         int RegistrationOrder;
     };
     std::vector<OrderedProperty> orderedProperties;
     orderedProperties.reserve(static_cast<std::size_t>(instance_->GetClassDescriptor().PropertyDefinitions().size()));
-    for (auto it = instance_->GetClassDescriptor().PropertyDefinitions().cbegin();
-         it != instance_->GetClassDescriptor().PropertyDefinitions().cend();
-         ++it) {
-        const QString propertyName = it.key();
-        const auto primaryDef = it.value();
+    for (const auto& [propertyName, primaryDef] : instance_->GetClassDescriptor().PropertyDefinitions()) {
 
         bool common = true;
         for (const auto& otherInstance : instances_) {
             const auto& defs = otherInstance->GetClassDescriptor().PropertyDefinitions();
-            if (!defs.contains(propertyName)) {
+            const auto defIt = defs.find(propertyName);
+            if (defIt == defs.end()) {
                 common = false;
                 break;
             }
-            const auto otherDef = defs.value(propertyName);
-            if (otherDef.Type.id() != primaryDef.Type.id() || otherDef.IsInstanceReference != primaryDef.IsInstanceReference) {
+            const auto& otherDef = defIt->second;
+            if (otherDef.Type != primaryDef.Type || otherDef.IsInstanceReference != primaryDef.IsInstanceReference) {
                 common = false;
                 break;
             }
@@ -226,16 +257,18 @@ void PropertiesWidget::BindInstances(const std::vector<std::shared_ptr<Engine::C
             for (const auto& tag : definition.CustomTags) {
                 const auto parsed = Engine::Core::PropertyTags::ParseVisibleIfTag(tag);
                 if (parsed.has_value()) {
-                    visibilityDependencies_.insert(parsed->first);
+                    visibilityDependencies_.insert(Engine::Core::QtBridge::ToQString(parsed->first));
                 }
             }
         }
 
-        if (!categoryProperties.contains(definition.Category)) {
-            categoryProperties.insert(definition.Category, {});
-            categoryOrder.push_back(definition.Category);
+        const QString category = Engine::Core::QtBridge::ToQString(definition.Category);
+        const QString propertyNameQt = Engine::Core::QtBridge::ToQString(ordered.Name);
+        if (!categoryProperties.contains(category)) {
+            categoryProperties.insert(category, {});
+            categoryOrder.push_back(category);
         }
-        categoryProperties[definition.Category].push_back(ordered.Name);
+        categoryProperties[category].push_back(propertyNameQt);
     }
 
     for (const auto& category : categoryOrder) {
@@ -262,30 +295,32 @@ void PropertiesWidget::BindInstances(const std::vector<std::shared_ptr<Engine::C
         grid->setColumnStretch(1, 1);
 
         for (const auto& propertyName : categoryProperties.value(category)) {
-            const auto& property = instance_->GetPropertyObject(propertyName);
+            const Engine::Core::String propertyNameStd = Engine::Core::QtBridge::ToStdString(propertyName);
+            const auto& property = instance_->GetPropertyObject(propertyNameStd);
             const auto& definition = property.Definition();
-            QVariant primaryValue;
+            Engine::Core::Variant primaryValueStd;
             try {
-                primaryValue = property.Get();
+                primaryValueStd = property.Get();
             } catch (...) {
                 continue;
             }
 
             bool mixed = false;
             for (std::size_t i = 1; i < instances_.size(); ++i) {
-                QVariant otherValue;
+                Engine::Core::Variant otherValueStd;
                 try {
-                    otherValue = instances_[i]->GetProperty(propertyName);
+                    otherValueStd = instances_[i]->GetProperty(propertyNameStd);
                 } catch (...) {
                     mixed = true;
                     break;
                 }
-                if (otherValue != primaryValue) {
+                if (otherValueStd != primaryValueStd) {
                     mixed = true;
                     break;
                 }
             }
 
+            const QVariant primaryValue = Engine::Core::QtBridge::ToQVariant(primaryValueStd);
             QWidget* editor = CreateEditor(propertyName, definition, primaryValue, mixed, contentWidget);
             if (editor == nullptr) {
                 continue;
@@ -300,18 +335,21 @@ void PropertiesWidget::BindInstances(const std::vector<std::shared_ptr<Engine::C
                 editor->setSizePolicy(editorPolicy);
             }
 
-            auto* label = new QLabel(definition.Name, contentWidget);
+            const QString displayName = Engine::Core::QtBridge::ToQString(definition.Name);
+            const QString description = Engine::Core::QtBridge::ToQString(definition.Description);
+
+            auto* label = new QLabel(displayName, contentWidget);
             label->setWordWrap(false);
             label->setMinimumWidth(0);
             label->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-            QString tooltip = definition.Name;
-            if (!definition.Description.isEmpty()) {
-                tooltip += "\n\n" + definition.Description;
+            QString tooltip = displayName;
+            if (!description.isEmpty()) {
+                tooltip += "\n\n" + description;
             }
             label->setToolTip(tooltip);
 
             const int row = grid->rowCount();
-            if (definition.CustomTags.contains("IsSeparateBox")) {
+            if (HasCustomTag(definition.CustomTags, "IsSeparateBox")) {
                 grid->addWidget(label, row, 0, 1, 2);
                 grid->addWidget(editor, row + 1, 0, 1, 2);
             } else {
@@ -330,17 +368,19 @@ void PropertiesWidget::BindInstances(const std::vector<std::shared_ptr<Engine::C
         const QPointer<PropertiesWidget> safeThis(this);
         const std::weak_ptr<Engine::Core::Instance> boundInstance = instance_;
         propertyChangedConnection_ = instance_->PropertyChanged.Connect(
-            [safeThis, boundInstance](const QString& propertyName, const QVariant& value) {
+            [safeThis, boundInstance](const Engine::Core::String& propertyName, const Engine::Core::Variant& value) {
                 if (safeThis.isNull()) {
                     return;
                 }
+                const QString propertyNameQt = Engine::Core::QtBridge::ToQString(propertyName);
+                const QVariant valueQt = Engine::Core::QtBridge::ToQVariant(value);
                 QMetaObject::invokeMethod(
                     safeThis,
-                    [safeThis, boundInstance, propertyName, value]() {
+                    [safeThis, boundInstance, propertyNameQt, valueQt]() {
                         if (safeThis.isNull() || safeThis->instance_ != boundInstance.lock()) {
                             return;
                         }
-                        safeThis->OnPropertyChanged(propertyName, value);
+                        safeThis->OnPropertyChanged(propertyNameQt, valueQt);
                     },
                     Qt::QueuedConnection
                 );
@@ -369,8 +409,10 @@ QWidget* PropertiesWidget::CreateInstanceHeader(
     }
     headerLayout->addWidget(headerIconLabel_);
 
+    const QString name = Engine::Core::QtBridge::ToQString(instance->GetProperty("Name").toString());
+    const QString className = Engine::Core::QtBridge::ToQString(instance->GetClassName());
     headerTitleLabel_ = new QLabel(
-        QString("%1 (%2)").arg(instance->GetProperty("Name").toString(), instance->GetClassName()),
+        QString("%1 (%2)").arg(name, className),
         header
     );
     headerLayout->addWidget(headerTitleLabel_);
@@ -400,17 +442,40 @@ bool PropertiesWidget::ShouldShowProperty(
         if (!parsed.has_value()) {
             continue;
         }
-        const QString& dependencyProperty = parsed->first;
-        const QString& expectedValue = parsed->second;
+        const Engine::Core::String& dependencyPropertyStd = parsed->first;
+        const Engine::Core::String& expectedValueStd = parsed->second;
+        const QString expectedValueQt = Engine::Core::QtBridge::ToQString(expectedValueStd);
 
-        QVariant actualValue;
+        Engine::Core::Variant actualValueStd;
         try {
-            actualValue = instance->GetProperty(dependencyProperty);
+            actualValueStd = instance->GetProperty(dependencyPropertyStd);
         } catch (...) {
             return false;
         }
 
-        if (!MatchesConditionValue(actualValue, expectedValue)) {
+        const auto& props = instance->GetProperties();
+        const auto it = props.find(dependencyPropertyStd);
+        if (it != props.end() && it->second.Definition().Type == Engine::Core::TypeId::Enum) {
+            const auto& depDef = it->second.Definition();
+            Engine::Core::String enumType;
+            if (const auto attrIt = depDef.CustomAttributes.find("EnumType"); attrIt != depDef.CustomAttributes.end()) {
+                enumType = attrIt->second.toString();
+            }
+            if (enumType.empty()) {
+                return false;
+            }
+            const Engine::Core::Variant expectedVariant = Engine::Enums::Metadata::VariantFromName(enumType, expectedValueStd);
+            if (!expectedVariant.IsValid()) {
+                return false;
+            }
+            if (actualValueStd.toInt() != expectedVariant.toInt()) {
+                return false;
+            }
+            continue;
+        }
+
+        const QVariant actualValueQt = Engine::Core::QtBridge::ToQVariant(actualValueStd);
+        if (!MatchesConditionValue(actualValueQt, expectedValueQt)) {
             return false;
         }
     }
@@ -433,12 +498,6 @@ bool PropertiesWidget::MatchesConditionValue(const QVariant& actualValue, const 
         return ok && qFuzzyCompare(actualValue.toDouble() + 1.0, expectedDouble + 1.0);
     }
 
-    const QList<ValueUtils::EnumOption> options = ValueUtils::EnumOptionsForType(typeId);
-    if (!options.isEmpty()) {
-        const int enumAsInt = actualValue.toInt();
-        return ValueUtils::EnumNameFromTypeAndInt(typeId, enumAsInt).compare(expectedValue, Qt::CaseInsensitive) == 0;
-    }
-
     return actualValue.toString().compare(expectedValue, Qt::CaseInsensitive) == 0;
 }
 
@@ -450,22 +509,25 @@ void PropertiesWidget::OnPropertyEdited(const QString& propertyName, const QVari
     std::vector<std::shared_ptr<Engine::Utils::SetPropertyCommand>> commands;
     commands.reserve(instances_.size());
 
+    const Engine::Core::String nameStd = Engine::Core::QtBridge::ToStdString(propertyName);
+    const Engine::Core::Variant newValue = Engine::Core::QtBridge::ToStdVariant(value);
+
     for (const auto& inst : instances_) {
         if (inst == nullptr) {
             continue;
         }
 
-        QVariant oldValue;
+        Engine::Core::Variant oldValue;
         try {
-            oldValue = inst->GetProperty(propertyName);
+            oldValue = inst->GetProperty(nameStd);
         } catch (...) {
             continue;
         }
-        if (oldValue == value) {
+        if (oldValue == newValue) {
             continue;
         }
 
-        commands.push_back(std::make_shared<Engine::Utils::SetPropertyCommand>(inst, propertyName, oldValue, value));
+        commands.push_back(std::make_shared<Engine::Utils::SetPropertyCommand>(inst, nameStd, oldValue, newValue));
     }
 
     if (commands.empty()) {
@@ -490,7 +552,7 @@ void PropertiesWidget::OnPropertyEdited(const QString& propertyName, const QVari
         return;
     }
 
-    historyService_->BeginRecording(QString("Set %1").arg(propertyName));
+    historyService_->BeginRecording("Set " + nameStd);
     try {
         for (const auto& command : commands) {
             historyService_->Record(command);
@@ -506,7 +568,9 @@ void PropertiesWidget::OnPropertyChanged(const QString& propertyName, const QVar
         return;
     }
     if (propertyName == "Name" && headerTitleLabel_ != nullptr && instance_ != nullptr) {
-        headerTitleLabel_->setText(QString("%1 (%2)").arg(value.toString(), instance_->GetClassName()));
+        headerTitleLabel_->setText(
+            QString("%1 (%2)").arg(value.toString(), Engine::Core::QtBridge::ToQString(instance_->GetClassName()))
+        );
     }
 
     if (visibilityDependencies_.contains(propertyName)) {
@@ -549,7 +613,7 @@ QWidget* PropertiesWidget::CreateEditor(
         );
     }
 
-    const int typeId = definition.Type.id();
+    const int typeId = ToQtMetaTypeId(definition.Type);
 
     if (typeId == QMetaType::Bool) {
         auto* editor = new QCheckBox(parent);
@@ -602,7 +666,17 @@ QWidget* PropertiesWidget::CreateEditor(
         return editor;
     }
 
-    const QList<ValueUtils::EnumOption> enumOptions = ValueUtils::EnumOptionsForType(typeId);
+    QString enumType;
+    if (definition.Type == Engine::Core::TypeId::Enum) {
+        const auto it = definition.CustomAttributes.find("EnumType");
+        if (it != definition.CustomAttributes.end()) {
+            enumType = Engine::Core::QtBridge::ToQString(it->second.toString());
+        }
+    }
+
+    const QList<ValueUtils::EnumOption> enumOptions = !enumType.isEmpty()
+        ? ValueUtils::EnumOptionsForEnum(enumType)
+        : QList<ValueUtils::EnumOption>{};
     if (!enumOptions.isEmpty()) {
         auto* editor = new QComboBox(parent);
         editor->addItem("<multiple>", QVariant());
@@ -615,13 +689,13 @@ QWidget* PropertiesWidget::CreateEditor(
             editor,
             qOverload<int>(&QComboBox::currentIndexChanged),
             editor,
-            [propertyName, this, safeEditor, typeId](const int index) {
+            [propertyName, this, safeEditor, enumType](const int index) {
                 if (safeEditor.isNull() || index <= 0 || index >= safeEditor->count()) {
                     return;
                 }
                 OnPropertyEdited(
                     propertyName,
-                    ValueUtils::EnumVariantFromTypeAndInt(typeId, safeEditor->itemData(index).toInt())
+                    ValueUtils::EnumVariantFromEnumAndInt(enumType, safeEditor->itemData(index).toInt())
                 );
             }
         );

@@ -12,71 +12,71 @@ namespace Lvs::Engine::Objects {
 Core::ClassDescriptor& Skybox::Descriptor() {
     static Core::ClassDescriptor descriptor("Skybox", &Core::Instance::Descriptor());
     static const bool initialized = []() {
-        const QString individualVisibleTag = Core::PropertyTags::BuildVisibleIfTag("TextureLayout", "Individual");
-        const QString crossVisibleTag = Core::PropertyTags::BuildVisibleIfTag("TextureLayout", "Cross");
+        const Core::String individualVisibleTag = Core::PropertyTags::BuildVisibleIfTag("TextureLayout", "Individual");
+        const Core::String crossVisibleTag = Core::PropertyTags::BuildVisibleIfTag("TextureLayout", "Cross");
 
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<QString>(
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Core::String>(
             "RightTexture",
             Utils::SourcePath::GetResourcePath("Sky/nullsky/RT.png"),
             true,
             "Textures",
             {},
             false,
-            {"IsPath", individualVisibleTag}
+            Core::StringList{"IsPath", individualVisibleTag}
         ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<QString>(
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Core::String>(
             "LeftTexture",
             Utils::SourcePath::GetResourcePath("Sky/nullsky/LF.png"),
             true,
             "Textures",
             {},
             false,
-            {"IsPath", individualVisibleTag}
+            Core::StringList{"IsPath", individualVisibleTag}
         ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<QString>(
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Core::String>(
             "UpTexture",
             Utils::SourcePath::GetResourcePath("Sky/nullsky/UP.png"),
             true,
             "Textures",
             {},
             false,
-            {"IsPath", individualVisibleTag}
+            Core::StringList{"IsPath", individualVisibleTag}
         ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<QString>(
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Core::String>(
             "DownTexture",
             Utils::SourcePath::GetResourcePath("Sky/nullsky/DN.png"),
             true,
             "Textures",
             {},
             false,
-            {"IsPath", individualVisibleTag}
+            Core::StringList{"IsPath", individualVisibleTag}
         ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<QString>(
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Core::String>(
             "FrontTexture",
             Utils::SourcePath::GetResourcePath("Sky/nullsky/FT.png"),
             true,
             "Textures",
             {},
             false,
-            {"IsPath", individualVisibleTag}
+            Core::StringList{"IsPath", individualVisibleTag}
         ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<QString>(
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Core::String>(
             "BackTexture",
             Utils::SourcePath::GetResourcePath("Sky/nullsky/BK.png"),
             true,
             "Textures",
             {},
             false,
-            {"IsPath", individualVisibleTag}
+            Core::StringList{"IsPath", individualVisibleTag}
         ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<QString>(
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Core::String>(
             "CrossTexture",
             Utils::SourcePath::GetResourcePath("Sky/nullcrosssky/sky512.png"),
             true,
             "Textures",
             {},
             false,
-            {"IsPath", crossVisibleTag}
+            Core::StringList{"IsPath", crossVisibleTag}
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Enums::SkyboxTextureLayout>(
             "TextureLayout",

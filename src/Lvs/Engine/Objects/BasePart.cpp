@@ -16,7 +16,7 @@ Core::ClassDescriptor& BasePart::Descriptor() {
             "Transparency", 0.0, true, "Appearance"
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
-            "Roughness", 0.5, true, "Appearance"
+            "Roughness", 0.8, true, "Appearance"
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
             "Metalness", 0.0, true, "Appearance"
@@ -86,7 +86,7 @@ Math::Vector3 BasePart::GetWorldRotation() {
     return GetWorldCFrame().ToEulerXYZ();
 }
 
-void BasePart::SetProperty(const QString& name, const QVariant& value) {
+void BasePart::SetProperty(const Core::String& name, const Core::Variant& value) {
     if (name == "CFrame") {
         SetCFrame(value.value<Math::CFrame>());
         return;
@@ -126,9 +126,9 @@ void BasePart::RecomputeWorldCFrame() {
 }
 
 void BasePart::SetCFrame(const Math::CFrame& cframe) {
-    Core::Instance::SetProperty("CFrame", QVariant::fromValue(cframe));
-    Core::Instance::SetProperty("Position", QVariant::fromValue(cframe.Position));
-    Core::Instance::SetProperty("Rotation", QVariant::fromValue(cframe.ToEulerXYZ()));
+    Core::Instance::SetProperty("CFrame", Core::Variant::From(cframe));
+    Core::Instance::SetProperty("Position", Core::Variant::From(cframe.Position));
+    Core::Instance::SetProperty("Rotation", Core::Variant::From(cframe.ToEulerXYZ()));
     MarkTransformDirty();
 }
 

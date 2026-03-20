@@ -1,6 +1,7 @@
 #include "Lvs/Studio/Core/IconPackManager.hpp"
 
 #include "Lvs/Engine/Core/Instance.hpp"
+#include "Lvs/Engine/Core/QtBridge.hpp"
 #include "Lvs/Engine/Utils/SourcePath.hpp"
 #include "Lvs/Studio/Core/Settings.hpp"
 
@@ -89,7 +90,7 @@ QPixmap IconPackManager::GetPixmapForInstance(const std::shared_ptr<Engine::Core
         return {};
     }
 
-    QString iconName = CLASS_ICON_MAP.value(instance->GetClassName());
+    QString iconName = CLASS_ICON_MAP.value(QString::fromUtf8(instance->GetClassName().c_str()));
     if (iconName.isEmpty()) {
         iconName = instance->IsService() ? DEFAULT_SERVICE_ICON_NAME : DEFAULT_ICON_NAME;
     }
@@ -114,8 +115,8 @@ QIcon IconPackManager::GetIcon(const QString& iconName) {
 
 QStringList IconPackManager::GetPackRoots() const {
     return {
-        Engine::Utils::SourcePath::GetResourcePath("IconPacks"),
-        Engine::Utils::SourcePath::GetSourcePath("Lvs/Engine/Content/IconPacks")
+        Engine::Core::QtBridge::ToQString(Engine::Utils::SourcePath::GetResourcePath("IconPacks")),
+        Engine::Core::QtBridge::ToQString(Engine::Utils::SourcePath::GetSourcePath("Lvs/Engine/Content/IconPacks"))
     };
 }
 

@@ -1,9 +1,15 @@
 #include "Lvs/Engine/Math/Color3.hpp"
 
+#include <iomanip>
+#include <sstream>
+
 namespace Lvs::Engine::Math {
 
-QString Color3::ToString() const {
-    return QString("Color3(%1, %2, %3)").arg(r).arg(g).arg(b);
+Core::String Color3::ToString() const {
+    std::ostringstream out;
+    out.setf(std::ios::fmtflags(0), std::ios::floatfield);
+    out << "Color3(" << std::setprecision(10) << r << ", " << g << ", " << b << ")";
+    return out.str();
 }
 
 bool Color3::operator==(const Color3& other) const {

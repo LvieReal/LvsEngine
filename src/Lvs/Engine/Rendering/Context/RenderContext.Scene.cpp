@@ -55,7 +55,13 @@ Common::CameraUniformData RenderContext::BuildCameraUniforms() {
         uniforms.LightingSettings[0] = shadingMode == Enums::LightingComputationMode::PerVertex ? 1.0F : 0.0F;
     }
 
-    const auto camera = workspaceService->GetProperty("CurrentCamera").value<std::shared_ptr<Objects::Camera>>();
+    const auto cameraVar = workspaceService->GetProperty("CurrentCamera");
+    std::shared_ptr<Objects::Camera> camera{};
+    if (cameraVar.Is<Core::Variant::InstanceRef>()) {
+        if (const auto locked = cameraVar.Get<Core::Variant::InstanceRef>().lock()) {
+            camera = std::dynamic_pointer_cast<Objects::Camera>(locked);
+        }
+    }
     if (camera == nullptr) {
         return uniforms;
     }
@@ -87,7 +93,13 @@ Common::SkyboxPushConstants RenderContext::BuildSkyboxPushConstants() const {
     if (workspaceService == nullptr) {
         return push;
     }
-    const auto camera = workspaceService->GetProperty("CurrentCamera").value<std::shared_ptr<Objects::Camera>>();
+    const auto cameraVar = workspaceService->GetProperty("CurrentCamera");
+    std::shared_ptr<Objects::Camera> camera{};
+    if (cameraVar.Is<Core::Variant::InstanceRef>()) {
+        if (const auto locked = cameraVar.Get<Core::Variant::InstanceRef>().lock()) {
+            camera = std::dynamic_pointer_cast<Objects::Camera>(locked);
+        }
+    }
     if (camera == nullptr) {
         return push;
     }

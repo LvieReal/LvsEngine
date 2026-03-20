@@ -1,6 +1,8 @@
 #include "Lvs/Engine/Math/Vector3.hpp"
 
 #include <cmath>
+#include <iomanip>
+#include <sstream>
 
 namespace Lvs::Engine::Math {
 
@@ -56,8 +58,11 @@ Vector3 Vector3::Unit() const {
     return *this * (1.0 / mag);
 }
 
-QString Vector3::ToString() const {
-    return QString("Vector3(%1, %2, %3)").arg(x).arg(y).arg(z);
+Core::String Vector3::ToString() const {
+    std::ostringstream out;
+    out.setf(std::ios::fmtflags(0), std::ios::floatfield);
+    out << "Vector3(" << std::setprecision(10) << x << ", " << y << ", " << z << ")";
+    return out.str();
 }
 
 bool Vector3::operator==(const Vector3& other) const {

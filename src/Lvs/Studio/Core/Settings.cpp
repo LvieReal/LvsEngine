@@ -2,6 +2,7 @@
 #include "Lvs/Engine/Utils/EngineDataPaths.hpp"
 #include "Lvs/Engine/Utils/SourcePath.hpp"
 
+#include "Lvs/Engine/Core/QtBridge.hpp"
 #include "Lvs/Engine/Enums/EnumMetadata.hpp"
 #include "Lvs/Engine/Enums/MSAA.hpp"
 #include "Lvs/Engine/Enums/SurfaceMipmapping.hpp"
@@ -25,12 +26,12 @@ namespace {
 QMap<QString, SettingMeta> g_settings = {
     {"BaseCameraSpeed", {"Base Camera Speed", "Base camera speed", 15.0}},
     {"ShiftCameraSpeed", {"Shift Camera Speed", "Shift camera speed", 5.0}},
-    {"Theme", {"Theme", "Main studio theme", QVariant::fromValue(Engine::Enums::Theme::Auto)}},
+    {"Theme", {"Theme", "Main studio theme", static_cast<int>(Engine::Enums::Theme::Auto), {}, "Theme"}},
     {"StudioIconPack", {"Studio Icon Pack", "Studio icon pack folder name", "famfamfam-silk"}},
     {"ExplorerShowHiddenServices", {"Show Hidden Services", "Show hidden services in Explorer", false}},
-    {"RenderingApi", {"Rendering API", "Preferred rendering backend", QVariant::fromValue(Engine::Rendering::RenderApi::Auto)}},
-    {"MSAA", {"MSAA", "Multisample anti-aliasing sample count", QVariant::fromValue(Engine::Enums::MSAA::Off)}},
-    {"SurfaceMipmapping", {"Surface Mipmapping", "Mipmapped filtering for surface textures", QVariant::fromValue(Engine::Enums::SurfaceMipmapping::On)}},
+    {"RenderingApi", {"Rendering API", "Preferred rendering backend", static_cast<int>(Engine::Rendering::RenderApi::Auto), {}, "RenderApi"}},
+    {"MSAA", {"MSAA", "Multisample anti-aliasing sample count", static_cast<int>(Engine::Enums::MSAA::Off), {}, "MSAA"}},
+    {"SurfaceMipmapping", {"Surface Mipmapping", "Mipmapped filtering for surface textures", static_cast<int>(Engine::Enums::SurfaceMipmapping::On), {}, "SurfaceMipmapping"}},
     {"GizmoAlwaysOnTop", {"Gizmo Always On Top", "Render gizmos on top of scene geometry", true}},
     {"GizmoIgnoreDiffuseSpecular", {"Gizmo Ignore Lighting", "Ignore diffuse and specular lighting for gizmos", true}},
     {"GizmoAlignByMagnitude", {"Gizmo Align By Magnitude", "Place gizmo handles using bounds magnitude", true}},
@@ -40,7 +41,7 @@ QMap<QString, SettingMeta> g_settings = {
     {"Shortcut.Tool.Select", {"Select Tool", "Keyboard shortcut(s) for Select tool (separate with ';')", "1"}},
     {"Shortcut.Tool.Move", {"Move Tool", "Keyboard shortcut(s) for Move tool (separate with ';')", "2"}},
     {"Shortcut.Tool.Size", {"Size Tool", "Keyboard shortcut(s) for Size tool (separate with ';')", "3"}},
-    {"RefreshShaders", {"Refresh Shaders", "Hot-reload rendering shaders (recreates cached pipelines)", 0, {}, true}}
+    {"RefreshShaders", {"Refresh Shaders", "Hot-reload rendering shaders (recreates cached pipelines)", 0, {}, {}, true}}
 };
 
 QMap<QString, QStringList> g_categories = {
@@ -119,16 +120,20 @@ void FireChanged(const QString& key, const QVariant& value) {
     }
 }
 
-QVariant ParseByDefaultType(const QVariant& defaultValue, const QJsonValue& value) {
-    if (Engine::Enums::Metadata::IsRegisteredEnumType(defaultValue.typeId())) {
-        const int typeId = defaultValue.typeId();
+QVariant ParseByDefaultType(const SettingMeta& meta, const QJsonValue& value) {
+    const QVariant defaultValue = meta.DefaultValue;
+    if (!meta.EnumType.isEmpty()) {
+        const auto enumTypeStd = Engine::Core::QtBridge::ToStdString(meta.EnumType);
         if (value.isString()) {
-            const QVariant parsed = Engine::Enums::Metadata::VariantFromName(typeId, value.toString());
-            return parsed.isValid() ? parsed : defaultValue;
+            const auto parsed = Engine::Enums::Metadata::VariantFromName(
+                enumTypeStd,
+                Engine::Core::QtBridge::ToStdString(value.toString())
+            );
+            return parsed.IsValid() ? Engine::Core::QtBridge::ToQVariant(parsed) : defaultValue;
         }
         if (value.isDouble()) {
-            const int fallback = Engine::Enums::Metadata::IntFromVariant(defaultValue);
-            return Engine::Enums::Metadata::VariantFromInt(typeId, value.toInt(fallback));
+            const int fallback = defaultValue.toInt();
+            return Engine::Core::QtBridge::ToQVariant(Engine::Enums::Metadata::VariantFromInt(enumTypeStd, value.toInt(fallback)));
         }
         return defaultValue;
     }
@@ -147,13 +152,14 @@ QVariant ParseByDefaultType(const QVariant& defaultValue, const QJsonValue& valu
     }
 }
 
-QJsonValue ToJsonValue(const QVariant& value) {
-    if (Engine::Enums::Metadata::IsRegisteredEnumType(value.typeId())) {
-        const QString name = Engine::Enums::Metadata::NameFromVariant(value);
-        if (!name.isEmpty()) {
-            return QJsonValue(name);
+QJsonValue ToJsonValue(const SettingMeta& meta, const QVariant& value) {
+    if (!meta.EnumType.isEmpty()) {
+        const auto enumTypeStd = Engine::Core::QtBridge::ToStdString(meta.EnumType);
+        const auto nameStd = Engine::Enums::Metadata::NameFromInt(enumTypeStd, value.toInt());
+        if (!nameStd.empty()) {
+            return QJsonValue(Engine::Core::QtBridge::ToQString(nameStd));
         }
-        return QJsonValue(Engine::Enums::Metadata::IntFromVariant(value));
+        return QJsonValue(value.toInt());
     }
 
     switch (value.typeId()) {
@@ -174,7 +180,7 @@ void ApplyDefaults() {
     for (auto it = g_settings.cbegin(); it != g_settings.cend(); ++it) {
         if (!g_values.contains(it.key())) {
             if (it.key() == "LocalAssetsPath") {
-                g_values.insert(it.key(), Engine::Utils::EngineDataPaths::DefaultLocalAssetsDir());
+                g_values.insert(it.key(), Engine::Core::QtBridge::ToQString(Engine::Utils::EngineDataPaths::DefaultLocalAssetsDir()));
             } else {
                 g_values.insert(it.key(), it.value().DefaultValue);
             }
@@ -188,7 +194,7 @@ void Verify() {
         const auto& meta = it.value();
         if (!g_values.contains(key)) {
             if (key == "LocalAssetsPath") {
-                g_values[key] = Engine::Utils::EngineDataPaths::DefaultLocalAssetsDir();
+                g_values[key] = Engine::Core::QtBridge::ToQString(Engine::Utils::EngineDataPaths::DefaultLocalAssetsDir());
             } else {
                 g_values[key] = meta.DefaultValue;
             }
@@ -196,9 +202,10 @@ void Verify() {
         }
 
 	    QVariant value = g_values.value(key);
-	    if (Engine::Enums::Metadata::IsRegisteredEnumType(meta.DefaultValue.typeId())) {
-	        const QVariant coerced = Engine::Enums::Metadata::CoerceVariant(meta.DefaultValue.typeId(), value);
-	        g_values[key] = coerced.isValid() ? coerced : meta.DefaultValue;
+	    if (!meta.EnumType.isEmpty()) {
+	        const auto enumTypeStd = Engine::Core::QtBridge::ToStdString(meta.EnumType);
+	        const auto coerced = Engine::Enums::Metadata::CoerceVariant(enumTypeStd, Engine::Core::QtBridge::ToStdVariant(value));
+	        g_values[key] = coerced.IsValid() ? Engine::Core::QtBridge::ToQVariant(coerced) : meta.DefaultValue;
 	        continue;
 	    }
 	    if (!value.convert(meta.DefaultValue.metaType())) {
@@ -210,7 +217,7 @@ void Verify() {
         if (key == "LocalAssetsPath") {
             QString p = g_values.value(key).toString().trimmed();
             if (p.isEmpty()) {
-                p = Engine::Utils::EngineDataPaths::DefaultLocalAssetsDir();
+                p = Engine::Core::QtBridge::ToQString(Engine::Utils::EngineDataPaths::DefaultLocalAssetsDir());
             }
             QDir().mkpath(p);
             g_values[key] = QDir::cleanPath(QFileInfo(p).absoluteFilePath());
@@ -219,11 +226,11 @@ void Verify() {
 }
 
 QString ResolveConfigPath() {
-    return Engine::Utils::EngineDataPaths::StudioConfigFile();
+    return Engine::Core::QtBridge::ToQString(Engine::Utils::EngineDataPaths::StudioConfigFile());
 }
 
 QString ResolveLegacyConfigPath() {
-    return Engine::Utils::SourcePath::GetSourcePath("studioConfig.json");
+    return Engine::Core::QtBridge::ToQString(Engine::Utils::SourcePath::GetSourcePath("studioConfig.json"));
 }
 
 } // namespace
@@ -287,7 +294,7 @@ void Load() {
         const auto& key = it.key();
         const auto& meta = it.value();
         if (obj.contains(key)) {
-            g_values[key] = ParseByDefaultType(meta.DefaultValue, obj.value(key));
+            g_values[key] = ParseByDefaultType(meta, obj.value(key));
         }
     }
 
@@ -308,7 +315,7 @@ void Save() {
         if (it.value().Transient) {
             continue;
         }
-        obj.insert(key, ToJsonValue(g_values.value(key, it.value().DefaultValue)));
+        obj.insert(key, ToJsonValue(it.value(), g_values.value(key, it.value().DefaultValue)));
     }
 
     QFile file(ConfigFilePath());
@@ -337,15 +344,16 @@ bool Set(const QString& key, const QVariant& value) {
         throw std::runtime_error(QString("Unknown setting: %1").arg(key).toStdString());
     }
 
-    const QVariant& defaultValue = g_settings.value(key).DefaultValue;
+    const SettingMeta& meta = g_settings.value(key);
+    const QVariant& defaultValue = meta.DefaultValue;
     QVariant converted = value;
-    if (Engine::Enums::Metadata::IsRegisteredEnumType(defaultValue.typeId())) {
-        if (converted.typeId() != defaultValue.typeId()) {
-            converted = Engine::Enums::Metadata::CoerceVariant(defaultValue.typeId(), converted);
-        }
-        if (!converted.isValid() || converted.typeId() != defaultValue.typeId()) {
+    if (!meta.EnumType.isEmpty()) {
+        const auto enumTypeStd = Engine::Core::QtBridge::ToStdString(meta.EnumType);
+        const auto coerced = Engine::Enums::Metadata::CoerceVariant(enumTypeStd, Engine::Core::QtBridge::ToStdVariant(converted));
+        if (!coerced.IsValid()) {
             return false;
         }
+        converted = Engine::Core::QtBridge::ToQVariant(coerced);
     } else if (!converted.convert(defaultValue.metaType())) {
         return false;
     }
@@ -355,7 +363,7 @@ bool Set(const QString& key, const QVariant& value) {
     }
 
     g_values[key] = converted;
-    if (!g_settings.value(key).Transient) {
+    if (!meta.Transient) {
         Save();
     }
     FireChanged(key, converted);

@@ -1,8 +1,8 @@
-#include "Lvs/Engine/Core/Viewport.hpp"
+#include "Lvs/Studio/Core/Viewport.hpp"
 
 #include "Lvs/Engine/Core/CameraController.hpp"
-#include "Lvs/Engine/Core/Cursor.hpp"
-#include "Lvs/Engine/Core/ViewportToolLayer.hpp"
+#include "Lvs/Studio/Core/Cursor.hpp"
+#include "Lvs/Studio/Core/ViewportToolLayer.hpp"
 #include "Lvs/Engine/DataModel/Place.hpp"
 #include "Lvs/Engine/DataModel/Services/Workspace.hpp"
 #include "Lvs/Engine/Objects/Camera.hpp"
@@ -33,11 +33,15 @@ void Viewport::BindToPlace(const std::shared_ptr<DataModel::Place>& place) {
         : nullptr;
     cameraController_.reset();
     if (workspace_ != nullptr) {
-        const auto camera = workspace_->GetProperty("CurrentCamera").value<std::shared_ptr<Objects::Camera>>();
-        if (camera != nullptr) {
-            cameraController_ = std::make_unique<CameraController>(camera);
-            cameraController_->SetSpeed(cameraSpeed_);
-            cameraController_->SetShiftSpeed(cameraShiftSpeed_);
+        const auto cameraVar = workspace_->GetProperty("CurrentCamera");
+        if (cameraVar.Is<Core::Variant::InstanceRef>()) {
+            if (const auto locked = cameraVar.Get<Core::Variant::InstanceRef>().lock()) {
+                if (const auto camera = std::dynamic_pointer_cast<Objects::Camera>(locked); camera != nullptr) {
+                    cameraController_ = std::make_unique<CameraController>(camera);
+                    cameraController_->SetSpeed(cameraSpeed_);
+                    cameraController_->SetShiftSpeed(cameraShiftSpeed_);
+                }
+            }
         }
     }
 

@@ -3,7 +3,7 @@
 #include "Lvs/Engine/Rendering/Common/OverlayPrimitive.hpp"
 #include "Lvs/Engine/Rendering/RHI/Types.hpp"
 
-#include <QMetaType>
+#include "Lvs/Engine/Core/EnumTraits.hpp"
 
 #include <memory>
 #include <string>
@@ -47,4 +47,7 @@ public:
 
 } // namespace Lvs::Engine::Rendering
 
-Q_DECLARE_METATYPE(Lvs::Engine::Rendering::RenderApi)
+template <>
+struct Lvs::Engine::Core::EnumTraits<Lvs::Engine::Rendering::RenderApi> {
+    static constexpr std::string_view Name = "RenderApi";
+};

@@ -25,11 +25,15 @@ void DataModel::RegisterInstance(const std::shared_ptr<Core::Instance>& instance
 }
 
 void DataModel::UnregisterInstance(const std::shared_ptr<Core::Instance>& instance) {
-    instanceRegistry_.remove(instance->GetId());
+    instanceRegistry_.erase(instance->GetId());
 }
 
-std::shared_ptr<Core::Instance> DataModel::FindInstanceById(const QString& instanceId) const {
-    return instanceRegistry_.value(instanceId).lock();
+std::shared_ptr<Core::Instance> DataModel::FindInstanceById(const Core::String& instanceId) const {
+    const auto it = instanceRegistry_.find(instanceId);
+    if (it == instanceRegistry_.end()) {
+        return nullptr;
+    }
+    return it->second.lock();
 }
 
 void DataModel::SetOwnerPlace(Place* ownerPlace) {

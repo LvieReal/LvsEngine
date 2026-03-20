@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Lvs/Engine/DataModel/Services/Service.hpp"
+#include "Lvs/Engine/Core/Types.hpp"
 #include "Lvs/Engine/Utils/CommandGroup.hpp"
 #include "Lvs/Engine/Utils/Signal.hpp"
 
@@ -19,14 +20,14 @@ public:
     static Core::ClassDescriptor& Descriptor();
 
     [[nodiscard]] bool IsRecording() const;
-    void BeginRecording(const QString& name = {});
+    void BeginRecording(const Core::String& name = {});
     void FinishRecording();
     void Record(const std::shared_ptr<Utils::Command>& command);
     void Undo();
     void Redo();
 
-    Utils::Signal<const QString&> OnUndo;
-    Utils::Signal<const QString&> OnRedo;
+    Utils::Signal<const Core::String&> OnUndo;
+    Utils::Signal<const Core::String&> OnRedo;
 
 private:
     void TrimHistory();

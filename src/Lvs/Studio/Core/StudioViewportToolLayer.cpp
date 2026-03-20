@@ -2,9 +2,9 @@
 
 #include "Lvs/Engine/Context.hpp"
 #include "Lvs/Engine/Core/EditorToolState.hpp"
-#include "Lvs/Engine/Core/CriticalError.hpp"
+#include "Lvs/Studio/Core/CriticalError.hpp"
 #include "Lvs/Engine/Core/SelectionBoxPrimitives.hpp"
-#include "Lvs/Engine/Core/Viewport.hpp"
+#include "Lvs/Studio/Core/Viewport.hpp"
 #include "Lvs/Engine/DataModel/Services/ChangeHistoryService.hpp"
 #include "Lvs/Engine/DataModel/Place.hpp"
 #include "Lvs/Engine/DataModel/Services/Selection.hpp"
@@ -19,7 +19,6 @@
 #include "Lvs/Engine/Utils/Benchmark.hpp"
 
 #include <QMouseEvent>
-#include <QVariant>
 #include <Qt>
 
 #include <algorithm>
@@ -30,6 +29,19 @@
 namespace Lvs::Studio::Core {
 
 namespace {
+
+std::shared_ptr<Engine::Objects::Camera> GetWorkspaceCamera(const std::shared_ptr<Engine::DataModel::Workspace>& workspace) {
+    if (workspace == nullptr) {
+        return nullptr;
+    }
+
+    const auto cameraProp = workspace->GetProperty("CurrentCamera");
+    if (!cameraProp.Is<Engine::Core::Variant::InstanceRef>()) {
+        return nullptr;
+    }
+
+    return std::dynamic_pointer_cast<Engine::Objects::Camera>(cameraProp.Get<Engine::Core::Variant::InstanceRef>().lock());
+}
 
 double SnapToStep(const double value, const double step) {
     if (step <= 0.0) {
@@ -174,7 +186,7 @@ const Engine::Utils::PartBVH* StudioViewportToolLayer::GetWorkspaceRaycastBVH() 
             continue;
         }
 
-        cache.PartPropertyChanged.push_back(part->PropertyChanged.Connect([markTransformDirty](const QString& name, const QVariant&) {
+        cache.PartPropertyChanged.push_back(part->PropertyChanged.Connect([markTransformDirty](const Engine::Core::String& name, const Engine::Core::Variant&) {
             if (name == "CFrame" || name == "Size") {
                 markTransformDirty();
             }
@@ -466,7 +478,7 @@ void StudioViewportToolLayer::EnsureGizmoSystem() {
     if (gizmoSystem_ != nullptr || workspace_ == nullptr) {
         return;
     }
-    const auto camera = workspace_->GetProperty("CurrentCamera").value<std::shared_ptr<Engine::Objects::Camera>>();
+    const auto camera = GetWorkspaceCamera(workspace_);
     if (camera == nullptr) {
         return;
     }
@@ -674,9 +686,9 @@ void StudioViewportToolLayer::UpdatePartDrag(const Engine::Utils::Ray& ray) {
         const auto parent = target.Part->GetParent();
         if (const auto parentPart = std::dynamic_pointer_cast<Engine::Objects::BasePart>(parent); parentPart != nullptr) {
             const auto local = parentPart->GetWorldCFrame().Inverse() * nextWorld;
-            target.Part->SetProperty("CFrame", QVariant::fromValue(local));
+            target.Part->SetProperty("CFrame", local);
         } else {
-            target.Part->SetProperty("CFrame", QVariant::fromValue(nextWorld));
+            target.Part->SetProperty("CFrame", nextWorld);
         }
     }
 }
@@ -724,7 +736,7 @@ void StudioViewportToolLayer::AppendGizmoSelectionBox(
         return;
     }
 
-    const auto camera = workspace_->GetProperty("CurrentCamera").value<std::shared_ptr<Engine::Objects::Camera>>();
+    const auto camera = GetWorkspaceCamera(workspace_);
     Engine::Math::Vector3 cameraPos{0.0, 0.0, 0.0};
     if (camera != nullptr) {
         cameraPos = camera->GetProperty("CFrame").value<Engine::Math::CFrame>().Position;
@@ -858,7 +870,7 @@ void StudioViewportToolLayer::AppendSelectionBoxInstances(
         return;
     }
 
-    const auto camera = workspace_->GetProperty("CurrentCamera").value<std::shared_ptr<Engine::Objects::Camera>>();
+    const auto camera = GetWorkspaceCamera(workspace_);
     Engine::Math::Vector3 cameraPos{0.0, 0.0, 0.0};
     if (camera != nullptr) {
         cameraPos = camera->GetProperty("CFrame").value<Engine::Math::CFrame>().Position;
@@ -875,7 +887,11 @@ void StudioViewportToolLayer::AppendSelectionBoxInstances(
             continue;
         }
 
-        std::shared_ptr<Engine::Core::Instance> adorneeInstance = box->GetProperty("Adornee").value<std::shared_ptr<Engine::Core::Instance>>();
+        std::shared_ptr<Engine::Core::Instance> adorneeInstance;
+        const auto adorneeProp = box->GetProperty("Adornee");
+        if (adorneeProp.Is<Engine::Core::Variant::InstanceRef>()) {
+            adorneeInstance = adorneeProp.Get<Engine::Core::Variant::InstanceRef>().lock();
+        }
         auto adorneePart = std::dynamic_pointer_cast<Engine::Objects::BasePart>(adorneeInstance);
         if (adorneePart == nullptr) {
             adorneePart = std::dynamic_pointer_cast<Engine::Objects::BasePart>(box->GetParent());
@@ -1032,7 +1048,7 @@ void StudioViewportToolLayer::RebuildSelectionCache() {
             if (part == nullptr) {
                 continue;
             }
-            cachedSelectionPartPropertyChanged_.push_back(part->PropertyChanged.Connect([this](const QString& name, const QVariant&) {
+            cachedSelectionPartPropertyChanged_.push_back(part->PropertyChanged.Connect([this](const Engine::Core::String& name, const Engine::Core::Variant&) {
                 if (name == "CFrame" || name == "Size" || name == "Position" || name == "Rotation") {
                     cachedSelectionBoundsDirty_ = true;
                 }
@@ -1144,8 +1160,8 @@ void StudioViewportToolLayer::CommitGizmoHistory() {
                     std::make_shared<Engine::Utils::SetPropertyCommand>(
                         change.Instance,
                         "Size",
-                        QVariant::fromValue(change.OldSize),
-                        QVariant::fromValue(change.NewSize)
+                        Engine::Core::Variant::From(change.OldSize),
+                        Engine::Core::Variant::From(change.NewSize)
                     )
                 );
             }
@@ -1154,8 +1170,8 @@ void StudioViewportToolLayer::CommitGizmoHistory() {
                     std::make_shared<Engine::Utils::SetPropertyCommand>(
                         change.Instance,
                         "CFrame",
-                        QVariant::fromValue(change.OldCFrame),
-                        QVariant::fromValue(change.NewCFrame)
+                        Engine::Core::Variant::From(change.OldCFrame),
+                        Engine::Core::Variant::From(change.NewCFrame)
                     )
                 );
             }

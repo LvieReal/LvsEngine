@@ -1,5 +1,6 @@
-#include "Lvs/Engine/Core/Cursor.hpp"
+#include "Lvs/Studio/Core/Cursor.hpp"
 
+#include "Lvs/Engine/Core/QtBridge.hpp"
 #include "Lvs/Engine/Utils/SourcePath.hpp"
 
 #include <QCursor>
@@ -14,7 +15,7 @@ void SetCustomCursor(QWidget* widget) {
         return;
     }
 
-    const QString cursorPath = Utils::SourcePath::GetResourcePath("Cursor/cursor.png");
+    const QString cursorPath = QtBridge::ToQString(Utils::SourcePath::GetResourcePath("Cursor/cursor.png"));
     const QPixmap cursorPixmap(cursorPath);
     if (cursorPixmap.isNull()) {
         widget->setCursor(Qt::ArrowCursor);

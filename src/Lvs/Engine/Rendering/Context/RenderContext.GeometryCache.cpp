@@ -189,7 +189,7 @@ void RenderContext::TrackRenderable(const std::shared_ptr<Core::Instance>& insta
     entry.Instance = part;
     entry.UnderWorkspace = IsUnderWorkspace(part);
 
-    entry.PropertyChanged = part->PropertyChanged.Connect([this, raw = part.get()](const QString& name, const QVariant&) {
+    entry.PropertyChanged = part->PropertyChanged.Connect([this, raw = part.get()](const Core::String& name, const Core::Variant&) {
         auto it = renderables_.find(raw);
         if (it == renderables_.end()) {
             return;
@@ -338,7 +338,7 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
 
     const auto getMeshRefForInstance = [this](const std::shared_ptr<Core::Instance>& inst) -> const SceneData::MeshRef* {
         if (const auto meshPart = std::dynamic_pointer_cast<Objects::MeshPart>(inst); meshPart != nullptr) {
-            const std::string contentId = meshPart->GetProperty("ContentId").toString().toStdString();
+            const std::string contentId = meshPart->GetProperty("ContentId").toString();
             const bool smoothNormals = meshPart->GetProperty("SmoothNormals").toBool();
             GpuMesh* gpuMesh = GetOrCreateMeshPartMesh(contentId, smoothNormals);
             if (gpuMesh == nullptr) {
@@ -689,10 +689,14 @@ void RenderContext::UpdateTransparentSortDepths() {
     if (place_ != nullptr) {
         if (const auto workspaceService = std::dynamic_pointer_cast<DataModel::Workspace>(place_->FindService("Workspace"));
             workspaceService != nullptr) {
-            if (const auto camera = workspaceService->GetProperty("CurrentCamera").value<std::shared_ptr<Objects::Camera>>();
-                camera != nullptr) {
-                cameraPosition = camera->GetProperty("CFrame").value<Math::CFrame>().Position;
-                hasCameraPosition = true;
+            const auto cameraVar = workspaceService->GetProperty("CurrentCamera");
+            if (cameraVar.Is<Core::Variant::InstanceRef>()) {
+                if (const auto locked = cameraVar.Get<Core::Variant::InstanceRef>().lock()) {
+                    if (const auto camera = std::dynamic_pointer_cast<Objects::Camera>(locked); camera != nullptr) {
+                        cameraPosition = camera->GetProperty("CFrame").value<Math::CFrame>().Position;
+                        hasCameraPosition = true;
+                    }
+                }
             }
         }
     }

@@ -3,8 +3,8 @@
 namespace Lvs::Engine::DataModel::ServiceRegistry {
 
 namespace {
-QVector<ServiceFactory>& Registry() {
-    static QVector<ServiceFactory> factories;
+Core::Vector<ServiceFactory>& Registry() {
+    static Core::Vector<ServiceFactory> factories;
     return factories;
 }
 } // namespace
@@ -13,7 +13,7 @@ void RegisterService(const ServiceFactory& factory) {
     Registry().push_back(factory);
 }
 
-QVector<ServiceFactory> GetServiceClasses() {
+Core::Vector<ServiceFactory> GetServiceClasses() {
     return Registry();
 }
 

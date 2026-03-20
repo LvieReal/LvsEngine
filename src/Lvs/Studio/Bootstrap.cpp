@@ -1,6 +1,7 @@
 #include "Lvs/Studio/Bootstrap.hpp"
 
-#include "Lvs/Engine/Core/Window.hpp"
+#include "Lvs/Studio/Core/Window.hpp"
+#include "Lvs/Engine/Core/QtBridge.hpp"
 #include "Lvs/Studio/Controllers/ToolbarController.hpp"
 #include "Lvs/Studio/Controllers/TopBarController.hpp"
 #include "Lvs/Studio/Core/DockManager.hpp"
@@ -8,6 +9,7 @@
 #include "Lvs/Studio/Core/Settings.hpp"
 #include "Lvs/Studio/Core/StudioQuickActions.hpp"
 #include "Lvs/Studio/Core/ViewportManager.hpp"
+#include "Lvs/Studio/IO/QtIOProviders.hpp"
 #include "Lvs/Studio/Theme.hpp"
 
 #include <QApplication>
@@ -49,6 +51,8 @@ void Run(QApplication& app, Engine::Core::Window& window, const Engine::EngineCo
 
     Core::Settings::Load();
     Theme::ApplyTheme(app);
+
+    IO::RegisterQtIOProviders();
 
     context->PlaceManager = std::make_unique<Engine::DataModel::PlaceManager>();
     context->EditorToolState = std::make_unique<Engine::Core::EditorToolState>();
@@ -141,7 +145,7 @@ void Run(QApplication& app, Engine::Core::Window& window, const Engine::EngineCo
         }
     }
     if (!placePath.isEmpty() && context->PlaceManager != nullptr) {
-        context->PlaceManager->OpenPlaceFromFile(placePath);
+        context->PlaceManager->OpenPlaceFromFile(Engine::Core::QtBridge::ToStdString(placePath));
     }
 
     window.showMaximized();

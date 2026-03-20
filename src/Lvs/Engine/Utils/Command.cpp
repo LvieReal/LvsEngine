@@ -8,9 +8,9 @@ namespace Lvs::Engine::Utils {
 
 SetPropertyCommand::SetPropertyCommand(
     std::shared_ptr<Core::Instance> instance,
-    QString propertyName,
-    QVariant oldValue,
-    QVariant newValue
+    Core::String propertyName,
+    Core::Variant oldValue,
+    Core::Variant newValue
 )
     : instance_(std::move(instance)),
       propertyName_(std::move(propertyName)),
@@ -57,10 +57,10 @@ void ReparentCommand::Do() {
                 const auto parentWorldCFrame = newParentPart->GetWorldCFrame();
                 const auto worldCFrame = Math::CFrame::New(worldPosition);
                 const auto localCFrame = parentWorldCFrame.Inverse() * worldCFrame;
-                part->SetProperty("Position", QVariant::fromValue(localCFrame.Position));
+                part->SetProperty("Position", localCFrame.Position);
             } else if (newParent_ == nullptr) {
                 // Reparenting to root (no parent) - position is world space
-                part->SetProperty("Position", QVariant::fromValue(worldPosition));
+                part->SetProperty("Position", worldPosition);
             }
         }
     }
@@ -88,10 +88,10 @@ void ReparentCommand::Undo() {
                 const auto parentWorldCFrame = oldParentPart->GetWorldCFrame();
                 const auto worldCFrame = Math::CFrame::New(worldPosition);
                 const auto localCFrame = parentWorldCFrame.Inverse() * worldCFrame;
-                part->SetProperty("Position", QVariant::fromValue(localCFrame.Position));
+                part->SetProperty("Position", localCFrame.Position);
             } else if (oldParent_ == nullptr) {
                 // Reparenting to root (no parent) - position is world space
-                part->SetProperty("Position", QVariant::fromValue(worldPosition));
+                part->SetProperty("Position", worldPosition);
             }
         }
     }

@@ -7,9 +7,9 @@ namespace Lvs::Engine::Objects {
 Core::ClassDescriptor& Model::Descriptor() {
     static Core::ClassDescriptor descriptor("Model", &Core::Instance::Descriptor());
     static const bool initialized = []() {
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<std::shared_ptr<Core::Instance>>(
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Core::Variant::InstanceRef>(
             "PrimaryPart",
-            nullptr,
+            {},
             true,
             "Data",
             {},
@@ -33,4 +33,3 @@ Model::Model()
 }
 
 } // namespace Lvs::Engine::Objects
-

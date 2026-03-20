@@ -1,10 +1,7 @@
 #pragma once
 
 #include "Lvs/Engine/Core/Instance.hpp"
-
-#include <QMap>
-#include <QString>
-#include <QVector>
+#include "Lvs/Engine/Core/Types.hpp"
 
 #include <functional>
 #include <memory>
@@ -12,28 +9,28 @@
 namespace Lvs::Engine::DataModel::ClassRegistry {
 
 struct ClassInfo {
-    QString Name;
-    QString Category;
-    QString BaseClass;
+    Core::String Name;
+    Core::String Category;
+    Core::String BaseClass;
     std::function<std::shared_ptr<Core::Instance>()> Factory;
 };
 
 void RegisterClass(const ClassInfo& classInfo);
-std::shared_ptr<Core::Instance> CreateInstance(const QString& name);
-QVector<ClassInfo> GetClasses();
-QMap<QString, QVector<ClassInfo>> GetClassesByCategory();
-QVector<ClassInfo> GetDerivedClasses(const QString& baseName);
+std::shared_ptr<Core::Instance> CreateInstance(const Core::String& name);
+Core::Vector<ClassInfo> GetClasses();
+Core::OrderedMap<Core::String, Core::Vector<ClassInfo>> GetClassesByCategory();
+Core::Vector<ClassInfo> GetDerivedClasses(const Core::String& baseName);
 
 template <typename T>
 void RegisterClass(
-    const QString& name,
-    const QString& category = "General",
-    const QString& baseClass = {}
+    Core::String name,
+    Core::String category = "General",
+    Core::String baseClass = {}
 ) {
     RegisterClass(ClassInfo{
-        .Name = name,
-        .Category = category,
-        .BaseClass = baseClass,
+        .Name = std::move(name),
+        .Category = std::move(category),
+        .BaseClass = std::move(baseClass),
         .Factory = []() { return std::make_shared<T>(); }
     });
 }

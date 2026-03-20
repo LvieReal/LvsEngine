@@ -1,53 +1,54 @@
 #include "Lvs/Engine/DataModel/ClassRegistry.hpp"
 
-#include <QHash>
-
 #include <stdexcept>
 
 namespace Lvs::Engine::DataModel::ClassRegistry {
 
 namespace {
-QHash<QString, ClassInfo>& Registry() {
-    static QHash<QString, ClassInfo> registry;
+Core::HashMap<Core::String, ClassInfo>& Registry() {
+    static Core::HashMap<Core::String, ClassInfo> registry;
     return registry;
 }
 
-QMap<QString, QVector<ClassInfo>>& CategoryMap() {
-    static QMap<QString, QVector<ClassInfo>> categoryMap;
+Core::OrderedMap<Core::String, Core::Vector<ClassInfo>>& CategoryMap() {
+    static Core::OrderedMap<Core::String, Core::Vector<ClassInfo>> categoryMap;
     return categoryMap;
 }
 } // namespace
 
 void RegisterClass(const ClassInfo& classInfo) {
-    Registry().insert(classInfo.Name, classInfo);
+    Registry().insert_or_assign(classInfo.Name, classInfo);
     CategoryMap()[classInfo.Category].push_back(classInfo);
 }
 
-std::shared_ptr<Core::Instance> CreateInstance(const QString& name) {
-    if (!Registry().contains(name)) {
-        throw std::runtime_error(QString("Class not registered: %1").arg(name).toStdString());
+std::shared_ptr<Core::Instance> CreateInstance(const Core::String& name) {
+    const auto it = Registry().find(name);
+    if (it == Registry().end()) {
+        throw std::runtime_error("Class not registered: " + name);
     }
-    return Registry().value(name).Factory();
+    return it->second.Factory();
 }
 
-QVector<ClassInfo> GetClasses() {
-    QVector<ClassInfo> classes;
+Core::Vector<ClassInfo> GetClasses() {
+    Core::Vector<ClassInfo> classes;
     classes.reserve(Registry().size());
-    for (auto it = Registry().cbegin(); it != Registry().cend(); ++it) {
-        classes.push_back(it.value());
+    for (const auto& [name, info] : Registry()) {
+        (void)name;
+        classes.push_back(info);
     }
     return classes;
 }
 
-QMap<QString, QVector<ClassInfo>> GetClassesByCategory() {
+Core::OrderedMap<Core::String, Core::Vector<ClassInfo>> GetClassesByCategory() {
     return CategoryMap();
 }
 
-QVector<ClassInfo> GetDerivedClasses(const QString& baseName) {
-    QVector<ClassInfo> derived;
-    for (auto it = Registry().cbegin(); it != Registry().cend(); ++it) {
-        if (it.value().BaseClass == baseName) {
-            derived.push_back(it.value());
+Core::Vector<ClassInfo> GetDerivedClasses(const Core::String& baseName) {
+    Core::Vector<ClassInfo> derived;
+    for (const auto& [name, info] : Registry()) {
+        (void)name;
+        if (info.BaseClass == baseName) {
+            derived.push_back(info);
         }
     }
     return derived;

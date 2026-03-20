@@ -12,4 +12,3 @@ void WriteCrashLog(const QString& title, const QString& details = {});
 void WriteCrashLogFromException(const std::exception& ex, const QString& context = {});
 
 } // namespace Lvs::Engine::Core::CrashHandler
-

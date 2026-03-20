@@ -1,6 +1,7 @@
-#include "Lvs/Engine/Core/CrashHandler.hpp"
+#include "Lvs/Studio/Core/CrashHandler.hpp"
 
-#include "Lvs/Engine/Core/SessionLog.hpp"
+#include "Lvs/Studio/Core/SessionLog.hpp"
+#include "Lvs/Engine/Core/QtBridge.hpp"
 #include "Lvs/Engine/Utils/EngineDataPaths.hpp"
 
 #include <QCoreApplication>
@@ -28,7 +29,7 @@ std::atomic_bool g_installed{false};
 QString MakeCrashFilePath() {
     const QString ts = QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss_zzz");
     const qint64 pid = QCoreApplication::applicationPid();
-    return QDir(Utils::EngineDataPaths::CrashLogsDir()).filePath(QString("crash_%1_%2.txt").arg(ts).arg(pid));
+    return QDir(QtBridge::ToQString(Utils::EngineDataPaths::CrashLogsDir())).filePath(QString("crash_%1_%2.txt").arg(ts).arg(pid));
 }
 
 QString AppLabel() {

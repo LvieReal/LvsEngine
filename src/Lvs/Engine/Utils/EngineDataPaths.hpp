@@ -1,14 +1,13 @@
 #pragma once
 
-#include <QString>
+#include "Lvs/Engine/Core/Types.hpp"
 
 namespace Lvs::Engine::Utils::EngineDataPaths {
 
-[[nodiscard]] QString RootDir();
-[[nodiscard]] QString StudioConfigFile();
-[[nodiscard]] QString LogsDir();
-[[nodiscard]] QString CrashLogsDir();
-[[nodiscard]] QString DefaultLocalAssetsDir();
+[[nodiscard]] Core::String RootDir();
+[[nodiscard]] Core::String StudioConfigFile();
+[[nodiscard]] Core::String LogsDir();
+[[nodiscard]] Core::String CrashLogsDir();
+[[nodiscard]] Core::String DefaultLocalAssetsDir();
 
 } // namespace Lvs::Engine::Utils::EngineDataPaths
-

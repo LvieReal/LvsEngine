@@ -6,15 +6,12 @@
 #include "Lvs/Engine/DataModel/Services/Lighting.hpp"
 #include "Lvs/Engine/DataModel/Services/QualitySettings.hpp"
 #include "Lvs/Engine/DataModel/Services/Workspace.hpp"
-#include "Lvs/Engine/Enums/EnumMetadata.hpp"
 #include "Lvs/Engine/Enums/MSAA.hpp"
 #include "Lvs/Engine/Enums/SurfaceMipmapping.hpp"
 #include "Lvs/Engine/Objects/Camera.hpp"
 #include "Lvs/Engine/Objects/DirectionalLight.hpp"
 #include "Lvs/Engine/Rendering/Context/RenderContextUtils.hpp"
 #include "Lvs/Engine/Utils/Benchmark.hpp"
-
-#include <QMetaType>
 
 #include <algorithm>
 #include <array>
@@ -43,25 +40,20 @@ void RenderContext::Render() {
         }
     }
     RHI::u32 desiredMsaaSamples = 1U;
-	    bool desiredSurfaceMipmaps = true;
-	    if (place_ != nullptr) {
-	        if (const auto qualitySettings = std::dynamic_pointer_cast<DataModel::QualitySettings>(place_->FindService("QualitySettings"));
-	            qualitySettings != nullptr) {
-	            const int msaaTypeId = QMetaType::fromType<Enums::MSAA>().id();
-	            QVariant msaaValue = Enums::Metadata::CoerceVariant(msaaTypeId, qualitySettings->GetProperty("MSAA"));
-	            if (!msaaValue.isValid()) {
-	                msaaValue = QVariant::fromValue(Enums::MSAA::Off);
-	            }
-	            desiredMsaaSamples = static_cast<RHI::u32>(Enums::MsaaSampleCount(msaaValue.value<Enums::MSAA>()));
+    bool desiredSurfaceMipmaps = true;
+    if (place_ != nullptr) {
+        if (const auto qualitySettings = std::dynamic_pointer_cast<DataModel::QualitySettings>(place_->FindService("QualitySettings"));
+            qualitySettings != nullptr) {
+            const auto msaaVar = qualitySettings->GetProperty("MSAA");
+            const Enums::MSAA msaa = msaaVar.IsValid() ? msaaVar.value<Enums::MSAA>() : Enums::MSAA::Off;
+            desiredMsaaSamples = static_cast<RHI::u32>(Enums::MsaaSampleCount(msaa));
 
-	            const int mipTypeId = QMetaType::fromType<Enums::SurfaceMipmapping>().id();
-	            QVariant mipValue = Enums::Metadata::CoerceVariant(mipTypeId, qualitySettings->GetProperty("SurfaceMipmapping"));
-	            if (!mipValue.isValid()) {
-	                mipValue = QVariant::fromValue(Enums::SurfaceMipmapping::On);
-	            }
-	            desiredSurfaceMipmaps = Enums::IsSurfaceMipmappingEnabled(mipValue.value<Enums::SurfaceMipmapping>());
-	        }
-	    }
+            const auto mipVar = qualitySettings->GetProperty("SurfaceMipmapping");
+            const Enums::SurfaceMipmapping mip =
+                mipVar.IsValid() ? mipVar.value<Enums::SurfaceMipmapping>() : Enums::SurfaceMipmapping::On;
+            desiredSurfaceMipmaps = Enums::IsSurfaceMipmappingEnabled(mip);
+        }
+    }
     if (desiredMsaaSamples != requestedMsaaSampleCount_) {
         requestedMsaaSampleCount_ = desiredMsaaSamples;
         effectiveMsaaSampleCount_ = desiredMsaaSamples;
@@ -391,7 +383,12 @@ void RenderContext::Render() {
     if (place_ != nullptr) {
         if (const auto workspaceService = std::dynamic_pointer_cast<DataModel::Workspace>(place_->FindService("Workspace"));
             workspaceService != nullptr) {
-            camera = workspaceService->GetProperty("CurrentCamera").value<std::shared_ptr<Objects::Camera>>();
+            const auto cameraVar = workspaceService->GetProperty("CurrentCamera");
+            if (cameraVar.Is<Core::Variant::InstanceRef>()) {
+                if (const auto locked = cameraVar.Get<Core::Variant::InstanceRef>().lock()) {
+                    camera = std::dynamic_pointer_cast<Objects::Camera>(locked);
+                }
+            }
         }
     }
     const float aspect =

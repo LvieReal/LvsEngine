@@ -1,10 +1,12 @@
 #include "Lvs/Studio/Widgets/Properties/PropertyEditorUtils.hpp"
 
 #include "Lvs/Engine/Core/Instance.hpp"
+#include "Lvs/Engine/Core/QtBridge.hpp"
 #include "Lvs/Engine/Math/Color3.hpp"
 #include "Lvs/Engine/Math/CFrame.hpp"
 #include "Lvs/Engine/Math/Vector3.hpp"
 #include "Lvs/Engine/Objects/Camera.hpp"
+#include "Lvs/Studio/Core/QtMetaTypes.hpp"
 #include "Lvs/Studio/Widgets/Properties/PathEditor.hpp"
 #include "Lvs/Studio/Widgets/Properties/PropertyValueUtils.hpp"
 
@@ -122,14 +124,35 @@ std::shared_ptr<Lvs::Engine::Core::Instance> TryGetInstanceReference(
     if (!definition.IsInstanceReference) {
         return nullptr;
     }
-    if (definition.Type.id() == QMetaType::fromType<std::shared_ptr<Lvs::Engine::Core::Instance>>().id()) {
+    if (value.canConvert<std::shared_ptr<Lvs::Engine::Core::Instance>>()) {
         return value.value<std::shared_ptr<Lvs::Engine::Core::Instance>>();
     }
-    if (definition.Type.id() == QMetaType::fromType<std::shared_ptr<Lvs::Engine::Objects::Camera>>().id()) {
-        const auto camera = value.value<std::shared_ptr<Lvs::Engine::Objects::Camera>>();
-        return std::static_pointer_cast<Lvs::Engine::Core::Instance>(camera);
-    }
     return nullptr;
+}
+
+bool HasCustomTag(const Engine::Core::StringList& tags, const char* tag) {
+    for (const auto& entry : tags) {
+        if (entry == tag) {
+            return true;
+        }
+    }
+    return false;
+}
+
+QVariantMap ToQVariantMap(const Engine::Core::HashMap<Engine::Core::String, Engine::Core::Variant>& attributes) {
+    QVariantMap out;
+    for (const auto& [key, val] : attributes) {
+        out.insert(QString::fromUtf8(key.c_str()), Engine::Core::QtBridge::ToQVariant(val));
+    }
+    return out;
+}
+
+QString EnumTypeName(const Engine::Core::PropertyDefinition& definition) {
+    const auto it = definition.CustomAttributes.find("EnumType");
+    if (it == definition.CustomAttributes.end()) {
+        return {};
+    }
+    return Engine::Core::QtBridge::ToQString(it->second.toString());
 }
 
 } // namespace
@@ -141,9 +164,9 @@ QWidget* CreateEditor(
     QWidget* parent,
     const std::function<void(const QString&, const QVariant&)>& onEdited
 ) {
-    const int typeId = definition.Type.id();
+    const Engine::Core::TypeId typeId = definition.Type;
 
-    if (typeId == QMetaType::Bool) {
+    if (typeId == Engine::Core::TypeId::Bool) {
         auto* editor = new QCheckBox(parent);
         editor->setChecked(value.toBool());
         QObject::connect(editor, &QCheckBox::toggled, editor, [propertyName, onEdited](const bool checked) {
@@ -151,7 +174,43 @@ QWidget* CreateEditor(
         });
         return editor;
     }
-    if (typeId == QMetaType::Int) {
+    if (typeId == Engine::Core::TypeId::Enum) {
+        const QString enumType = EnumTypeName(definition);
+        const QList<ValueUtils::EnumOption> options = !enumType.isEmpty()
+            ? ValueUtils::EnumOptionsForEnum(enumType)
+            : QList<ValueUtils::EnumOption>{};
+
+        if (!options.isEmpty()) {
+            auto* editor = new QComboBox(parent);
+            editor->setEditable(false);
+            for (const auto& opt : options) {
+                editor->addItem(opt.Name, opt.Value);
+            }
+
+            const int currentValue = value.toInt();
+            for (int i = 0; i < editor->count(); ++i) {
+                if (editor->itemData(i).toInt() == currentValue) {
+                    editor->setCurrentIndex(i);
+                    break;
+                }
+            }
+
+            const QPointer<QComboBox> safeEditor(editor);
+            QObject::connect(
+                editor,
+                qOverload<int>(&QComboBox::currentIndexChanged),
+                editor,
+                [propertyName, onEdited, safeEditor](const int index) {
+                    if (safeEditor.isNull() || index < 0 || index >= safeEditor->count()) {
+                        return;
+                    }
+                    onEdited(propertyName, safeEditor->itemData(index).toInt());
+                }
+            );
+            return editor;
+        }
+    }
+    if (typeId == Engine::Core::TypeId::Int || typeId == Engine::Core::TypeId::Enum) {
         auto* editor = new QSpinBox(parent);
         editor->setRange(std::numeric_limits<int>::min(), std::numeric_limits<int>::max());
         editor->setKeyboardTracking(false);
@@ -165,7 +224,7 @@ QWidget* CreateEditor(
         });
         return editor;
     }
-    if (typeId == QMetaType::Double) {
+    if (typeId == Engine::Core::TypeId::Double) {
         auto* editor = new QDoubleSpinBox(parent);
         editor->setRange(-1'000'000.0, 1'000'000.0);
         editor->setDecimals(4);
@@ -182,30 +241,7 @@ QWidget* CreateEditor(
         return editor;
     }
 
-    const QList<ValueUtils::EnumOption> enumOptions = ValueUtils::EnumOptionsForType(typeId);
-    if (!enumOptions.isEmpty()) {
-        auto* editor = new QComboBox(parent);
-        for (const auto& option : enumOptions) {
-            editor->addItem(option.Name, option.Value);
-        }
-        const int currentValue = value.toInt();
-        for (int i = 0; i < editor->count(); ++i) {
-            if (editor->itemData(i).toInt() == currentValue) {
-                editor->setCurrentIndex(i);
-                break;
-            }
-        }
-        const QPointer<QComboBox> safeEditor(editor);
-        QObject::connect(editor, qOverload<int>(&QComboBox::currentIndexChanged), editor, [propertyName, onEdited, safeEditor, typeId](const int index) {
-            if (safeEditor.isNull() || index < 0 || index >= safeEditor->count()) {
-                return;
-            }
-            onEdited(propertyName, ValueUtils::EnumVariantFromTypeAndInt(typeId, safeEditor->itemData(index).toInt()));
-        });
-        return editor;
-    }
-
-    if (typeId == QMetaType::fromType<Lvs::Engine::Math::Color3>().id()) {
+    if (typeId == Engine::Core::TypeId::Color3) {
         auto* editor = new QPushButton(parent);
         editor->setFixedHeight(20);
         editor->setText("Pick...");
@@ -229,10 +265,10 @@ QWidget* CreateEditor(
         return editor;
     }
 
-    if (typeId == QMetaType::QString && definition.CustomTags.contains("IsPath")) {
+    if (typeId == Engine::Core::TypeId::String && HasCustomTag(definition.CustomTags, "IsPath")) {
         return new PathEditor(
             value.toString(),
-            definition.CustomAttributes,
+            ToQVariantMap(definition.CustomAttributes),
             [propertyName, onEdited](const QString& nextPath) {
                 onEdited(propertyName, nextPath);
             },
@@ -240,14 +276,14 @@ QWidget* CreateEditor(
         );
     }
 
-    if (typeId == QMetaType::fromType<Lvs::Engine::Math::CFrame>().id()) {
+    if (typeId == Engine::Core::TypeId::CFrame) {
         auto* cframeEditor = new CFrameEditor(propertyName, definition, onEdited, parent);
         cframeEditor->SetValue(value.value<Lvs::Engine::Math::CFrame>());
         return cframeEditor;
     }
 
     auto* editor = new QLineEdit(parent);
-    if (typeId == QMetaType::fromType<Lvs::Engine::Math::Vector3>().id()) {
+    if (typeId == Engine::Core::TypeId::Vector3) {
         editor->setText(ValueUtils::FormatVector3(value.value<Lvs::Engine::Math::Vector3>()));
         const QPointer<QLineEdit> safeEditor(editor);
         QObject::connect(editor, &QLineEdit::editingFinished, editor, [propertyName, onEdited, safeEditor]() {
@@ -264,7 +300,7 @@ QWidget* CreateEditor(
     }
     if (definition.IsInstanceReference) {
         if (const auto target = TryGetInstanceReference(value, definition); target != nullptr) {
-            editor->setText(target->GetFullPath());
+            editor->setText(Engine::Core::QtBridge::ToQString(target->GetFullPath()));
         } else {
             editor->setText({});
         }
@@ -326,21 +362,21 @@ void SetEditorValue(
         const QSignalBlocker blocker(line);
         if (definition.IsInstanceReference) {
             if (const auto target = TryGetInstanceReference(value, definition); target != nullptr) {
-                line->setText(target->GetFullPath());
+                line->setText(Engine::Core::QtBridge::ToQString(target->GetFullPath()));
             } else {
                 line->setText({});
             }
             return;
         }
-        if (definition.Type.id() == QMetaType::fromType<Lvs::Engine::Math::Vector3>().id()) {
+        if (definition.Type == Engine::Core::TypeId::Vector3) {
             line->setText(ValueUtils::FormatVector3(value.value<Lvs::Engine::Math::Vector3>()));
             return;
         }
-        if (definition.Type.id() == QMetaType::fromType<Lvs::Engine::Math::CFrame>().id()) {
+        if (definition.Type == Engine::Core::TypeId::CFrame) {
             line->setText(ValueUtils::FormatCFrame(value.value<Lvs::Engine::Math::CFrame>()));
             return;
         }
-        if (definition.Type.id() == QMetaType::fromType<Lvs::Engine::Math::Color3>().id()) {
+        if (definition.Type == Engine::Core::TypeId::Color3) {
             line->setText(ValueUtils::FormatColor3(value.value<Lvs::Engine::Math::Color3>()));
             return;
         }
@@ -348,7 +384,7 @@ void SetEditorValue(
         return;
     }
     if (auto* button = qobject_cast<QPushButton*>(editor); button != nullptr) {
-        if (definition.Type.id() == QMetaType::fromType<Lvs::Engine::Math::Color3>().id()) {
+        if (definition.Type == Engine::Core::TypeId::Color3) {
             SetColorButtonPreview(button, value.value<Lvs::Engine::Math::Color3>());
         }
     }

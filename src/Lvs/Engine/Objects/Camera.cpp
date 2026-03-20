@@ -29,7 +29,7 @@ Core::ClassDescriptor& Camera::Descriptor() {
 
 Camera::Camera()
     : Core::Instance(Descriptor()) {
-    PropertyChanged.Connect([this](const QString&, const QVariant&) {
+    PropertyChanged.Connect([this](const Core::String&, const Core::Variant&) {
         UpdateProjectionMatrix(lastAspect_.value_or(1.0));
     });
     UpdateProjectionMatrix(1.0);

@@ -6,8 +6,8 @@ namespace Lvs::Engine::Core {
 
 ObjectBase::ObjectBase(const ClassDescriptor& descriptor)
     : classDescriptor_(&descriptor) {
-    for (auto it = classDescriptor_->PropertyDefinitions().cbegin(); it != classDescriptor_->PropertyDefinitions().cend(); ++it) {
-        properties_.insert(it.key(), Property(it.value()));
+    for (const auto& [name, definition] : classDescriptor_->PropertyDefinitions()) {
+        properties_.insert({name, Property(definition)});
     }
 }
 
@@ -15,44 +15,44 @@ const ClassDescriptor& ObjectBase::GetClassDescriptor() const {
     return *classDescriptor_;
 }
 
-const QMap<QString, Property>& ObjectBase::GetProperties() const {
+const HashMap<String, Property>& ObjectBase::GetProperties() const {
     return properties_;
 }
 
-QMap<QString, Property>& ObjectBase::GetProperties() {
+HashMap<String, Property>& ObjectBase::GetProperties() {
     return properties_;
 }
 
-QVariant ObjectBase::GetProperty(const QString& name) const {
+Variant ObjectBase::GetProperty(const String& name) const {
     const auto it = properties_.find(name);
     if (it == properties_.end()) {
-        throw std::runtime_error(QString("No property '%1'").arg(name).toStdString());
+        throw std::runtime_error("No property '" + name + "'");
     }
-    return it->Get();
+    return it->second.Get();
 }
 
-void ObjectBase::SetProperty(const QString& name, const QVariant& value) {
+void ObjectBase::SetProperty(const String& name, const Variant& value) {
     auto it = properties_.find(name);
     if (it == properties_.end()) {
-        throw std::runtime_error(QString("No property '%1'").arg(name).toStdString());
+        throw std::runtime_error("No property '" + name + "'");
     }
-    it->Set(value);
+    it->second.Set(value);
 }
 
-Property& ObjectBase::GetPropertyObject(const QString& name) {
+Property& ObjectBase::GetPropertyObject(const String& name) {
     auto it = properties_.find(name);
     if (it == properties_.end()) {
-        throw std::runtime_error(QString("No property '%1'").arg(name).toStdString());
+        throw std::runtime_error("No property '" + name + "'");
     }
-    return *it;
+    return it->second;
 }
 
-const Property& ObjectBase::GetPropertyObject(const QString& name) const {
+const Property& ObjectBase::GetPropertyObject(const String& name) const {
     const auto it = properties_.find(name);
     if (it == properties_.end()) {
-        throw std::runtime_error(QString("No property '%1'").arg(name).toStdString());
+        throw std::runtime_error("No property '" + name + "'");
     }
-    return *it;
+    return it->second;
 }
 
 } // namespace Lvs::Engine::Core
