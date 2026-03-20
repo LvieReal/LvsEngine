@@ -276,28 +276,6 @@ QWidget* SettingsWidget::CreateEditor(const QString& key) {
         return checkBox;
     }
 
-    if (defaultValue.typeId() == QMetaType::Double || defaultValue.typeId() == QMetaType::Int) {
-        auto* line = new QLineEdit(value.toString(), settingsPanel_);
-        connect(line, &QLineEdit::editingFinished, line, [line, key, defaultValue]() {
-            bool ok = false;
-            if (defaultValue.typeId() == QMetaType::Double) {
-                const double parsed = line->text().toDouble(&ok);
-                if (ok) {
-                    Core::Settings::Set(key, parsed);
-                }
-            } else {
-                const int parsed = line->text().toInt(&ok);
-                if (ok) {
-                    Core::Settings::Set(key, parsed);
-                }
-            }
-            if (!ok) {
-                line->setText(Core::Settings::Get(key).toString());
-            }
-        });
-        return line;
-    }
-
     if (key == "StudioIconPack") {
         auto* combo = new QComboBox(settingsPanel_);
         combo->setEditable(true);
@@ -343,6 +321,28 @@ QWidget* SettingsWidget::CreateEditor(const QString& key) {
         });
 
         return combo;
+    }
+
+    if (defaultValue.typeId() == QMetaType::Double || defaultValue.typeId() == QMetaType::Int) {
+        auto* line = new QLineEdit(value.toString(), settingsPanel_);
+        connect(line, &QLineEdit::editingFinished, line, [line, key, defaultValue]() {
+            bool ok = false;
+            if (defaultValue.typeId() == QMetaType::Double) {
+                const double parsed = line->text().toDouble(&ok);
+                if (ok) {
+                    Core::Settings::Set(key, parsed);
+                }
+            } else {
+                const int parsed = line->text().toInt(&ok);
+                if (ok) {
+                    Core::Settings::Set(key, parsed);
+                }
+            }
+            if (!ok) {
+                line->setText(Core::Settings::Get(key).toString());
+            }
+        });
+        return line;
     }
 
     if (defaultValue.typeId() == QMetaType::QString && !meta.Options.isEmpty()) {
