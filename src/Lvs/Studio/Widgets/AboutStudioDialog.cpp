@@ -31,11 +31,17 @@ AboutStudioDialog::AboutStudioDialog(QWidget* parent)
     }
 
     auto* titleLayout = new QVBoxLayout();
+
     auto* title = new QLabel(Configuration::GetFullName(), this);
-    // title->setStyleSheet("font-size: 18px; font-weight: bold;"); // pls don't do that
+    QFont fontBold;
+    fontBold.setBold(true);
+    title->setFont(fontBold);
+
     auto* version = new QLabel(QString("Version: %1").arg(Configuration::GetVersion()), this);
+
     titleLayout->addWidget(title);
     titleLayout->addWidget(version);
+
     titleLayout->addStretch();
 
     topLayout->addWidget(logo);

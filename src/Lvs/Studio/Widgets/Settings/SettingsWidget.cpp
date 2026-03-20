@@ -38,7 +38,9 @@ QWidget* CreateHeaderRow(QWidget* parent, const QString& title) {
     layout->setContentsMargins(0, 10, 0, 4);
 
     auto* label = new QLabel(title, container);
-    // label->setStyleSheet("font-weight: 600;"); // pls don't do that
+    QFont fontBold;
+    fontBold.setBold(true);
+    label->setFont(fontBold);
 
     auto* line = new QFrame(container);
     line->setFrameShape(QFrame::HLine);
