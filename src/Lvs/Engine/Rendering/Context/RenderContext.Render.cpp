@@ -8,6 +8,7 @@
 #include "Lvs/Engine/DataModel/Services/Workspace.hpp"
 #include "Lvs/Engine/Enums/MSAA.hpp"
 #include "Lvs/Engine/Enums/SurfaceMipmapping.hpp"
+#include "Lvs/Engine/Enums/SpecularHighlightType.hpp"
 #include "Lvs/Engine/Objects/Camera.hpp"
 #include "Lvs/Engine/Objects/DirectionalLight.hpp"
 #include "Lvs/Engine/Rendering/Context/RenderContextUtils.hpp"
@@ -448,12 +449,13 @@ void RenderContext::Render() {
 
         const Math::Color3 color = directional->GetProperty("Color").value<Math::Color3>();
         const float intensity = static_cast<float>(std::max(0.0, directional->GetProperty("Intensity").toDouble()));
+        const auto highlightType = directional->GetProperty("SpecularHighlightType").value<Enums::SpecularHighlightType>();
         base.ColorIntensity = Context::ToVec4(color, intensity);
         base.Specular = {
             static_cast<float>(std::max(0.0, directional->GetProperty("SpecularStrength").toDouble())),
             static_cast<float>(std::max(0.0, directional->GetProperty("Shininess").toDouble())),
             fresnelAmount,
-            0.0F
+            static_cast<float>(static_cast<int>(highlightType))
         };
 
         Common::GpuDirectionalLight dir{};

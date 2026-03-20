@@ -107,62 +107,62 @@ int GetSurfaceType(vec3 normal)
 {
     vec3 n = normalize(normal);
     vec3 a = abs(n);
-    bool _334 = a.y >= a.x;
-    bool _342;
-    if (_334)
+    bool _455 = a.y >= a.x;
+    bool _463;
+    if (_455)
     {
-        _342 = a.y >= a.z;
+        _463 = a.y >= a.z;
     }
     else
     {
-        _342 = _334;
+        _463 = _455;
     }
-    if (_342)
+    if (_463)
     {
-        int _348;
+        int _469;
         if (n.y > 0.0)
         {
-            _348 = GetTopSurfaceType();
+            _469 = GetTopSurfaceType();
         }
         else
         {
-            _348 = GetBottomSurfaceType();
+            _469 = GetBottomSurfaceType();
         }
-        return _348;
+        return _469;
     }
-    bool _360 = a.x >= a.y;
-    bool _368;
-    if (_360)
+    bool _481 = a.x >= a.y;
+    bool _489;
+    if (_481)
     {
-        _368 = a.x >= a.z;
+        _489 = a.x >= a.z;
     }
     else
     {
-        _368 = _360;
+        _489 = _481;
     }
-    if (_368)
+    if (_489)
     {
-        int _374;
+        int _495;
         if (n.x > 0.0)
         {
-            _374 = GetRightSurfaceType();
+            _495 = GetRightSurfaceType();
         }
         else
         {
-            _374 = GetLeftSurfaceType();
+            _495 = GetLeftSurfaceType();
         }
-        return _374;
+        return _495;
     }
-    int _385;
+    int _506;
     if (n.z > 0.0)
     {
-        _385 = GetFrontSurfaceType();
+        _506 = GetFrontSurfaceType();
     }
     else
     {
-        _385 = GetBackSurfaceType();
+        _506 = GetBackSurfaceType();
     }
-    return _385;
+    return _506;
 }
 
 vec3 GetMeshSizeFromModel()
@@ -180,34 +180,34 @@ vec2 GetFaceUV(vec3 localPos, vec3 localNormal)
     vec3 halfSize = size * 0.5;
     vec3 n = normalize(localNormal);
     vec3 a = abs(n);
-    bool _413 = a.x >= a.y;
-    bool _421;
-    if (_413)
+    bool _534 = a.x >= a.y;
+    bool _542;
+    if (_534)
     {
-        _421 = a.x >= a.z;
+        _542 = a.x >= a.z;
     }
     else
     {
-        _421 = _413;
+        _542 = _534;
     }
     vec2 uv;
-    if (_421)
+    if (_542)
     {
         uv = scaledPos.zy + halfSize.zy;
     }
     else
     {
-        bool _435 = a.y >= a.x;
-        bool _443;
-        if (_435)
+        bool _556 = a.y >= a.x;
+        bool _564;
+        if (_556)
         {
-            _443 = a.y >= a.z;
+            _564 = a.y >= a.z;
         }
         else
         {
-            _443 = _435;
+            _564 = _556;
         }
-        if (_443)
+        if (_564)
         {
             uv = scaledPos.xz + halfSize.xz;
         }
@@ -248,17 +248,17 @@ vec2 GetSurfaceAtlasUV(int surfaceType, vec2 uv)
 
 vec3 SampleSurfaceColor(int surfaceType, vec2 uv)
 {
-    bool _540 = surfaceType == 0;
-    bool _546;
-    if (!_540)
+    bool _661 = surfaceType == 0;
+    bool _667;
+    if (!_661)
     {
-        _546 = !IsSurfaceEnabled();
+        _667 = !IsSurfaceEnabled();
     }
     else
     {
-        _546 = _540;
+        _667 = _661;
     }
-    if (_546)
+    if (_667)
     {
         return vec3(1.0);
     }
@@ -274,53 +274,53 @@ bool IsSurfaceNormalEnabled()
 
 vec3 GetSurfaceMappedNormal(vec3 localNormal, int surfaceType, vec2 uv)
 {
-    bool _562 = !IsSurfaceEnabled();
-    bool _568;
-    if (!_562)
+    bool _683 = !IsSurfaceEnabled();
+    bool _689;
+    if (!_683)
     {
-        _568 = !IsSurfaceNormalEnabled();
+        _689 = !IsSurfaceNormalEnabled();
     }
     else
     {
-        _568 = _562;
+        _689 = _683;
     }
-    if (_568 || (surfaceType == 0))
+    if (_689 || (surfaceType == 0))
     {
         mat3 normalMat = transpose(inverse(mat3(inst.model[0].xyz, inst.model[1].xyz, inst.model[2].xyz)));
         return normalize(normalMat * localNormal);
     }
     vec3 n = normalize(localNormal);
     vec3 a = abs(n);
-    bool _604 = a.x >= a.y;
-    bool _612;
-    if (_604)
+    bool _725 = a.x >= a.y;
+    bool _733;
+    if (_725)
     {
-        _612 = a.x >= a.z;
+        _733 = a.x >= a.z;
     }
     else
     {
-        _612 = _604;
+        _733 = _725;
     }
     vec3 tangentLocal;
     vec3 bitangentLocal;
-    if (_612)
+    if (_733)
     {
         tangentLocal = vec3(0.0, 0.0, 1.0);
         bitangentLocal = vec3(0.0, 1.0, 0.0);
     }
     else
     {
-        bool _624 = a.y >= a.x;
-        bool _632;
-        if (_624)
+        bool _745 = a.y >= a.x;
+        bool _753;
+        if (_745)
         {
-            _632 = a.y >= a.z;
+            _753 = a.y >= a.z;
         }
         else
         {
-            _632 = _624;
+            _753 = _745;
         }
-        if (_632)
+        if (_753)
         {
             tangentLocal = vec3(1.0, 0.0, 0.0);
             bitangentLocal = vec3(0.0, 0.0, 1.0);
@@ -407,9 +407,9 @@ float SampleDirectionalPCF(DirectionalLight dl, int shadowMapBase, int cascadeIn
         if (tapsDone < pretestTaps)
         {
             vec2 uvOffset = offset.xy * fsize;
-            vec2 _858 = uvOffset + baseShadowCoord.xy;
-            smCoord.x = _858.x;
-            smCoord.y = _858.y;
+            vec2 _978 = uvOffset + baseShadowCoord.xy;
+            smCoord.x = _978.x;
+            smCoord.y = _978.y;
             int param_5 = shadowMapBase;
             int param_6 = cascadeIndex;
             vec3 param_7 = smCoord;
@@ -419,9 +419,9 @@ float SampleDirectionalPCF(DirectionalLight dl, int shadowMapBase, int cascadeIn
         if (tapsDone < pretestTaps)
         {
             vec2 uvOffset_1 = offset.zw * fsize;
-            vec2 _887 = uvOffset_1 + baseShadowCoord.xy;
-            smCoord.x = _887.x;
-            smCoord.y = _887.y;
+            vec2 _1007 = uvOffset_1 + baseShadowCoord.xy;
+            smCoord.x = _1007.x;
+            smCoord.y = _1007.y;
             int param_8 = shadowMapBase;
             int param_9 = cascadeIndex;
             vec3 param_10 = smCoord;
@@ -444,9 +444,9 @@ float SampleDirectionalPCF(DirectionalLight dl, int shadowMapBase, int cascadeIn
             if (tapsDone < desiredTaps)
             {
                 vec2 uvOffset_2 = offset_1.xy * fsize;
-                vec2 _967 = uvOffset_2 + baseShadowCoord.xy;
-                smCoord_1.x = _967.x;
-                smCoord_1.y = _967.y;
+                vec2 _1087 = uvOffset_2 + baseShadowCoord.xy;
+                smCoord_1.x = _1087.x;
+                smCoord_1.y = _1087.y;
                 int param_11 = shadowMapBase;
                 int param_12 = cascadeIndex;
                 vec3 param_13 = smCoord_1;
@@ -456,9 +456,9 @@ float SampleDirectionalPCF(DirectionalLight dl, int shadowMapBase, int cascadeIn
             if (tapsDone < desiredTaps)
             {
                 vec2 uvOffset_3 = offset_1.zw * fsize;
-                vec2 _996 = uvOffset_3 + baseShadowCoord.xy;
-                smCoord_1.x = _996.x;
-                smCoord_1.y = _996.y;
+                vec2 _1116 = uvOffset_3 + baseShadowCoord.xy;
+                smCoord_1.x = _1116.x;
+                smCoord_1.y = _1116.y;
                 int param_14 = shadowMapBase;
                 int param_15 = cascadeIndex;
                 vec3 param_16 = smCoord_1;
@@ -480,33 +480,33 @@ float ComputeDirectionalShadowFactor(DirectionalLight dl, int shadowMapBase, vec
     int cascadeCount = clamp(int(dl.shadowCascadeSplits.w + 0.5), 1, 3);
     float viewDepth = max(dot(fragWorldPos - camera.cameraPosition.xyz, normalize(camera.cameraForward.xyz)), 0.0);
     int cascadeIndex = 0;
-    bool _1113 = cascadeCount >= 3;
-    bool _1120;
-    if (_1113)
+    bool _1233 = cascadeCount >= 3;
+    bool _1240;
+    if (_1233)
     {
-        _1120 = viewDepth > dl.shadowCascadeSplits.y;
+        _1240 = viewDepth > dl.shadowCascadeSplits.y;
     }
     else
     {
-        _1120 = _1113;
+        _1240 = _1233;
     }
-    if (_1120)
+    if (_1240)
     {
         cascadeIndex = 2;
     }
     else
     {
-        bool _1125 = cascadeCount >= 2;
-        bool _1132;
-        if (_1125)
+        bool _1245 = cascadeCount >= 2;
+        bool _1252;
+        if (_1245)
         {
-            _1132 = viewDepth > dl.shadowCascadeSplits.x;
+            _1252 = viewDepth > dl.shadowCascadeSplits.x;
         }
         else
         {
-            _1132 = _1125;
+            _1252 = _1245;
         }
-        if (_1132)
+        if (_1252)
         {
             cascadeIndex = 1;
         }
@@ -523,35 +523,35 @@ float ComputeDirectionalShadowFactor(DirectionalLight dl, int shadowMapBase, vec
     {
         return 1.0;
     }
-    bool _1179 = shadowUv.x < 0.0;
-    bool _1186;
-    if (!_1179)
+    bool _1299 = shadowUv.x < 0.0;
+    bool _1306;
+    if (!_1299)
     {
-        _1186 = shadowUv.x > 1.0;
+        _1306 = shadowUv.x > 1.0;
     }
     else
     {
-        _1186 = _1179;
+        _1306 = _1299;
     }
-    bool _1193;
-    if (!_1186)
+    bool _1313;
+    if (!_1306)
     {
-        _1193 = shadowUv.y < 0.0;
+        _1313 = shadowUv.y < 0.0;
     }
     else
     {
-        _1193 = _1186;
+        _1313 = _1306;
     }
-    bool _1200;
-    if (!_1193)
+    bool _1320;
+    if (!_1313)
     {
-        _1200 = shadowUv.y > 1.0;
+        _1320 = shadowUv.y > 1.0;
     }
     else
     {
-        _1200 = _1193;
+        _1320 = _1313;
     }
-    if (_1200)
+    if (_1320)
     {
         return 1.0;
     }
@@ -596,6 +596,29 @@ vec3 FresnelSchlick(float cosTheta, vec3 F0)
     return F0 + ((vec3(1.0) - F0) * pow(1.0 - cosTheta, 5.0));
 }
 
+uint GetSpecularHighlightType(vec4 lightSpecular)
+{
+    uint t = uint(lightSpecular.w + 0.5);
+    if ((t < 1u) || (t > 3u))
+    {
+        t = 3u;
+    }
+    return t;
+}
+
+vec3 SpecularPhong(vec3 N, vec3 V, vec3 L, vec3 F, float shininess)
+{
+    vec3 R = reflect(-L, N);
+    float s = pow(max(dot(R, V), 0.0), shininess);
+    return F * s;
+}
+
+vec3 SpecularBlinnPhong(vec3 N, vec3 H, vec3 F, float shininess)
+{
+    float s = pow(max(dot(N, H), 0.0), shininess);
+    return F * s;
+}
+
 float DistributionGGX(vec3 N, vec3 H, float roughness)
 {
     float a = roughness * roughness;
@@ -628,6 +651,24 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
     float param_3 = roughness;
     float ggx1 = GeometrySchlickGGX(param_2, param_3);
     return ggx1 * ggx2;
+}
+
+vec3 SpecularCookTorrance(vec3 N, vec3 V, vec3 L, vec3 H, vec3 F, float effectiveRoughness)
+{
+    float NdotL = max(dot(N, L), 0.0);
+    float NdotV = max(dot(N, V), 0.0);
+    vec3 param = N;
+    vec3 param_1 = H;
+    float param_2 = effectiveRoughness;
+    float D = DistributionGGX(param, param_1, param_2);
+    vec3 param_3 = N;
+    vec3 param_4 = V;
+    vec3 param_5 = L;
+    float param_6 = effectiveRoughness;
+    float G = GeometrySmith(param_3, param_4, param_5, param_6);
+    vec3 numerator = F * (D * G);
+    float denominator = max((4.0 * NdotV) * NdotL, 9.9999997473787516355514526367188e-06);
+    return numerator / vec3(denominator);
 }
 
 void main()
@@ -670,16 +711,16 @@ void main()
     vec3 emissiveScene = (albedo * emissive) * 4.0;
     vec3 glowColor = (((glowBase * emissive) * 8.0) * blackNeonGlowBoost) * glowMask;
     vec2 neonUv = gl_FragCoord.xy / vec2(max(textureSize(neonTexture, 0), ivec2(1)));
-    vec3 _1461;
+    vec3 _1580;
     if (neonEnabled)
     {
-        _1461 = texture(neonTexture, neonUv).xyz;
+        _1580 = texture(neonTexture, neonUv).xyz;
     }
     else
     {
-        _1461 = vec3(0.0);
+        _1580 = vec3(0.0);
     }
-    vec3 neonSample = _1461;
+    vec3 neonSample = _1580;
     if (ignoreLighting > 0.5)
     {
         outSceneColor = vec4((albedo + emissiveScene) + ((neonSample * 0.100000001490116119384765625) * glowMask), alpha);
@@ -718,17 +759,17 @@ void main()
                 continue;
             }
             fresnelAmount = clamp(light.specular.z, 0.0, 1.0);
-            bool _1609 = light.type == 0u;
-            bool _1616;
-            if (_1609)
+            bool _1727 = light.type == 0u;
+            bool _1734;
+            if (_1727)
             {
-                _1616 = light.shadowIndex != 4294967295u;
+                _1734 = light.shadowIndex != 4294967295u;
             }
             else
             {
-                _1616 = _1609;
+                _1734 = _1727;
             }
-            if (_1616)
+            if (_1734)
             {
                 dl.direction = lightData.directionalLights[light.dataIndex].direction;
                 dl.shadowCascadeSplits = lightData.directionalLights[light.dataIndex].shadowCascadeSplits;
@@ -837,26 +878,48 @@ void main()
             float shininess = max(light_2.specular.y, 1.0);
             float NdotL = max(dot(N, L_1), 0.0);
             vec3 F0_1 = mix(vec3(0.039999999105930328369140625), albedo, vec3(metalness));
-            float lightShininessToRoughness = clamp(sqrt(2.0 / (shininess + 2.0)), 0.0500000007450580596923828125, 1.0);
-            float effectiveRoughness = max(roughness * lightShininessToRoughness, 0.04500000178813934326171875);
-            vec3 param_18 = N;
-            vec3 param_19 = H;
-            float param_20 = effectiveRoughness;
-            float NDF = DistributionGGX(param_18, param_19, param_20);
-            vec3 param_21 = N;
-            vec3 param_22 = V;
-            vec3 param_23 = L_1;
-            float param_24 = effectiveRoughness;
-            float G = GeometrySmith(param_21, param_22, param_23, param_24);
             float fresnelAmount_1 = clamp(light_2.specular.z, 0.0, 1.0);
-            float param_25 = max(dot(H, V), 0.0);
-            vec3 param_26 = F0_1;
-            vec3 Fschlick = FresnelSchlick(param_25, param_26);
+            float param_18 = max(dot(H, V), 0.0);
+            vec3 param_19 = F0_1;
+            vec3 Fschlick = FresnelSchlick(param_18, param_19);
             vec3 F = mix(F0_1, Fschlick, vec3(fresnelAmount_1));
-            vec3 numerator = F * (NDF * G);
-            float denominator = max((4.0 * max(dot(N, V), 0.0)) * NdotL, 9.9999997473787516355514526367188e-06);
             float smoothness_1 = 1.0 - roughness;
-            vec3 specular = ((numerator / vec3(denominator)) * specularStrength) * (smoothness_1 * smoothness_1);
+            vec4 param_20 = light_2.specular;
+            uint highlightType = GetSpecularHighlightType(param_20);
+            vec3 specularBrdf = vec3(0.0);
+            if (highlightType == 1u)
+            {
+                vec3 param_21 = N;
+                vec3 param_22 = V;
+                vec3 param_23 = L_1;
+                vec3 param_24 = F;
+                float param_25 = shininess;
+                specularBrdf = SpecularPhong(param_21, param_22, param_23, param_24, param_25);
+            }
+            else
+            {
+                if (highlightType == 2u)
+                {
+                    vec3 param_26 = N;
+                    vec3 param_27 = H;
+                    vec3 param_28 = F;
+                    float param_29 = shininess;
+                    specularBrdf = SpecularBlinnPhong(param_26, param_27, param_28, param_29);
+                }
+                else
+                {
+                    float lightShininessToRoughness = clamp(sqrt(2.0 / (shininess + 2.0)), 0.0500000007450580596923828125, 1.0);
+                    float effectiveRoughness = max(roughness * lightShininessToRoughness, 0.04500000178813934326171875);
+                    vec3 param_30 = N;
+                    vec3 param_31 = V;
+                    vec3 param_32 = L_1;
+                    vec3 param_33 = H;
+                    vec3 param_34 = F;
+                    float param_35 = effectiveRoughness;
+                    specularBrdf = SpecularCookTorrance(param_30, param_31, param_32, param_33, param_34, param_35);
+                }
+            }
+            vec3 specular = (specularBrdf * specularStrength) * (smoothness_1 * smoothness_1);
             vec3 kS = F;
             vec3 kD = (vec3(1.0) - kS) * (1.0 - metalness);
             vec3 diffuse = (kD * albedo) / vec3(3.1415927410125732421875);
@@ -874,9 +937,9 @@ void main()
         {
             env_1 = camera.skyTint.xyz;
         }
-        float param_27 = max(dot(N, V), 0.0);
-        vec3 param_28 = F0_2;
-        vec3 FenvSchlick_1 = FresnelSchlick(param_27, param_28);
+        float param_36 = max(dot(N, V), 0.0);
+        vec3 param_37 = F0_2;
+        vec3 FenvSchlick_1 = FresnelSchlick(param_36, param_37);
         vec3 Fenv_1 = mix(F0_2, FenvSchlick_1, vec3(fresnelAmountEnv));
         color_1 += (((env_1 * Fenv_1) * reflectionWeight_1) * (smoothness_2 * smoothness_2));
     }

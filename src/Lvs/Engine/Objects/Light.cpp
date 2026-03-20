@@ -1,6 +1,7 @@
 #include "Lvs/Engine/Objects/Light.hpp"
 
 #include "Lvs/Engine/DataModel/ClassRegistry.hpp"
+#include "Lvs/Engine/Enums/SpecularHighlightType.hpp"
 #include "Lvs/Engine/Math/Color3.hpp"
 
 namespace Lvs::Engine::Objects {
@@ -19,6 +20,9 @@ Core::ClassDescriptor& Light::Descriptor() {
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
             "Shininess", 32.0, true, "Appearance"
+        ));
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Enums::SpecularHighlightType>(
+            "SpecularHighlightType", Enums::SpecularHighlightType::CookTorrance, true, "Appearance"
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
             "Enabled", true, true, "Appearance"

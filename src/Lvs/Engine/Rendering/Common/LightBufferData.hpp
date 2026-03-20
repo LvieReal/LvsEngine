@@ -30,7 +30,7 @@ struct alignas(16) GpuLight {
     std::uint32_t ShadowIndex{0U}; // 0..kMaxDirectionalShadowMaps-1, or 0xFFFFFFFF for no shadows.
 
     std::array<float, 4> ColorIntensity{}; // rgb + intensity
-    std::array<float, 4> Specular{};       // x: strength, y: shininess, z: fresnelAmount, w: unused
+    std::array<float, 4> Specular{};       // x: strength, y: shininess, z: fresnelAmount, w: highlightType
 };
 
 // Directional light extension struct.
@@ -54,4 +54,3 @@ struct alignas(16) GpuLightBuffer {
 };
 
 } // namespace Lvs::Engine::Rendering::Common
-

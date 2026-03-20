@@ -8,6 +8,7 @@
 #include "Lvs/Engine/Enums/PartSurface.hpp"
 #include "Lvs/Engine/Enums/PartSurfaceType.hpp"
 #include "Lvs/Engine/Enums/SkyboxTextureLayout.hpp"
+#include "Lvs/Engine/Enums/SpecularHighlightType.hpp"
 #include "Lvs/Engine/Enums/SurfaceMipmapping.hpp"
 #include "Lvs/Engine/Enums/TextureFiltering.hpp"
 #include "Lvs/Engine/Enums/Theme.hpp"
@@ -92,6 +93,11 @@ struct EnumInfo {
         add(Core::String(Core::EnumTraits<TextureFiltering>::Name), {
             {"Linear", static_cast<int>(TextureFiltering::Linear)},
             {"Nearest", static_cast<int>(TextureFiltering::Nearest)},
+        });
+        add(Core::String(Core::EnumTraits<SpecularHighlightType>::Name), {
+            {"Phong", static_cast<int>(SpecularHighlightType::Phong)},
+            {"Blinn-Phong", static_cast<int>(SpecularHighlightType::BlinnPhong)},
+            {"Cook-Torrance", static_cast<int>(SpecularHighlightType::CookTorrance)},
         });
         add(Core::String(Core::EnumTraits<MSAA>::Name), {
             {"Off", static_cast<int>(MSAA::Off)},

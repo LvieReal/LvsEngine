@@ -11,8 +11,6 @@ Core::ClassDescriptor& DirectionalLight::Descriptor() {
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Math::Vector3>(
             "Direction", {0.5, -1.0, 0.5}, true, "Appearance"
         ));
-
-        // Shadow settings are per-light (Lighting service no longer owns defaults).
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
             "ShadowEnabled", true, true, "Shadow", "Enable directional shadows for this light."
         ));
@@ -23,10 +21,10 @@ Core::ClassDescriptor& DirectionalLight::Descriptor() {
             "ShadowTapCount", 64, true, "Shadow", "Number of Poisson PCF taps."
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
-            "ShadowBias", 1.0, true, "Shadow", "Directional shadow depth bias (in shadow texels)."
+            "ShadowBias", 1.5, true, "Shadow", "Directional shadow depth bias (in shadow texels); excess bias will result into peter panning."
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
-            "ShadowSlopeBias", 1.0, true, "Shadow", "Directional shadow slope-scaled bias factor (in shadow texels)."
+            "ShadowSlopeBias", 0.0, true, "Shadow", "Directional shadow slope-scaled bias factor (in shadow texels); may cause bright spots."
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<int>(
             "ShadowCascadeCount", 3, true, "Shadow", "Directional shadow cascade count (1-3)."

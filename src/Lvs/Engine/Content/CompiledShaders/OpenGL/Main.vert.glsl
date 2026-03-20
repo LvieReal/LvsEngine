@@ -80,6 +80,34 @@ layout(location = 5) out vec3 fragLocalPos;
 layout(location = 6) out vec3 fragLocalNormal;
 layout(location = 7) flat out uint fragInstanceIndex;
 
+vec3 FresnelSchlick(float cosTheta, vec3 F0)
+{
+    return F0 + ((vec3(1.0) - F0) * pow(1.0 - cosTheta, 5.0));
+}
+
+uint GetSpecularHighlightType(vec4 lightSpecular)
+{
+    uint t = uint(lightSpecular.w + 0.5);
+    if ((t < 1u) || (t > 3u))
+    {
+        t = 3u;
+    }
+    return t;
+}
+
+vec3 SpecularPhong(vec3 N, vec3 V, vec3 L, vec3 F, float shininess)
+{
+    vec3 R = reflect(-L, N);
+    float s = pow(max(dot(R, V), 0.0), shininess);
+    return F * s;
+}
+
+vec3 SpecularBlinnPhong(vec3 N, vec3 H, vec3 F, float shininess)
+{
+    float s = pow(max(dot(N, H), 0.0), shininess);
+    return F * s;
+}
+
 float DistributionGGX(vec3 N, vec3 H, float roughness)
 {
     float a = roughness * roughness;
@@ -114,9 +142,22 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
     return ggx1 * ggx2;
 }
 
-vec3 FresnelSchlick(float cosTheta, vec3 F0)
+vec3 SpecularCookTorrance(vec3 N, vec3 V, vec3 L, vec3 H, vec3 F, float effectiveRoughness)
 {
-    return F0 + ((vec3(1.0) - F0) * pow(1.0 - cosTheta, 5.0));
+    float NdotL = max(dot(N, L), 0.0);
+    float NdotV = max(dot(N, V), 0.0);
+    vec3 param = N;
+    vec3 param_1 = H;
+    float param_2 = effectiveRoughness;
+    float D = DistributionGGX(param, param_1, param_2);
+    vec3 param_3 = N;
+    vec3 param_4 = V;
+    vec3 param_5 = L;
+    float param_6 = effectiveRoughness;
+    float G = GeometrySmith(param_3, param_4, param_5, param_6);
+    vec3 numerator = F * (D * G);
+    float denominator = max((4.0 * NdotV) * NdotL, 9.9999997473787516355514526367188e-06);
+    return numerator / vec3(denominator);
 }
 
 void main()
@@ -172,26 +213,48 @@ void main()
             float shininess = max(light.specular.y, 1.0);
             float NdotL = max(dot(N, L), 0.0);
             vec3 F0 = mix(vec3(0.039999999105930328369140625), albedo, vec3(metalness));
-            float lightShininessToRoughness = clamp(sqrt(2.0 / (shininess + 2.0)), 0.0500000007450580596923828125, 1.0);
-            float effectiveRoughness = max(roughness * lightShininessToRoughness, 0.04500000178813934326171875);
-            vec3 param = N;
-            vec3 param_1 = H;
-            float param_2 = effectiveRoughness;
-            float NDF = DistributionGGX(param, param_1, param_2);
-            vec3 param_3 = N;
-            vec3 param_4 = V;
-            vec3 param_5 = L;
-            float param_6 = effectiveRoughness;
-            float G = GeometrySmith(param_3, param_4, param_5, param_6);
             float fresnelAmount = clamp(light.specular.z, 0.0, 1.0);
-            float param_7 = max(dot(H, V), 0.0);
-            vec3 param_8 = F0;
-            vec3 Fschlick = FresnelSchlick(param_7, param_8);
+            float param = max(dot(H, V), 0.0);
+            vec3 param_1 = F0;
+            vec3 Fschlick = FresnelSchlick(param, param_1);
             vec3 F = mix(F0, Fschlick, vec3(fresnelAmount));
-            vec3 numerator = F * (NDF * G);
-            float denominator = max((4.0 * max(dot(N, V), 0.0)) * NdotL, 9.9999997473787516355514526367188e-06);
             float smoothness = 1.0 - roughness;
-            vec3 specular = ((numerator / vec3(denominator)) * specularStrength) * (smoothness * smoothness);
+            vec4 param_2 = light.specular;
+            uint highlightType = GetSpecularHighlightType(param_2);
+            vec3 specularBrdf = vec3(0.0);
+            if (highlightType == 1u)
+            {
+                vec3 param_3 = N;
+                vec3 param_4 = V;
+                vec3 param_5 = L;
+                vec3 param_6 = F;
+                float param_7 = shininess;
+                specularBrdf = SpecularPhong(param_3, param_4, param_5, param_6, param_7);
+            }
+            else
+            {
+                if (highlightType == 2u)
+                {
+                    vec3 param_8 = N;
+                    vec3 param_9 = H;
+                    vec3 param_10 = F;
+                    float param_11 = shininess;
+                    specularBrdf = SpecularBlinnPhong(param_8, param_9, param_10, param_11);
+                }
+                else
+                {
+                    float lightShininessToRoughness = clamp(sqrt(2.0 / (shininess + 2.0)), 0.0500000007450580596923828125, 1.0);
+                    float effectiveRoughness = max(roughness * lightShininessToRoughness, 0.04500000178813934326171875);
+                    vec3 param_12 = N;
+                    vec3 param_13 = V;
+                    vec3 param_14 = L;
+                    vec3 param_15 = H;
+                    vec3 param_16 = F;
+                    float param_17 = effectiveRoughness;
+                    specularBrdf = SpecularCookTorrance(param_12, param_13, param_14, param_15, param_16, param_17);
+                }
+            }
+            vec3 specular = (specularBrdf * specularStrength) * (smoothness * smoothness);
             vec3 kS = F;
             vec3 kD = (vec3(1.0) - kS) * (1.0 - metalness);
             vec3 diffuse = (kD * albedo) / vec3(3.1415927410125732421875);
