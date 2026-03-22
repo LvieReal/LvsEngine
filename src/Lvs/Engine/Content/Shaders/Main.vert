@@ -139,7 +139,8 @@ void main() {
     float roughness = clamp(inst.material.y, 0.0, 1.0);
     float emissive = max(inst.material.z, 0.0);
 
-    vec3 N = normalize(mat3(inst.model) * inNormal);
+    mat3 normalMat = transpose(inverse(mat3(inst.model)));
+    vec3 N = normalize(normalMat * inNormal);
     vec3 V = normalize(camera.cameraPosition.xyz - worldPos.xyz);
     vec3 directLight = vec3(0.0);
 

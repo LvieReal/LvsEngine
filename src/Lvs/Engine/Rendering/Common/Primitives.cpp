@@ -56,15 +56,16 @@ struct Triangle {
     Vec3 P1{};
     Vec3 P2{};
     Vec3 N{};
+    Vec3 RawN{};
 };
 
 Triangle MakeTriangle(Vec3 a, Vec3 b, Vec3 c, const Vec3& expectedOut) {
-    Vec3 n = Cross(b - a, c - a);
-    if (Dot(n, expectedOut) < 0.0F) {
+    Vec3 raw = Cross(b - a, c - a);
+    if (Dot(raw, expectedOut) < 0.0F) {
         std::swap(b, c);
-        n = Cross(b - a, c - a);
+        raw = Cross(b - a, c - a);
     }
-    return Triangle{a, b, c, Normalize(n)};
+    return Triangle{a, b, c, Normalize(raw), raw};
 }
 
 void AddQuad(
@@ -280,16 +281,7 @@ MeshData GenerateBeveledCube(const float sizeX, const float sizeY, const float s
         return data;
     }
 
-    // Keep main faces flat, but smooth normals across bevel faces only.
-    data.Vertices.reserve(static_cast<std::size_t>(mainTris.size() * 3) + 64);
-    data.Indices.reserve(static_cast<std::size_t>((mainTris.size() + bevelTris.size()) * 3));
-
-    for (const auto& t : mainTris) {
-        emitTriangleFlat(t);
-    }
-
-    const std::uint32_t bevelStart = static_cast<std::uint32_t>(data.Vertices.size());
-
+    // Smooth shading across the entire beveled cube (faces + bevels) using shared vertices by position.
     struct PosKey {
         std::uint32_t x{};
         std::uint32_t y{};
@@ -323,9 +315,9 @@ MeshData GenerateBeveledCube(const float sizeX, const float sizeY, const float s
     indexByPos.reserve(128);
 
     std::vector<Vec3> normalAcc;
-    normalAcc.resize(data.Vertices.size(), Vec3{0.0F, 0.0F, 0.0F});
+    normalAcc.reserve(128);
 
-    auto getOrCreateBevelVertex = [&data, &indexByPos, &normalAcc, &keyFor](const Vec3& p) -> std::uint32_t {
+    auto getOrCreateVertex = [&data, &indexByPos, &normalAcc, &keyFor](const Vec3& p) -> std::uint32_t {
         const PosKey k = keyFor(p);
         if (const auto it = indexByPos.find(k); it != indexByPos.end()) {
             return it->second;
@@ -337,23 +329,31 @@ MeshData GenerateBeveledCube(const float sizeX, const float sizeY, const float s
         return idx;
     };
 
-    for (const auto& t : bevelTris) {
-        const std::uint32_t i0 = getOrCreateBevelVertex(t.P0);
-        const std::uint32_t i1 = getOrCreateBevelVertex(t.P1);
-        const std::uint32_t i2 = getOrCreateBevelVertex(t.P2);
+    std::vector<Triangle> allTris;
+    allTris.reserve(mainTris.size() + bevelTris.size());
+    allTris.insert(allTris.end(), mainTris.begin(), mainTris.end());
+    allTris.insert(allTris.end(), bevelTris.begin(), bevelTris.end());
+
+    data.Indices.reserve(static_cast<std::size_t>(allTris.size() * 3));
+    for (const auto& t : allTris) {
+        const std::uint32_t i0 = getOrCreateVertex(t.P0);
+        const std::uint32_t i1 = getOrCreateVertex(t.P1);
+        const std::uint32_t i2 = getOrCreateVertex(t.P2);
         data.Indices.insert(data.Indices.end(), {i0, i1, i2});
-        normalAcc[i0].x += t.N.x;
-        normalAcc[i0].y += t.N.y;
-        normalAcc[i0].z += t.N.z;
-        normalAcc[i1].x += t.N.x;
-        normalAcc[i1].y += t.N.y;
-        normalAcc[i1].z += t.N.z;
-        normalAcc[i2].x += t.N.x;
-        normalAcc[i2].y += t.N.y;
-        normalAcc[i2].z += t.N.z;
+
+        // Area-weighted accumulation.
+        normalAcc[i0].x += t.RawN.x;
+        normalAcc[i0].y += t.RawN.y;
+        normalAcc[i0].z += t.RawN.z;
+        normalAcc[i1].x += t.RawN.x;
+        normalAcc[i1].y += t.RawN.y;
+        normalAcc[i1].z += t.RawN.z;
+        normalAcc[i2].x += t.RawN.x;
+        normalAcc[i2].y += t.RawN.y;
+        normalAcc[i2].z += t.RawN.z;
     }
 
-    for (std::uint32_t i = bevelStart; i < static_cast<std::uint32_t>(data.Vertices.size()); ++i) {
+    for (std::uint32_t i = 0; i < static_cast<std::uint32_t>(data.Vertices.size()); ++i) {
         const Vec3 n = Normalize(normalAcc[i]);
         data.Vertices[i].Normal[0] = n.x;
         data.Vertices[i].Normal[1] = n.y;

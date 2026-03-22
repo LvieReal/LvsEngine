@@ -77,7 +77,8 @@ void Lighting::InitializeDefaultObjects() {
 
     auto sun = std::make_shared<Objects::DirectionalLight>();
     sun->SetProperty("Name", "Sun");
-    sun->SetProperty("Intensity", 3.0);
+    sun->SetProperty("SpecularStrength", 10.0);
+    sun->SetProperty("Intensity", 2.0);
     sun->SetParent(shared_from_this());
 }
 
