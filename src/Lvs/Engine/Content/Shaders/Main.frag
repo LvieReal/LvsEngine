@@ -68,6 +68,7 @@ InstanceData inst;
 
 layout(location = 0) out vec4 outSceneColor;
 layout(location = 1) out vec4 outGlowColor;
+layout(location = 2) out vec4 outDepthColor;
 
 const float PI = 3.14159265359;
 const float EMISSIVE_SCENE_BOOST = 4.0;
@@ -446,6 +447,7 @@ void main() {
     if (ignoreLighting > 0.5) {
         outSceneColor = vec4(albedo + emissiveScene + ((neonSample * 0.1) * glowMask), alpha);
         outGlowColor = vec4(0.0);
+        outDepthColor = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0);
         return;
     }
 
@@ -454,6 +456,7 @@ void main() {
     if (allowBlackNeon && emissive > 0.0) {
         outSceneColor = vec4(albedo + emissiveScene + ((neonSample * 0.1) * glowMask), alpha);
         outGlowColor = vec4(glowColor, glowMask);
+        outDepthColor = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0);
         return;
     }
 
@@ -498,6 +501,7 @@ void main() {
         color += emissiveScene;
         outSceneColor = vec4(color + ((neonSample * 0.1) * glowMask), alpha);
         outGlowColor = vec4(glowColor, glowMask);
+        outDepthColor = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0);
         return;
     }
 
@@ -579,4 +583,5 @@ void main() {
     color += emissiveScene;
     outSceneColor = vec4(color + ((neonSample * 0.1) * glowMask), alpha);
     outGlowColor = vec4(glowColor, glowMask);
+    outDepthColor = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0);
 }

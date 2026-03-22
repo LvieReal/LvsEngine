@@ -7,6 +7,7 @@
 #include "Lvs/Engine/Enums/LightingTechnology.hpp"
 #include "Lvs/Engine/Math/Color3.hpp"
 #include "Lvs/Engine/Objects/DirectionalLight.hpp"
+#include "Lvs/Engine/Objects/PostEffects.hpp"
 #include "Lvs/Engine/Objects/Skybox.hpp"
 
 namespace Lvs::Engine::DataModel {
@@ -70,6 +71,9 @@ Lighting::Lighting()
 void Lighting::InitializeDefaultObjects() {
     auto sky = std::make_shared<Objects::Skybox>();
     sky->SetParent(shared_from_this());
+
+    auto postEffects = std::make_shared<Objects::PostEffects>();
+    postEffects->SetParent(shared_from_this());
 
     auto sun = std::make_shared<Objects::DirectionalLight>();
     sun->SetProperty("Name", "Sun");

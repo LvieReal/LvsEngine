@@ -748,7 +748,7 @@ void VulkanContext::InitializeBackendObjects() {
 
     if (api_.DescriptorSetLayout == VK_NULL_HANDLE) {
         std::vector<VkDescriptorSetLayoutBinding> bindings;
-        bindings.reserve(9);
+        bindings.reserve(10);
         bindings.push_back(VkDescriptorSetLayoutBinding{
             .binding = 0,
             .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -809,6 +809,13 @@ void VulkanContext::InitializeBackendObjects() {
         bindings.push_back(VkDescriptorSetLayoutBinding{
             .binding = 10,
             .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr
+        });
+        bindings.push_back(VkDescriptorSetLayoutBinding{
+            .binding = 16,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .descriptorCount = 1,
             .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
             .pImmutableSamplers = nullptr
@@ -1808,7 +1815,7 @@ std::unique_ptr<RHI::IRenderTarget> VulkanContext::CreateRenderTarget(const RHI:
                 VK_COMPONENT_SWIZZLE_IDENTITY
             },
             .subresourceRange = {
-                Utils::DepthAspectMaskForFormat(api_.DepthFormat),
+                VK_IMAGE_ASPECT_DEPTH_BIT,
                 0,
                 1,
                 0,
@@ -1840,20 +1847,25 @@ std::unique_ptr<RHI::IRenderTarget> VulkanContext::CreateRenderTarget(const RHI:
         framebufferAttachments.push_back(depthView);
 
         if (desc.depthTexture) {
+            VkFormatProperties depthProps{};
+            vkGetPhysicalDeviceFormatProperties(api_.PhysicalDevice, api_.DepthFormat, &depthProps);
+            const bool supportsLinear =
+                (depthProps.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) != 0;
+            const VkFilter filter = (!desc.depthCompare || !supportsLinear) ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
             const VkSamplerCreateInfo samplerInfo{
                 .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
                 .pNext = nullptr,
                 .flags = 0,
-                .magFilter = VK_FILTER_LINEAR,
-                .minFilter = VK_FILTER_LINEAR,
-                .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+                .magFilter = filter,
+                .minFilter = filter,
+                .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
                 .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
                 .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
                 .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
                 .mipLodBias = 0.0F,
                 .anisotropyEnable = VK_FALSE,
                 .maxAnisotropy = 1.0F,
-                .compareEnable = VK_TRUE,
+                .compareEnable = desc.depthCompare ? VK_TRUE : VK_FALSE,
                 .compareOp = VK_COMPARE_OP_LESS_OR_EQUAL,
                 .minLod = 0.0F,
                 .maxLod = 1.0F,

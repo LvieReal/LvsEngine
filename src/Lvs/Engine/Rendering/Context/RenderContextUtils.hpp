@@ -17,7 +17,7 @@ namespace Lvs::Engine::Rendering::Context {
 
 [[nodiscard]] std::array<float, 16> ToFloatMat4ColumnMajor(const Math::Matrix4& matrix);
 [[nodiscard]] Math::Matrix4 ApplyVulkanProjectionFlip(const Math::Matrix4& projection);
-[[nodiscard]] Math::Matrix4 ApplyOpenGLShadowDepthRemap(const Math::Matrix4& clipZeroToOne);
+[[nodiscard]] Math::Matrix4 ApplyOpenGLClipDepthRemap(const Math::Matrix4& clipZeroToOne);
 [[nodiscard]] std::array<float, 4> ToVec4(const Math::Vector3& value, float w = 0.0F);
 [[nodiscard]] std::array<float, 4> ToVec4(const Math::Color3& value, float w = 1.0F);
 
@@ -28,4 +28,3 @@ namespace Lvs::Engine::Rendering::Context {
 [[nodiscard]] RHI::u32 ComputePostBlurLevels(float blurAmount);
 
 } // namespace Lvs::Engine::Rendering::Context
-

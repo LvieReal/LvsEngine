@@ -81,6 +81,36 @@ void Renderer::RecordFrameCommands(
                                          scene.PostBlurUpTarget.SampleCount
                                      )
                                    : nullptr;
+    Pipeline* hbaoPipeline = scene.EnableHbao
+                                 ? GetOrCreatePipeline(
+                                       ctx,
+                                       PassKey::Hbao,
+                                       RHI::CullMode::None,
+                                       scene.HbaoTarget.RenderPass,
+                                       scene.HbaoTarget.ColorAttachmentCount,
+                                       scene.HbaoTarget.SampleCount
+                                   )
+                                 : nullptr;
+    Pipeline* hbaoBlurDownPipeline = scene.EnableHbao
+                                         ? GetOrCreatePipeline(
+                                               ctx,
+                                               PassKey::PostBlurDown,
+                                               RHI::CullMode::None,
+                                               scene.HbaoBlurDownTarget.RenderPass,
+                                               scene.HbaoBlurDownTarget.ColorAttachmentCount,
+                                               scene.HbaoBlurDownTarget.SampleCount
+                                           )
+                                         : nullptr;
+    Pipeline* hbaoBlurUpPipeline = scene.EnableHbao
+                                       ? GetOrCreatePipeline(
+                                             ctx,
+                                             PassKey::PostBlurUp,
+                                             RHI::CullMode::None,
+                                             scene.HbaoBlurUpTarget.RenderPass,
+                                             scene.HbaoBlurUpTarget.ColorAttachmentCount,
+                                             scene.HbaoBlurUpTarget.SampleCount
+                                         )
+                                       : nullptr;
     Pipeline* geometryPipeline = scene.EnableGeometry
                                      ? GetOrCreatePipeline(
                                            ctx,
@@ -96,6 +126,7 @@ void Renderer::RecordFrameCommands(
     geometryPass_.SetInputs(&surface_, &scene, this, geometryPipeline, globalResources);
     shadowPass_.SetInputs(&surface_, &scene, this);
     skyboxPass_.SetInputs(&surface_, &scene, skyboxPipeline, globalResources);
+    hbaoPass_.SetInputs(&surface_, &scene, hbaoPipeline, hbaoBlurDownPipeline, hbaoBlurUpPipeline);
     postProcessPass_.SetInputs(
         &surface_,
         &scene,
@@ -107,6 +138,7 @@ void Renderer::RecordFrameCommands(
     shadowPass_.RecordCommands(ctx, cmd);
     skyboxPass_.RecordCommands(ctx, cmd);
     geometryPass_.RecordCommands(ctx, cmd);
+    hbaoPass_.RecordCommands(ctx, cmd);
     postProcessPass_.RecordCommands(ctx, cmd);
 }
 
@@ -183,6 +215,15 @@ Pipeline* Renderer::GetOrCreatePipeline(
             break;
         case PassKey::PostBlurUp:
             desc.pipelineId = "post_blur_up";
+            desc.vertexLayout = RHI::VertexLayout::None;
+            desc.depthTest = false;
+            desc.depthWrite = false;
+            desc.depthCompare = RHI::DepthCompare::Always;
+            desc.blending = false;
+            desc.cullMode = cullMode;
+            break;
+        case PassKey::Hbao:
+            desc.pipelineId = "post_hbao";
             desc.vertexLayout = RHI::VertexLayout::None;
             desc.depthTest = false;
             desc.depthWrite = false;

@@ -11,11 +11,13 @@
 #include "Lvs/Engine/Enums/SpecularHighlightType.hpp"
 #include "Lvs/Engine/Objects/Camera.hpp"
 #include "Lvs/Engine/Objects/DirectionalLight.hpp"
+#include "Lvs/Engine/Objects/PostEffects.hpp"
 #include "Lvs/Engine/Rendering/Context/RenderContextUtils.hpp"
 #include "Lvs/Engine/Utils/Benchmark.hpp"
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <unordered_map>
 
@@ -76,6 +78,7 @@ void RenderContext::Render() {
         }
     }
     EnsurePostProcessTargets();
+    EnsureHbaoTargets();
     EnsureFallbackTextures();
     EnsureFallbackShadowTarget();
     EnsureShadowJitterTexture();
@@ -100,6 +103,7 @@ void RenderContext::Render() {
     scene.NeonBlur = 2.0F;
 
     std::shared_ptr<DataModel::Lighting> lightingService{};
+    std::shared_ptr<Objects::PostEffects> postEffects{};
     std::vector<std::shared_ptr<Objects::DirectionalLight>> enabledDirectionalLights{};
     enabledDirectionalLights.reserve(8);
     std::unordered_map<const Objects::DirectionalLight*, RHI::u32> directionalShadowIndex{};
@@ -117,6 +121,12 @@ void RenderContext::Render() {
             scene.DirectionalShadowCascadeCounts.fill(0U);
             shadowDirectionalLights.fill(nullptr);
             for (const auto& child : lightingService->GetChildren()) {
+                if (postEffects == nullptr) {
+                    postEffects = std::dynamic_pointer_cast<Objects::PostEffects>(child);
+                    if (postEffects != nullptr) {
+                        continue;
+                    }
+                }
                 const auto directional = std::dynamic_pointer_cast<Objects::DirectionalLight>(child);
                 if (directional == nullptr || !directional->GetProperty("Enabled").toBool()) {
                     continue;
@@ -192,6 +202,10 @@ void RenderContext::Render() {
         };
         scene.GeometryTarget = scene.SkyboxTarget;
     }
+    scene.HbaoTarget = scene.ShadowTarget;
+    scene.HbaoBlurDownTarget = scene.ShadowTarget;
+    scene.HbaoBlurUpTarget = scene.ShadowTarget;
+    scene.HbaoBlurFinalTarget = scene.ShadowTarget;
 
     scene.DirectionalShadowCascadeTargets = {};
     if (scene.EnableShadows) {
@@ -261,6 +275,70 @@ void RenderContext::Render() {
             .SampleCount = blurFinalTarget_->GetSampleCount(),
             .Width = blurFinalTarget_->GetWidth(),
             .Height = blurFinalTarget_->GetHeight()
+        };
+    }
+
+    // HBAO targets (half resolution) + blur chain
+    RHI::u32 availableHbaoLevels = 0U;
+    for (RHI::u32 level = 0; level < SceneData::MaxPostBlurLevels; ++level) {
+        if (hbaoBlurDownTargets_[level] == nullptr || hbaoBlurUpTargets_[level] == nullptr) {
+            break;
+        }
+        ++availableHbaoLevels;
+    }
+    scene.HbaoBlur = postEffects != nullptr ? static_cast<float>(std::max(0.0, postEffects->GetProperty("HBAOBlur").toDouble())) : 1.0F;
+    const RHI::u32 hbaoLevels = (postEffects != nullptr && postEffects->GetProperty("HBAOEnabled").toBool())
+                                    ? std::min(Context::ComputePostBlurLevels(scene.HbaoBlur), availableHbaoLevels)
+                                    : 0U;
+    scene.HbaoBlurLevelCount = hbaoLevels;
+    scene.EnableHbao = scene.EnablePostProcess && hbaoLevels > 0U && hbaoTarget_ != nullptr && hbaoBlurFinalTarget_ != nullptr &&
+                       postEffects != nullptr && postEffects->GetProperty("HBAOEnabled").toBool();
+
+    for (RHI::u32 level = 0; level < SceneData::MaxPostBlurLevels; ++level) {
+        if (level < hbaoLevels && hbaoBlurDownTargets_[level] != nullptr && hbaoBlurUpTargets_[level] != nullptr) {
+            scene.HbaoBlurDownLevelTargets[level] = SceneData::PassTarget{
+                .RenderPass = hbaoBlurDownTargets_[level]->GetRenderPassHandle(),
+                .Framebuffer = hbaoBlurDownTargets_[level]->GetFramebufferHandle(),
+                .ColorAttachmentCount = hbaoBlurDownTargets_[level]->GetColorAttachmentCount(),
+                .SampleCount = hbaoBlurDownTargets_[level]->GetSampleCount(),
+                .Width = hbaoBlurDownTargets_[level]->GetWidth(),
+                .Height = hbaoBlurDownTargets_[level]->GetHeight()
+            };
+            scene.HbaoBlurUpLevelTargets[level] = SceneData::PassTarget{
+                .RenderPass = hbaoBlurUpTargets_[level]->GetRenderPassHandle(),
+                .Framebuffer = hbaoBlurUpTargets_[level]->GetFramebufferHandle(),
+                .ColorAttachmentCount = hbaoBlurUpTargets_[level]->GetColorAttachmentCount(),
+                .SampleCount = hbaoBlurUpTargets_[level]->GetSampleCount(),
+                .Width = hbaoBlurUpTargets_[level]->GetWidth(),
+                .Height = hbaoBlurUpTargets_[level]->GetHeight()
+            };
+        } else {
+            scene.HbaoBlurDownLevelTargets[level] = scene.ShadowTarget;
+            scene.HbaoBlurUpLevelTargets[level] = scene.ShadowTarget;
+        }
+    }
+    if (hbaoLevels > 0U) {
+        scene.HbaoBlurDownTarget = scene.HbaoBlurDownLevelTargets[0];
+        scene.HbaoBlurUpTarget = scene.HbaoBlurUpLevelTargets[0];
+    }
+    if (hbaoTarget_ != nullptr) {
+        scene.HbaoTarget = SceneData::PassTarget{
+            .RenderPass = hbaoTarget_->GetRenderPassHandle(),
+            .Framebuffer = hbaoTarget_->GetFramebufferHandle(),
+            .ColorAttachmentCount = hbaoTarget_->GetColorAttachmentCount(),
+            .SampleCount = hbaoTarget_->GetSampleCount(),
+            .Width = hbaoTarget_->GetWidth(),
+            .Height = hbaoTarget_->GetHeight()
+        };
+    }
+    if (hbaoBlurFinalTarget_ != nullptr) {
+        scene.HbaoBlurFinalTarget = SceneData::PassTarget{
+            .RenderPass = hbaoBlurFinalTarget_->GetRenderPassHandle(),
+            .Framebuffer = hbaoBlurFinalTarget_->GetFramebufferHandle(),
+            .ColorAttachmentCount = hbaoBlurFinalTarget_->GetColorAttachmentCount(),
+            .SampleCount = hbaoBlurFinalTarget_->GetSampleCount(),
+            .Width = hbaoBlurFinalTarget_->GetWidth(),
+            .Height = hbaoBlurFinalTarget_->GetHeight()
         };
     }
 
@@ -516,7 +594,7 @@ void RenderContext::Render() {
             for (int i = 0; i < Common::kMaxShadowCascades; ++i) {
                 Math::Matrix4 matrix = directionalShadowCascadeComputations_[shadowIndex].Matrices[static_cast<std::size_t>(i)];
                 if (vkBackend_ == nullptr) {
-                    matrix = Context::ApplyOpenGLShadowDepthRemap(matrix);
+                    matrix = Context::ApplyOpenGLClipDepthRemap(matrix);
                 }
                 shadowUniforms.LightViewProjection[static_cast<std::size_t>(i)] = Context::ToFloatMat4ColumnMajor(matrix);
             }
@@ -653,6 +731,126 @@ void RenderContext::Render() {
     if (postCompositeResourceSet_ != nullptr) {
         retiredFrameResourceSets_.push_back(std::move(postCompositeResourceSet_));
     }
+    if (hbaoResourceSet_ != nullptr) {
+        retiredFrameResourceSets_.push_back(std::move(hbaoResourceSet_));
+    }
+    for (auto& set : hbaoBlurDownLevelResourceSets_) {
+        if (set != nullptr) {
+            retiredFrameResourceSets_.push_back(std::move(set));
+        }
+    }
+    for (auto& set : hbaoBlurUpLevelResourceSets_) {
+        if (set != nullptr) {
+            retiredFrameResourceSets_.push_back(std::move(set));
+        }
+    }
+    if (hbaoBlurFinalResourceSet_ != nullptr) {
+        retiredFrameResourceSets_.push_back(std::move(hbaoBlurFinalResourceSet_));
+    }
+
+    scene.HbaoResources = nullptr;
+    scene.HbaoBlurFinalResources = nullptr;
+    scene.HbaoBlurDownLevelResources.fill(nullptr);
+    scene.HbaoBlurUpLevelResources.fill(nullptr);
+    scene.HbaoPush = {};
+    if (scene.EnableHbao) {
+        const RHI::Texture depth = geometryTarget_ != nullptr ? geometryTarget_->GetColorTexture(2) : RHI::Texture{};
+        const std::array<RHI::ResourceBinding, 2> hbaoBindings{
+            RHI::ResourceBinding{
+                .slot = 0,
+                .kind = RHI::ResourceBindingKind::UniformBuffer,
+                .texture = {},
+                .buffer = frameUniformBuffer_.get()
+            },
+            RHI::ResourceBinding{
+                .slot = 1,
+                .kind = RHI::ResourceBindingKind::Texture2D,
+                .texture = depth,
+                .buffer = nullptr
+            }
+        };
+        hbaoResourceSet_ = GetRhiContext().CreateResourceSet(
+            RHI::ResourceSetDesc{.bindings = hbaoBindings.data(), .bindingCount = static_cast<RHI::u32>(hbaoBindings.size())}
+        );
+        scene.HbaoResources = hbaoResourceSet_.get();
+
+        const float radius =
+            postEffects != nullptr ? static_cast<float>(std::max(0.0, postEffects->GetProperty("HBAORadius").toDouble())) : 0.3F;
+        const float strength =
+            postEffects != nullptr ? static_cast<float>(std::max(0.0, postEffects->GetProperty("HBAOStrength").toDouble())) : 1.9F;
+        const float biasDeg =
+            postEffects != nullptr ? static_cast<float>(std::clamp(postEffects->GetProperty("HBAOBiasDegrees").toDouble(), 0.0, 89.0)) : 30.0F;
+        const float tanBias = std::tan(biasDeg * 3.14159265358979323846F / 180.0F);
+        const float maxRadiusPixels =
+            postEffects != nullptr ? static_cast<float>(std::max(1, postEffects->GetProperty("HBAOMaxRadiusPixels").toInt())) : 96.0F;
+        const float directions =
+            postEffects != nullptr ? static_cast<float>(std::clamp(postEffects->GetProperty("HBAODirections").toInt(), 1, 16)) : 6.0F;
+        const float samples =
+            postEffects != nullptr ? static_cast<float>(std::clamp(postEffects->GetProperty("HBAOSamples").toInt(), 1, 16)) : 4.0F;
+        const float power =
+            postEffects != nullptr ? static_cast<float>(std::clamp(postEffects->GetProperty("HBAOPower").toDouble(), 0.05, 8.0)) : 1.0F;
+        const float aoResX = static_cast<float>(std::max<RHI::u32>(1U, scene.HbaoTarget.Width));
+        const float aoResY = static_cast<float>(std::max<RHI::u32>(1U, scene.HbaoTarget.Height));
+
+        scene.HbaoPush = Common::HbaoPushConstants{
+            .Params0 = {radius, strength, tanBias, maxRadiusPixels},
+            .Params1 = {power, directions, samples, 0.0F},
+            .Params2 = {aoResX, aoResY, 1.0F / aoResX, 1.0F / aoResY}
+        };
+
+        const RHI::u32 blurLevels = std::max<RHI::u32>(
+            1U,
+            std::min(scene.HbaoBlurLevelCount, SceneData::MaxPostBlurLevels)
+        );
+        for (RHI::u32 level = 0; level < blurLevels; ++level) {
+            const RHI::Texture source =
+                (level == 0U) ? hbaoTarget_->GetColorTexture(0) : hbaoBlurDownTargets_[level - 1]->GetColorTexture(0);
+            const std::array<RHI::ResourceBinding, 1> bindings{RHI::ResourceBinding{
+                .slot = 1,
+                .kind = RHI::ResourceBindingKind::Texture2D,
+                .texture = source,
+                .buffer = nullptr
+            }};
+            hbaoBlurDownLevelResourceSets_[level] = GetRhiContext().CreateResourceSet(
+                RHI::ResourceSetDesc{.bindings = bindings.data(), .bindingCount = 1}
+            );
+            scene.HbaoBlurDownLevelResources[level] = hbaoBlurDownLevelResourceSets_[level].get();
+        }
+
+        if (blurLevels > 1U) {
+            for (int level = static_cast<int>(blurLevels) - 2; level >= 0; --level) {
+                const RHI::Texture source =
+                    (level == static_cast<int>(blurLevels) - 2)
+                        ? hbaoBlurDownTargets_[blurLevels - 1]->GetColorTexture(0)
+                        : hbaoBlurUpTargets_[static_cast<RHI::u32>(level + 1)]->GetColorTexture(0);
+                const std::array<RHI::ResourceBinding, 1> bindings{RHI::ResourceBinding{
+                    .slot = 1,
+                    .kind = RHI::ResourceBindingKind::Texture2D,
+                    .texture = source,
+                    .buffer = nullptr
+                }};
+                hbaoBlurUpLevelResourceSets_[static_cast<RHI::u32>(level)] = GetRhiContext().CreateResourceSet(
+                    RHI::ResourceSetDesc{.bindings = bindings.data(), .bindingCount = 1}
+                );
+                scene.HbaoBlurUpLevelResources[static_cast<RHI::u32>(level)] =
+                    hbaoBlurUpLevelResourceSets_[static_cast<RHI::u32>(level)].get();
+            }
+        }
+
+        const RHI::Texture finalBlurSource = (blurLevels > 1U) ? hbaoBlurUpTargets_[0]->GetColorTexture(0)
+                                                               : hbaoBlurDownTargets_[0]->GetColorTexture(0);
+        const std::array<RHI::ResourceBinding, 1> finalBlurBindings{RHI::ResourceBinding{
+            .slot = 1,
+            .kind = RHI::ResourceBindingKind::Texture2D,
+            .texture = finalBlurSource,
+            .buffer = nullptr
+        }};
+        hbaoBlurFinalResourceSet_ = GetRhiContext().CreateResourceSet(
+            RHI::ResourceSetDesc{.bindings = finalBlurBindings.data(), .bindingCount = 1}
+        );
+        scene.HbaoBlurFinalResources = hbaoBlurFinalResourceSet_.get();
+    }
+
     if (scene.EnablePostProcess) {
         scene.PostBlurDownLevelResources.fill(nullptr);
         scene.PostBlurUpLevelResources.fill(nullptr);
@@ -708,7 +906,10 @@ void RenderContext::Render() {
         );
         scene.PostBlurFinalResources = postBlurFinalResourceSet_.get();
 
-        const std::array<RHI::ResourceBinding, 2> compositeBindings{
+        const RHI::Texture aoTexture = scene.EnableHbao && hbaoBlurFinalTarget_ != nullptr
+                                           ? hbaoBlurFinalTarget_->GetColorTexture(0)
+                                           : fallbackWhiteTexture_;
+        const std::array<RHI::ResourceBinding, 3> compositeBindings{
             RHI::ResourceBinding{
                 .slot = 1,
                 .kind = RHI::ResourceBindingKind::Texture2D,
@@ -720,19 +921,29 @@ void RenderContext::Render() {
                 .kind = RHI::ResourceBindingKind::Texture2D,
                 .texture = blurFinalTarget_->GetColorTexture(0),
                 .buffer = nullptr
+            },
+            RHI::ResourceBinding{
+                .slot = 16,
+                .kind = RHI::ResourceBindingKind::Texture2D,
+                .texture = aoTexture,
+                .buffer = nullptr
             }
         };
         postCompositeResourceSet_ = GetRhiContext().CreateResourceSet(
-            RHI::ResourceSetDesc{.bindings = compositeBindings.data(), .bindingCount = 2}
+            RHI::ResourceSetDesc{.bindings = compositeBindings.data(), .bindingCount = 3}
         );
         scene.PostBlurDownResources = scene.PostBlurDownLevelResources[0];
         scene.PostBlurUpResources = scene.PostBlurUpLevelResources[0];
         scene.PostCompositeResources = postCompositeResourceSet_.get();
-        scene.PostProcessPush = Common::PostProcessPushConstants{
-            .Settings = {cameraUniforms.RenderSettings[0], cameraUniforms.RenderSettings[1], cameraUniforms.RenderSettings[2], static_cast<float>(postProcessFrameSeed_)}
+        const Math::Color3 aoTint =
+            postEffects != nullptr ? postEffects->GetProperty("AOTint").value<Math::Color3>() : Math::Color3{0.0, 0.0, 0.0};
+        scene.PostCompositePush = Common::PostCompositePushConstants{
+            .Settings = {cameraUniforms.RenderSettings[0], cameraUniforms.RenderSettings[1], cameraUniforms.RenderSettings[2],
+                         static_cast<float>(postProcessFrameSeed_)},
+            .AoTint = Context::ToVec4(aoTint, 1.0F)
         };
     } else {
-        scene.PostProcessPush = {};
+        scene.PostCompositePush = {};
         scene.PostBlurDownResources = nullptr;
         scene.PostBlurUpResources = nullptr;
         scene.PostBlurFinalResources = nullptr;

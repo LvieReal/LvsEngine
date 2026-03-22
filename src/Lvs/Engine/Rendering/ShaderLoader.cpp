@@ -21,6 +21,7 @@ const std::unordered_map<std::string, StagePair> kPipelineShaderTable{
     {"shadow", {"CompiledShaders/Vulkan/Shadow.vert.spv", "CompiledShaders/Vulkan/Shadow.frag.spv"}},
     {"sky", {"CompiledShaders/Vulkan/Sky.vert.spv", "CompiledShaders/Vulkan/Sky.frag.spv"}},
     {"post_composite", {"CompiledShaders/Vulkan/PostProcess.vert.spv", "CompiledShaders/Vulkan/PostProcess.frag.spv"}},
+    {"post_hbao", {"CompiledShaders/Vulkan/PostProcess.vert.spv", "CompiledShaders/Vulkan/Hbao.frag.spv"}},
     {"post_blur_down", {"CompiledShaders/Vulkan/PostProcess.vert.spv", "CompiledShaders/Vulkan/DualKawaseDown.frag.spv"}},
     {"post_blur_up", {"CompiledShaders/Vulkan/PostProcess.vert.spv", "CompiledShaders/Vulkan/DualKawaseUp.frag.spv"}}
 };
@@ -30,6 +31,7 @@ const std::unordered_map<std::string, StagePair> kOpenGLPipelineShaderTable{
     {"shadow", {"CompiledShaders/OpenGL/Shadow.vert.glsl", "CompiledShaders/OpenGL/Shadow.frag.glsl"}},
     {"sky", {"CompiledShaders/OpenGL/Sky.vert.glsl", "CompiledShaders/OpenGL/Sky.frag.glsl"}},
     {"post_composite", {"CompiledShaders/OpenGL/PostProcess.vert.glsl", "CompiledShaders/OpenGL/PostProcess.frag.glsl"}},
+    {"post_hbao", {"CompiledShaders/OpenGL/PostProcess.vert.glsl", "CompiledShaders/OpenGL/Hbao.frag.glsl"}},
     {"post_blur_down", {"CompiledShaders/OpenGL/PostProcess.vert.glsl", "CompiledShaders/OpenGL/DualKawaseDown.frag.glsl"}},
     {"post_blur_up", {"CompiledShaders/OpenGL/PostProcess.vert.glsl", "CompiledShaders/OpenGL/DualKawaseUp.frag.glsl"}}
 };

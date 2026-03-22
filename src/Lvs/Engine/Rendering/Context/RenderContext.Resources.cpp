@@ -41,6 +41,11 @@ void RenderContext::ReleaseGpuResources() {
         fallbackBlackTexture_ = {};
         hasFallbackBlackTexture_ = false;
     }
+    if (hasFallbackWhiteTexture_ && (vkBackend_ != nullptr || glBackend_ != nullptr)) {
+        GetRhiContext().DestroyTexture(fallbackWhiteTexture_);
+        fallbackWhiteTexture_ = {};
+        hasFallbackWhiteTexture_ = false;
+    }
     if (hasSkyboxCubemap_ && (vkBackend_ != nullptr || glBackend_ != nullptr)) {
         GetRhiContext().DestroyTexture(skyboxCubemap_);
         skyboxCubemap_ = {};
@@ -55,6 +60,14 @@ void RenderContext::ReleaseGpuResources() {
     }
     postBlurFinalResourceSet_.reset();
     postCompositeResourceSet_.reset();
+    hbaoResourceSet_.reset();
+    for (auto& set : hbaoBlurDownLevelResourceSets_) {
+        set.reset();
+    }
+    for (auto& set : hbaoBlurUpLevelResourceSets_) {
+        set.reset();
+    }
+    hbaoBlurFinalResourceSet_.reset();
     for (auto& set : frameShadowResourceSets_) {
         set.reset();
     }
@@ -79,6 +92,14 @@ void RenderContext::ReleaseGpuResources() {
         target.reset();
     }
     blurFinalTarget_.reset();
+    hbaoTarget_.reset();
+    for (auto& target : hbaoBlurDownTargets_) {
+        target.reset();
+    }
+    for (auto& target : hbaoBlurUpTargets_) {
+        target.reset();
+    }
+    hbaoBlurFinalTarget_.reset();
     for (auto& perLightTargets : directionalShadowTargets_) {
         for (auto& target : perLightTargets) {
             target.reset();
@@ -179,15 +200,17 @@ void RenderContext::EnsurePostProcessTargets() {
         WaitForBackendIdle();
         waitedForIdle = true;
     };
-    if (needsRecreate(geometryTarget_, surfaceWidth_, surfaceHeight_, 2U, effectiveMsaaSampleCount_)) {
+    if (needsRecreate(geometryTarget_, surfaceWidth_, surfaceHeight_, 3U, effectiveMsaaSampleCount_)) {
         waitForIdleOnce();
         geometryTarget_ = GetRhiContext().CreateRenderTarget(
             RHI::RenderTargetDesc{
                 .width = surfaceWidth_,
                 .height = surfaceHeight_,
-                .colorAttachmentCount = 2,
+                .colorAttachmentCount = 3,
                 .sampleCount = requestedMsaaSampleCount_,
-                .hasDepth = true
+                .hasDepth = true,
+                .depthTexture = false,
+                .depthCompare = false
             }
         );
         if (geometryTarget_ != nullptr) {
@@ -236,18 +259,111 @@ void RenderContext::EnsurePostProcessTargets() {
     }
 }
 
-void RenderContext::EnsureFallbackTextures() {
-    if (hasFallbackBlackTexture_) {
+void RenderContext::EnsureHbaoTargets() {
+    if (surfaceWidth_ == 0U || surfaceHeight_ == 0U) {
         return;
     }
-    RHI::Texture2DDesc blackDesc{};
-    blackDesc.width = 1;
-    blackDesc.height = 1;
-    blackDesc.format = RHI::Format::R8G8B8A8_UNorm;
-    blackDesc.linearFiltering = true;
-    blackDesc.pixels = {0, 0, 0, 255};
-    fallbackBlackTexture_ = GetRhiContext().CreateTexture2D(blackDesc);
-    hasFallbackBlackTexture_ = fallbackBlackTexture_.graphic_handle_ptr != nullptr;
+    EnsureBackend();
+
+    const RHI::u32 baseWidth = std::max<RHI::u32>(1U, surfaceWidth_ / 2U);
+    const RHI::u32 baseHeight = std::max<RHI::u32>(1U, surfaceHeight_ / 2U);
+
+    const auto needsRecreate =
+        [](const std::unique_ptr<RHI::IRenderTarget>& target, const RHI::u32 width, const RHI::u32 height) {
+            return target == nullptr || target->GetWidth() != width || target->GetHeight() != height;
+        };
+
+    bool waitedForIdle = false;
+    const auto waitForIdleOnce = [this, &waitedForIdle]() {
+        if (waitedForIdle) {
+            return;
+        }
+        WaitForBackendIdle();
+        waitedForIdle = true;
+    };
+
+    if (needsRecreate(hbaoTarget_, baseWidth, baseHeight)) {
+        waitForIdleOnce();
+        hbaoTarget_ = GetRhiContext().CreateRenderTarget(
+            RHI::RenderTargetDesc{
+                .width = baseWidth,
+                .height = baseHeight,
+                .colorAttachmentCount = 1,
+                .sampleCount = 1,
+                .hasDepth = false
+            }
+        );
+    }
+
+    RHI::u32 levelWidth = baseWidth;
+    RHI::u32 levelHeight = baseHeight;
+    for (RHI::u32 level = 0; level < SceneData::MaxPostBlurLevels; ++level) {
+        if (needsRecreate(hbaoBlurDownTargets_[level], levelWidth, levelHeight)) {
+            waitForIdleOnce();
+            hbaoBlurDownTargets_[level] = GetRhiContext().CreateRenderTarget(
+                RHI::RenderTargetDesc{
+                    .width = levelWidth,
+                    .height = levelHeight,
+                    .colorAttachmentCount = 1,
+                    .sampleCount = 1,
+                    .hasDepth = false
+                }
+            );
+        }
+        if (needsRecreate(hbaoBlurUpTargets_[level], levelWidth, levelHeight)) {
+            waitForIdleOnce();
+            hbaoBlurUpTargets_[level] = GetRhiContext().CreateRenderTarget(
+                RHI::RenderTargetDesc{
+                    .width = levelWidth,
+                    .height = levelHeight,
+                    .colorAttachmentCount = 1,
+                    .sampleCount = 1,
+                    .hasDepth = false
+                }
+            );
+        }
+        levelWidth = std::max<RHI::u32>(1U, levelWidth / 2U);
+        levelHeight = std::max<RHI::u32>(1U, levelHeight / 2U);
+    }
+
+    if (needsRecreate(hbaoBlurFinalTarget_, baseWidth, baseHeight)) {
+        waitForIdleOnce();
+        hbaoBlurFinalTarget_ = GetRhiContext().CreateRenderTarget(
+            RHI::RenderTargetDesc{
+                .width = baseWidth,
+                .height = baseHeight,
+                .colorAttachmentCount = 1,
+                .sampleCount = 1,
+                .hasDepth = false
+            }
+        );
+    }
+}
+
+void RenderContext::EnsureFallbackTextures() {
+    if (hasFallbackBlackTexture_ && hasFallbackWhiteTexture_) {
+        return;
+    }
+    if (!hasFallbackBlackTexture_) {
+        RHI::Texture2DDesc blackDesc{};
+        blackDesc.width = 1;
+        blackDesc.height = 1;
+        blackDesc.format = RHI::Format::R8G8B8A8_UNorm;
+        blackDesc.linearFiltering = true;
+        blackDesc.pixels = {0, 0, 0, 255};
+        fallbackBlackTexture_ = GetRhiContext().CreateTexture2D(blackDesc);
+        hasFallbackBlackTexture_ = fallbackBlackTexture_.graphic_handle_ptr != nullptr;
+    }
+    if (!hasFallbackWhiteTexture_) {
+        RHI::Texture2DDesc whiteDesc{};
+        whiteDesc.width = 1;
+        whiteDesc.height = 1;
+        whiteDesc.format = RHI::Format::R8G8B8A8_UNorm;
+        whiteDesc.linearFiltering = true;
+        whiteDesc.pixels = {255, 255, 255, 255};
+        fallbackWhiteTexture_ = GetRhiContext().CreateTexture2D(whiteDesc);
+        hasFallbackWhiteTexture_ = fallbackWhiteTexture_.graphic_handle_ptr != nullptr;
+    }
 }
 
 std::optional<RenderContext::GpuMesh> RenderContext::CreateGpuMeshFromData(const Common::MeshData& mesh) {

@@ -10,7 +10,7 @@
 #include <cstdint>
 #include <functional>
 
-#include <vulkan/vulkan.h>
+#include "Lvs/Engine/Rendering/Backends/Vulkan/Utils/VulkanRenderUtils.hpp"
 
 namespace Lvs::Engine::Rendering::Context {
 
@@ -29,10 +29,10 @@ Math::Matrix4 ApplyVulkanProjectionFlip(const Math::Matrix4& projection) {
     return Math::Matrix4(rows);
 }
 
-// Shadow cascades are computed in 0..1 depth clip-space (Vulkan style).
-// OpenGL maps NDC z from [-1, 1] to depth [0, 1]. To make the stored depth match the 0..1 reference depth used
-// during sampling, transform clip z as: z_gl = (2 * z_vk) - w.
-Math::Matrix4 ApplyOpenGLShadowDepthRemap(const Math::Matrix4& clipZeroToOne) {
+// OpenGL uses NDC z in [-1, 1] while Vulkan uses [0, 1].
+// If the incoming projection is authored for 0..1 clip-space, remap clip z for OpenGL as:
+// z_gl = (2 * z_vk) - w
+Math::Matrix4 ApplyOpenGLClipDepthRemap(const Math::Matrix4& clipZeroToOne) {
     auto rows = clipZeroToOne.Rows();
     for (std::size_t j = 0; j < 4; ++j) {
         rows[2][j] = (2.0 * rows[2][j]) - rows[3][j];
@@ -51,24 +51,7 @@ std::array<float, 4> ToVec4(const Math::Color3& value, const float w) {
 namespace {
 
 bool SupportsVulkan() {
-    std::uint32_t loaderVersion = VK_API_VERSION_1_0;
-    if (vkEnumerateInstanceVersion(&loaderVersion) != VK_SUCCESS) {
-        return false;
-    }
-    const std::array<std::uint32_t, 4> candidates{
-        VK_API_VERSION_1_3,
-        VK_API_VERSION_1_2,
-        VK_API_VERSION_1_1,
-        VK_API_VERSION_1_0
-    };
-    for (const auto candidate : candidates) {
-        if (VK_API_VERSION_MAJOR(loaderVersion) > VK_API_VERSION_MAJOR(candidate) ||
-            (VK_API_VERSION_MAJOR(loaderVersion) == VK_API_VERSION_MAJOR(candidate) &&
-             VK_API_VERSION_MINOR(loaderVersion) >= VK_API_VERSION_MINOR(candidate))) {
-            return true;
-        }
-    }
-    return false;
+    return Backends::Vulkan::Utils::SupportsVulkanRuntime();
 }
 
 std::size_t HashCombine(std::size_t seed, const std::size_t value) {
@@ -146,4 +129,3 @@ RHI::u32 ComputePostBlurLevels(const float blurAmount) {
 }
 
 } // namespace Lvs::Engine::Rendering::Context
-

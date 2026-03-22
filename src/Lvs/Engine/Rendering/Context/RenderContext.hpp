@@ -113,6 +113,7 @@ private:
     void EnsureFallbackShadowTarget();
     void EnsureShadowJitterTexture();
     void EnsurePostProcessTargets();
+    void EnsureHbaoTargets();
     void EnsureFallbackTextures();
     void EnsureBackend();
     RHI::IContext& GetRhiContext();
@@ -195,11 +196,21 @@ private:
     std::unique_ptr<RHI::IResourceSet> postBlurFinalResourceSet_{};
     std::unique_ptr<RHI::IResourceSet> postCompositeResourceSet_{};
 
+    std::unique_ptr<RHI::IResourceSet> hbaoResourceSet_{};
+    std::array<std::unique_ptr<RHI::IResourceSet>, SceneData::MaxPostBlurLevels> hbaoBlurDownLevelResourceSets_{};
+    std::array<std::unique_ptr<RHI::IResourceSet>, SceneData::MaxPostBlurLevels> hbaoBlurUpLevelResourceSets_{};
+    std::unique_ptr<RHI::IResourceSet> hbaoBlurFinalResourceSet_{};
+
     std::unique_ptr<RHI::IRenderTarget> geometryTarget_{};
 
     std::array<std::unique_ptr<RHI::IRenderTarget>, SceneData::MaxPostBlurLevels> blurDownTargets_{};
     std::array<std::unique_ptr<RHI::IRenderTarget>, SceneData::MaxPostBlurLevels> blurUpTargets_{};
     std::unique_ptr<RHI::IRenderTarget> blurFinalTarget_{};
+
+    std::unique_ptr<RHI::IRenderTarget> hbaoTarget_{};
+    std::array<std::unique_ptr<RHI::IRenderTarget>, SceneData::MaxPostBlurLevels> hbaoBlurDownTargets_{};
+    std::array<std::unique_ptr<RHI::IRenderTarget>, SceneData::MaxPostBlurLevels> hbaoBlurUpTargets_{};
+    std::unique_ptr<RHI::IRenderTarget> hbaoBlurFinalTarget_{};
 
     std::array<std::array<std::unique_ptr<RHI::IRenderTarget>, SceneData::MaxShadowCascades>, Common::kMaxDirectionalShadowMaps>
         directionalShadowTargets_{};
@@ -233,6 +244,9 @@ private:
 
     RHI::Texture fallbackBlackTexture_{};
     bool hasFallbackBlackTexture_{false};
+
+    RHI::Texture fallbackWhiteTexture_{};
+    bool hasFallbackWhiteTexture_{false};
 
     std::uint32_t postProcessFrameSeed_{0};
     bool refreshShadersRequested_{false};

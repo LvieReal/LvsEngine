@@ -13,6 +13,7 @@ struct RenderTargetDesc {
     u32 sampleCount{1};
     bool hasDepth{true};
     bool depthTexture{false};
+    bool depthCompare{true};
     Format depthFormat{Format::D32_Float};
 };
 

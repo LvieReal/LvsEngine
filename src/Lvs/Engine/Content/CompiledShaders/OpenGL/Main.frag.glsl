@@ -69,6 +69,7 @@ layout(location = 5) in vec3 fragLocalPos;
 layout(location = 3) in vec4 fragMaterial;
 layout(location = 0) out vec4 outSceneColor;
 layout(location = 1) out vec4 outGlowColor;
+layout(location = 2) out vec4 outDepthColor;
 layout(location = 4) in vec3 fragVertexLighting;
 layout(location = 0) in vec3 fragNormal;
 InstanceData inst;
@@ -725,12 +726,14 @@ void main()
     {
         outSceneColor = vec4((albedo + emissiveScene) + ((neonSample * 0.100000001490116119384765625) * glowMask), alpha);
         outGlowColor = vec4(0.0);
+        outDepthColor = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0);
         return;
     }
     if (allowBlackNeon && (emissive > 0.0))
     {
         outSceneColor = vec4((albedo + emissiveScene) + ((neonSample * 0.100000001490116119384765625) * glowMask), alpha);
         outGlowColor = vec4(glowColor, glowMask);
+        outDepthColor = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0);
         return;
     }
     vec3 param_5 = fragLocalNormal;
@@ -759,17 +762,17 @@ void main()
                 continue;
             }
             fresnelAmount = clamp(light.specular.z, 0.0, 1.0);
-            bool _1727 = light.type == 0u;
-            bool _1734;
-            if (_1727)
+            bool _1734 = light.type == 0u;
+            bool _1741;
+            if (_1734)
             {
-                _1734 = light.shadowIndex != 4294967295u;
+                _1741 = light.shadowIndex != 4294967295u;
             }
             else
             {
-                _1734 = _1727;
+                _1741 = _1734;
             }
-            if (_1734)
+            if (_1741)
             {
                 dl.direction = lightData.directionalLights[light.dataIndex].direction;
                 dl.shadowCascadeSplits = lightData.directionalLights[light.dataIndex].shadowCascadeSplits;
@@ -813,6 +816,7 @@ void main()
         color += emissiveScene;
         outSceneColor = vec4(color + ((neonSample * 0.100000001490116119384765625) * glowMask), alpha);
         outGlowColor = vec4(glowColor, glowMask);
+        outDepthColor = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0);
         return;
     }
     vec3 color_1 = (camera.ambient.xyz * camera.ambient.w) * albedo;
@@ -946,5 +950,6 @@ void main()
     color_1 += emissiveScene;
     outSceneColor = vec4(color_1 + ((neonSample * 0.100000001490116119384765625) * glowMask), alpha);
     outGlowColor = vec4(glowColor, glowMask);
+    outDepthColor = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0);
 }
 

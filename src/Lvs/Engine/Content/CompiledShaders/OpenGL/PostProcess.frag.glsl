@@ -3,12 +3,14 @@
 struct PostSettings
 {
     vec4 settings;
+    vec4 aoTint;
 };
 
 uniform PostSettings pushData;
 
 layout(binding = 1) uniform sampler2D sceneColor;
 layout(binding = 2) uniform sampler2D glowColor;
+layout(binding = 16) uniform sampler2D aoTexture;
 
 layout(location = 0) in vec2 fragUv;
 layout(location = 0) out vec4 outColor;
@@ -25,6 +27,8 @@ void main()
     {
         hdrColor += texture(glowColor, fragUv).xyz;
     }
+    float ao = texture(aoTexture, fragUv).x;
+    hdrColor *= mix(pushData.aoTint.xyz, vec3(1.0), vec3(clamp(ao, 0.0, 1.0)));
     vec3 color = max(hdrColor, vec3(0.0));
     if (pushData.settings.x > 0.5)
     {

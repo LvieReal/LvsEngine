@@ -158,5 +158,27 @@ std::uint32_t SelectVulkanApiVersion() {
     return VK_API_VERSION_1_0;
 }
 
+bool SupportsVulkanRuntime() {
+    std::uint32_t loaderVersion = VK_API_VERSION_1_0;
+    if (vkEnumerateInstanceVersion(&loaderVersion) != VK_SUCCESS) {
+        return false;
+    }
+
+    const std::array<std::uint32_t, 4> candidates{
+        VK_API_VERSION_1_3,
+        VK_API_VERSION_1_2,
+        VK_API_VERSION_1_1,
+        VK_API_VERSION_1_0
+    };
+    for (const auto candidate : candidates) {
+        if (VK_API_VERSION_MAJOR(loaderVersion) > VK_API_VERSION_MAJOR(candidate) ||
+            (VK_API_VERSION_MAJOR(loaderVersion) == VK_API_VERSION_MAJOR(candidate) &&
+             VK_API_VERSION_MINOR(loaderVersion) >= VK_API_VERSION_MINOR(candidate))) {
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace Lvs::Engine::Rendering::Backends::Vulkan::Utils
 

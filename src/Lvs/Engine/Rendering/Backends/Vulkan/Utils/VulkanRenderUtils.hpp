@@ -36,6 +36,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL DebugMessageCallback(
 );
 
 std::uint32_t SelectVulkanApiVersion();
+bool SupportsVulkanRuntime();
 
 } // namespace Lvs::Engine::Rendering::Backends::Vulkan::Utils
 

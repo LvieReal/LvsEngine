@@ -58,4 +58,15 @@ struct PostProcessPushConstants {
     std::array<float, 4> Settings{}; // x: gamma, y: dithering, z: neonEnabled, w: frameSeed
 };
 
+struct PostCompositePushConstants {
+    std::array<float, 4> Settings{}; // x: gamma, y: dithering, z: neonEnabled, w: frameSeed
+    std::array<float, 4> AoTint{};   // rgb: tint, a: reserved
+};
+
+struct HbaoPushConstants {
+    std::array<float, 4> Params0{}; // x: radius, y: strength, z: tanBias, w: maxRadiusPixels
+    std::array<float, 4> Params1{}; // x: power, y: directions, z: samples, w: reserved
+    std::array<float, 4> Params2{}; // x: aoResX, y: aoResY, z: invResX, w: invResY
+};
+
 } // namespace Lvs::Engine::Rendering::Common

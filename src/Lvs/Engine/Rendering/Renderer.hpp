@@ -55,6 +55,7 @@ struct SceneData {
     bool EnableShadows{true};
     bool EnableSkybox{true};
     bool EnablePostProcess{true};
+    bool EnableHbao{false};
     bool EnableGeometry{true};
     bool ClearColor{true};
     float ClearColorValue[4]{1.0F, 1.0F, 1.0F, 1.0F};
@@ -72,14 +73,20 @@ struct SceneData {
     DrawPacket GeometryDraw{};
     std::vector<DrawPacket> GeometryDraws{};
     Common::SkyboxPushConstants SkyboxPush{};
-    Common::PostProcessPushConstants PostProcessPush{};
+    Common::PostCompositePushConstants PostCompositePush{};
     float NeonBlur{1.0F};
     RHI::u32 PostBlurLevelCount{0};
     PassTarget PostBlurDownTarget{};
     PassTarget PostBlurUpTarget{};
     PassTarget PostBlurFinalTarget{};
+    PassTarget HbaoTarget{};
+    PassTarget HbaoBlurDownTarget{};
+    PassTarget HbaoBlurUpTarget{};
+    PassTarget HbaoBlurFinalTarget{};
     std::array<PassTarget, MaxPostBlurLevels> PostBlurDownLevelTargets{};
     std::array<PassTarget, MaxPostBlurLevels> PostBlurUpLevelTargets{};
+    std::array<PassTarget, MaxPostBlurLevels> HbaoBlurDownLevelTargets{};
+    std::array<PassTarget, MaxPostBlurLevels> HbaoBlurUpLevelTargets{};
     const RHI::ResourceBinding* GlobalBindings{nullptr};
     RHI::u32 GlobalBindingCount{0};
     std::size_t GlobalResourceKey{0};
@@ -91,6 +98,13 @@ struct SceneData {
     std::array<const RHI::IResourceSet*, MaxPostBlurLevels> PostBlurDownLevelResources{};
     std::array<const RHI::IResourceSet*, MaxPostBlurLevels> PostBlurUpLevelResources{};
     const RHI::IResourceSet* PostCompositeResources{nullptr};
+    float HbaoBlur{1.0F};
+    RHI::u32 HbaoBlurLevelCount{0};
+    const RHI::IResourceSet* HbaoResources{nullptr};
+    const RHI::IResourceSet* HbaoBlurFinalResources{nullptr};
+    std::array<const RHI::IResourceSet*, MaxPostBlurLevels> HbaoBlurDownLevelResources{};
+    std::array<const RHI::IResourceSet*, MaxPostBlurLevels> HbaoBlurUpLevelResources{};
+    Common::HbaoPushConstants HbaoPush{};
 };
 
 using Pipeline = RHI::IPipeline;
@@ -153,6 +167,27 @@ private:
     const Pipeline* blurUpPipeline_{nullptr};
 };
 
+class HbaoPassRenderer {
+public:
+    void RecordCommands(RHI::IContext& ctx, RHI::ICommandBuffer& cmd);
+
+private:
+    friend class Renderer;
+    void SetInputs(
+        const RenderSurface* surface,
+        const SceneData* scene,
+        const Pipeline* hbaoPipeline,
+        const Pipeline* blurDownPipeline,
+        const Pipeline* blurUpPipeline
+    );
+
+    const RenderSurface* surface_{nullptr};
+    const SceneData* scene_{nullptr};
+    const Pipeline* hbaoPipeline_{nullptr};
+    const Pipeline* blurDownPipeline_{nullptr};
+    const Pipeline* blurUpPipeline_{nullptr};
+};
+
 class GeometryPassRenderer {
 public:
     void RecordCommands(RHI::IContext& ctx, RHI::ICommandBuffer& cmd);
@@ -195,7 +230,8 @@ private:
         PostProcess = 3,
         Geometry = 4,
         PostBlurDown = 5,
-        PostBlurUp = 6
+        PostBlurUp = 6,
+        Hbao = 7
     };
 
     [[nodiscard]] Pipeline* GetOrCreatePipeline(
@@ -217,6 +253,7 @@ private:
     RenderSurface surface_{};
     ShadowPassRenderer shadowPass_{};
     SkyboxPassRenderer skyboxPass_{};
+    HbaoPassRenderer hbaoPass_{};
     PostProcessPassRenderer postProcessPass_{};
     GeometryPassRenderer geometryPass_{};
     void* sceneRenderPassHandle_{nullptr};

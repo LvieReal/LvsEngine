@@ -4,9 +4,11 @@ layout(location = 0) in vec2 fragUv;
 
 layout(set = 0, binding = 1) uniform sampler2D sceneColor;
 layout(set = 0, binding = 2) uniform sampler2D glowColor;
+layout(set = 0, binding = 16) uniform sampler2D aoTexture;
 
 layout(push_constant) uniform PostSettings {
     vec4 settings; // x: gammaEnabled, y: ditheringEnabled, z: neonEnabled, w: frameSeed
+    vec4 aoTint;   // rgb: tint applied when AO factor is 0
 } pushData;
 
 layout(location = 0) out vec4 outColor;
@@ -20,6 +22,8 @@ void main() {
     if (pushData.settings.z > 0.5) {
         hdrColor += texture(glowColor, fragUv).rgb;
     }
+    float ao = texture(aoTexture, fragUv).r;
+    hdrColor *= mix(pushData.aoTint.rgb, vec3(1.0), clamp(ao, 0.0, 1.0));
     vec3 color = max(hdrColor, vec3(0.0));
 
     if (pushData.settings.x > 0.5) {

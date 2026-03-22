@@ -71,9 +71,12 @@ Common::CameraUniformData RenderContext::BuildCameraUniforms() {
     }
 
     uniforms.View = Context::ToFloatMat4ColumnMajor(camera->GetViewMatrix());
-    const Math::Matrix4 projection = vkBackend_ != nullptr
-                                         ? Context::ApplyVulkanProjectionFlip(camera->GetProjectionMatrix())
-                                         : camera->GetProjectionMatrix();
+    Math::Matrix4 projection = camera->GetProjectionMatrix();
+    if (vkBackend_ != nullptr) {
+        projection = Context::ApplyVulkanProjectionFlip(projection);
+    } else {
+        projection = Context::ApplyOpenGLClipDepthRemap(projection);
+    }
     uniforms.Projection = Context::ToFloatMat4ColumnMajor(projection);
     const auto cframe = camera->GetProperty("CFrame").value<Math::CFrame>();
     uniforms.CameraPosition = Context::ToVec4(cframe.Position, 1.0F);
@@ -108,9 +111,12 @@ Common::SkyboxPushConstants RenderContext::BuildSkyboxPushConstants() const {
         camera->Resize(static_cast<double>(surfaceWidth_) / static_cast<double>(surfaceHeight_));
     }
 
-    const Math::Matrix4 projection = vkBackend_ != nullptr
-                                         ? Context::ApplyVulkanProjectionFlip(camera->GetProjectionMatrix())
-                                         : camera->GetProjectionMatrix();
+    Math::Matrix4 projection = camera->GetProjectionMatrix();
+    if (vkBackend_ != nullptr) {
+        projection = Context::ApplyVulkanProjectionFlip(projection);
+    } else {
+        projection = Context::ApplyOpenGLClipDepthRemap(projection);
+    }
     const Math::Matrix4 viewProjection = projection * camera->GetViewMatrixNoTranslation();
     push.ViewProjection = Context::ToFloatMat4ColumnMajor(viewProjection);
     return push;

@@ -26,40 +26,75 @@ void RecordFullScreenPass(
 
 } // namespace
 
-void PostProcessPassRenderer::SetInputs(
+void HbaoPassRenderer::SetInputs(
     const RenderSurface* surface,
     const SceneData* scene,
-    const Pipeline* compositePipeline,
+    const Pipeline* hbaoPipeline,
     const Pipeline* blurDownPipeline,
     const Pipeline* blurUpPipeline
 ) {
     surface_ = surface;
     scene_ = scene;
-    compositePipeline_ = compositePipeline;
+    hbaoPipeline_ = hbaoPipeline;
     blurDownPipeline_ = blurDownPipeline;
     blurUpPipeline_ = blurUpPipeline;
 }
 
-void PostProcessPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBuffer& cmd) {
+void HbaoPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBuffer& cmd) {
     static_cast<void>(ctx);
-    if (surface_ == nullptr || scene_ == nullptr || !scene_->EnablePostProcess) {
+    if (surface_ == nullptr || scene_ == nullptr || !scene_->EnableHbao) {
         return;
     }
-    if (compositePipeline_ == nullptr || blurDownPipeline_ == nullptr || blurUpPipeline_ == nullptr) {
+    if (hbaoPipeline_ == nullptr || blurDownPipeline_ == nullptr || blurUpPipeline_ == nullptr) {
         return;
     }
-    if (scene_->PostCompositeResources == nullptr) {
+    if (scene_->HbaoResources == nullptr || scene_->HbaoTarget.Framebuffer == nullptr) {
         return;
     }
 
-    const RHI::u32 levelsUsed = std::max<RHI::u32>(1U, std::min(scene_->PostBlurLevelCount, SceneData::MaxPostBlurLevels));
-    const float blurAmount = std::max(1.0F, scene_->NeonBlur);
-    RHI::u32 sourceWidth = std::max(1U, scene_->GeometryTarget.Width);
-    RHI::u32 sourceHeight = std::max(1U, scene_->GeometryTarget.Height);
+    const std::array<RHI::ICommandBuffer::PushConstantField, 3> hbaoFields{
+        RHI::ICommandBuffer::PushConstantField{
+            .name = "pushData.params0",
+            .type = RHI::ICommandBuffer::PushConstantFieldType::Float4,
+            .data = scene_->HbaoPush.Params0.data()
+        },
+        RHI::ICommandBuffer::PushConstantField{
+            .name = "pushData.params1",
+            .type = RHI::ICommandBuffer::PushConstantFieldType::Float4,
+            .data = scene_->HbaoPush.Params1.data()
+        },
+        RHI::ICommandBuffer::PushConstantField{
+            .name = "pushData.params2",
+            .type = RHI::ICommandBuffer::PushConstantFieldType::Float4,
+            .data = scene_->HbaoPush.Params2.data()
+        }
+    };
+    const RHI::ICommandBuffer::PushConstantsInfo hbaoPush{
+        .data = &scene_->HbaoPush,
+        .size = sizeof(scene_->HbaoPush),
+        .fields = hbaoFields.data(),
+        .fieldCount = hbaoFields.size()
+    };
+
+    const RHI::RenderPassInfo hbaoPass{
+        .width = scene_->HbaoTarget.Width,
+        .height = scene_->HbaoTarget.Height,
+        .colorAttachmentCount = scene_->HbaoTarget.ColorAttachmentCount,
+        .renderPassHandle = scene_->HbaoTarget.RenderPass,
+        .framebufferHandle = scene_->HbaoTarget.Framebuffer,
+        .clearColor = true,
+        .clearDepth = false
+    };
+    RecordFullScreenPass(cmd, hbaoPass, *hbaoPipeline_, *scene_->HbaoResources, &hbaoPush);
+
+    const RHI::u32 levelsUsed = std::max<RHI::u32>(1U, std::min(scene_->HbaoBlurLevelCount, SceneData::MaxPostBlurLevels));
+    const float blurAmount = std::max(0.0F, scene_->HbaoBlur);
+    RHI::u32 sourceWidth = std::max(1U, scene_->HbaoTarget.Width);
+    RHI::u32 sourceHeight = std::max(1U, scene_->HbaoTarget.Height);
 
     for (RHI::u32 level = 0; level < levelsUsed; ++level) {
-        const auto& target = scene_->PostBlurDownLevelTargets[level];
-        const auto* resources = scene_->PostBlurDownLevelResources[level];
+        const auto& target = scene_->HbaoBlurDownLevelTargets[level];
+        const auto* resources = scene_->HbaoBlurDownLevelResources[level];
         if (resources == nullptr || target.Framebuffer == nullptr) {
             continue;
         }
@@ -98,8 +133,8 @@ void PostProcessPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBu
 
     if (levelsUsed > 1U) {
         for (int level = static_cast<int>(levelsUsed) - 2; level >= 0; --level) {
-            const auto& target = scene_->PostBlurUpLevelTargets[static_cast<std::size_t>(level)];
-            const auto* resources = scene_->PostBlurUpLevelResources[static_cast<std::size_t>(level)];
+            const auto& target = scene_->HbaoBlurUpLevelTargets[static_cast<std::size_t>(level)];
+            const auto* resources = scene_->HbaoBlurUpLevelResources[static_cast<std::size_t>(level)];
             if (resources == nullptr || target.Framebuffer == nullptr) {
                 continue;
             }
@@ -137,7 +172,7 @@ void PostProcessPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBu
         }
     }
 
-    if (scene_->PostBlurFinalResources != nullptr && scene_->PostBlurFinalTarget.Framebuffer != nullptr) {
+    if (scene_->HbaoBlurFinalResources != nullptr && scene_->HbaoBlurFinalTarget.Framebuffer != nullptr) {
         const Common::PostProcessPushConstants blurSettings{
             .Settings = {1.0F / static_cast<float>(std::max(1U, sourceWidth)),
                          1.0F / static_cast<float>(std::max(1U, sourceHeight)),
@@ -158,53 +193,16 @@ void PostProcessPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBu
             .fieldCount = fields.size()
         };
         const RHI::RenderPassInfo finalPass{
-            .width = scene_->PostBlurFinalTarget.Width,
-            .height = scene_->PostBlurFinalTarget.Height,
-            .colorAttachmentCount = scene_->PostBlurFinalTarget.ColorAttachmentCount,
-            .renderPassHandle = scene_->PostBlurFinalTarget.RenderPass,
-            .framebufferHandle = scene_->PostBlurFinalTarget.Framebuffer,
+            .width = scene_->HbaoBlurFinalTarget.Width,
+            .height = scene_->HbaoBlurFinalTarget.Height,
+            .colorAttachmentCount = scene_->HbaoBlurFinalTarget.ColorAttachmentCount,
+            .renderPassHandle = scene_->HbaoBlurFinalTarget.RenderPass,
+            .framebufferHandle = scene_->HbaoBlurFinalTarget.Framebuffer,
             .clearColor = true,
             .clearDepth = false
         };
-        RecordFullScreenPass(
-            cmd,
-            finalPass,
-            *blurUpPipeline_,
-            *scene_->PostBlurFinalResources,
-            &push
-        );
+        RecordFullScreenPass(cmd, finalPass, *blurUpPipeline_, *scene_->HbaoBlurFinalResources, &push);
     }
-
-    const RHI::RenderPassInfo compositePass{
-        .width = scene_->PostProcessTarget.Width,
-        .height = scene_->PostProcessTarget.Height,
-        .colorAttachmentCount = scene_->PostProcessTarget.ColorAttachmentCount,
-        .renderPassHandle = scene_->PostProcessTarget.RenderPass,
-        .framebufferHandle = scene_->PostProcessTarget.Framebuffer,
-        .clearColor = false,
-        .clearDepth = false
-    };
-
-    const std::array<RHI::ICommandBuffer::PushConstantField, 2> compositeFields{
-        RHI::ICommandBuffer::PushConstantField{
-            .name = "pushData.settings",
-            .type = RHI::ICommandBuffer::PushConstantFieldType::Float4,
-            .data = scene_->PostCompositePush.Settings.data()
-        },
-        RHI::ICommandBuffer::PushConstantField{
-            .name = "pushData.aoTint",
-            .type = RHI::ICommandBuffer::PushConstantFieldType::Float4,
-            .data = scene_->PostCompositePush.AoTint.data()
-        }
-    };
-    const RHI::ICommandBuffer::PushConstantsInfo compositePush{
-        .data = &scene_->PostCompositePush,
-        .size = sizeof(scene_->PostCompositePush),
-        .fields = compositeFields.data(),
-        .fieldCount = compositeFields.size()
-    };
-
-    RecordFullScreenPass(cmd, compositePass, *compositePipeline_, *scene_->PostCompositeResources, &compositePush);
 }
 
 } // namespace Lvs::Engine::Rendering
