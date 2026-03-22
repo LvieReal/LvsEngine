@@ -15,7 +15,10 @@
 #include <array>
 #include <cstdint>
 #include <exception>
+#include <iomanip>
 #include <optional>
+#include <sstream>
+#include <string>
 #include <utility>
 
 namespace Lvs::Engine::Rendering {
@@ -428,6 +431,47 @@ RenderContext::GpuMesh* RenderContext::GetOrCreatePrimitiveMesh(const Enums::Par
         return nullptr;
     }
     auto [it, inserted] = primitiveMeshCache_.emplace(shape, GpuMesh{});
+    if (inserted) {
+        it->second = std::move(*uploaded);
+    }
+    return &it->second;
+}
+
+RenderContext::GpuMesh* RenderContext::GetOrCreateBeveledCubeMesh(
+    const Math::Vector3& size,
+    const float bevelWidthWorld,
+    const bool smoothNormals
+) {
+    if (bevelWidthWorld <= 0.0F || size.x <= 0.0 || size.y <= 0.0 || size.z <= 0.0) {
+        return GetOrCreatePrimitiveMesh(Enums::PartShape::Cube);
+    }
+
+    std::ostringstream oss;
+    oss.setf(std::ios::fixed);
+    oss << std::setprecision(6)
+        << static_cast<float>(size.x) << "," << static_cast<float>(size.y) << "," << static_cast<float>(size.z)
+        << "|w=" << bevelWidthWorld
+        << (smoothNormals ? "|smooth" : "|flat");
+    const std::string key = oss.str();
+
+    if (const auto it = beveledCubeMeshCache_.find(key); it != beveledCubeMeshCache_.end()) {
+        return &it->second;
+    }
+
+    Common::MeshData mesh = Common::Primitives::GenerateBeveledCube(
+        static_cast<float>(size.x),
+        static_cast<float>(size.y),
+        static_cast<float>(size.z),
+        bevelWidthWorld,
+        smoothNormals
+    );
+
+    auto uploaded = CreateGpuMeshFromData(mesh);
+    if (!uploaded.has_value()) {
+        return nullptr;
+    }
+
+    auto [it, inserted] = beveledCubeMeshCache_.emplace(key, GpuMesh{});
     if (inserted) {
         it->second = std::move(*uploaded);
     }

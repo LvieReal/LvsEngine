@@ -120,6 +120,7 @@ private:
     [[nodiscard]] std::optional<GpuMesh> CreateGpuMeshFromData(const Common::MeshData& mesh);
     void InitializeGeometryBuffers();
     GpuMesh* GetOrCreatePrimitiveMesh(Enums::PartShape shape);
+    GpuMesh* GetOrCreateBeveledCubeMesh(const Math::Vector3& size, float bevelWidthWorld, bool smoothNormals);
     GpuMesh* GetOrCreateMeshPartMesh(const std::string& contentId, bool smoothNormals);
     void TrimRetiredFrameResources();
     void UpdateSkyboxTexture();
@@ -161,6 +162,7 @@ private:
     bool overlayDirty_{true};
 
     std::unordered_map<Enums::PartShape, GpuMesh> primitiveMeshCache_{};
+    std::unordered_map<std::string, GpuMesh> beveledCubeMeshCache_{};
     std::unordered_map<std::string, GpuMesh> meshPartCache_{};
     std::unordered_map<std::string, const SceneData::MeshRef*> meshRefCache_{};
     std::deque<SceneData::MeshRef> meshRefStorage_{};

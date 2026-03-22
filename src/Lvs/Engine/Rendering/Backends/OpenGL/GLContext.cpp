@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -26,6 +27,167 @@
 namespace Lvs::Engine::Rendering::Backends::OpenGL {
 
 // Utility helpers live in Backends/OpenGL/Utils.
+
+namespace {
+
+struct SamplerBindingInfo {
+    std::string Name{};
+    int Binding{0};
+    int ArraySize{0}; // 0 means non-array
+};
+
+std::vector<SamplerBindingInfo> ParseSamplerBindingsFromGlsl(const std::string& source) {
+    std::vector<SamplerBindingInfo> out;
+    out.reserve(16);
+
+    std::string line;
+    line.reserve(256);
+    std::size_t start = 0;
+    while (start < source.size()) {
+        const std::size_t end = source.find('\n', start);
+        const std::size_t len = (end == std::string::npos) ? (source.size() - start) : (end - start);
+        line.assign(source.data() + start, len);
+        start = (end == std::string::npos) ? source.size() : end + 1;
+
+        const std::size_t comment = line.find("//");
+        if (comment != std::string::npos) {
+            line.resize(comment);
+        }
+
+        const std::size_t layoutPos = line.find("layout");
+        if (layoutPos == std::string::npos) {
+            continue;
+        }
+        const std::size_t lparen = line.find('(', layoutPos);
+        const std::size_t rparen = line.find(')', layoutPos);
+        if (lparen == std::string::npos || rparen == std::string::npos || rparen <= lparen) {
+            continue;
+        }
+
+        const std::string layoutArgs = line.substr(lparen + 1, rparen - lparen - 1);
+        const std::size_t bindingPos = layoutArgs.find("binding");
+        if (bindingPos == std::string::npos) {
+            continue;
+        }
+        const std::size_t eqPos = layoutArgs.find('=', bindingPos);
+        if (eqPos == std::string::npos) {
+            continue;
+        }
+
+        std::size_t numPos = eqPos + 1;
+        while (numPos < layoutArgs.size() && std::isspace(static_cast<unsigned char>(layoutArgs[numPos])) != 0) {
+            ++numPos;
+        }
+        std::size_t numEnd = numPos;
+        while (numEnd < layoutArgs.size() && std::isdigit(static_cast<unsigned char>(layoutArgs[numEnd])) != 0) {
+            ++numEnd;
+        }
+        if (numEnd == numPos) {
+            continue;
+        }
+        const int binding = std::stoi(layoutArgs.substr(numPos, numEnd - numPos));
+
+        const std::string after = line.substr(rparen + 1);
+        const std::size_t uniformPos = after.find("uniform");
+        if (uniformPos == std::string::npos) {
+            continue;
+        }
+
+        std::size_t scan = uniformPos + strlen("uniform");
+        while (scan < after.size() && std::isspace(static_cast<unsigned char>(after[scan])) != 0) {
+            ++scan;
+        }
+        const std::size_t typeStart = scan;
+        while (scan < after.size() && (std::isalnum(static_cast<unsigned char>(after[scan])) != 0 || after[scan] == '_')) {
+            ++scan;
+        }
+        if (scan == typeStart) {
+            continue;
+        }
+        const std::string type = after.substr(typeStart, scan - typeStart);
+        if (!type.starts_with("sampler")) {
+            continue;
+        }
+
+        while (scan < after.size() && std::isspace(static_cast<unsigned char>(after[scan])) != 0) {
+            ++scan;
+        }
+        const std::size_t nameStart = scan;
+        while (scan < after.size() && (std::isalnum(static_cast<unsigned char>(after[scan])) != 0 || after[scan] == '_')) {
+            ++scan;
+        }
+        if (scan == nameStart) {
+            continue;
+        }
+        std::string name = after.substr(nameStart, scan - nameStart);
+
+        int arraySize = 0;
+        while (scan < after.size() && std::isspace(static_cast<unsigned char>(after[scan])) != 0) {
+            ++scan;
+        }
+        if (scan < after.size() && after[scan] == '[') {
+            const std::size_t close = after.find(']', scan + 1);
+            if (close != std::string::npos) {
+                const std::string countStr = after.substr(scan + 1, close - scan - 1);
+                try {
+                    arraySize = std::stoi(countStr);
+                } catch (...) {
+                    arraySize = 0;
+                }
+            }
+        }
+
+        out.push_back(SamplerBindingInfo{.Name = std::move(name), .Binding = binding, .ArraySize = arraySize});
+    }
+
+    return out;
+}
+
+void ApplySamplerBindings(const unsigned int program, const std::string& vertSrc, const std::string& fragSrc) {
+    if (program == 0U) {
+        return;
+    }
+    std::vector<SamplerBindingInfo> bindings = ParseSamplerBindingsFromGlsl(vertSrc);
+    std::vector<SamplerBindingInfo> fragBindings = ParseSamplerBindingsFromGlsl(fragSrc);
+    bindings.insert(bindings.end(), fragBindings.begin(), fragBindings.end());
+    if (bindings.empty()) {
+        return;
+    }
+
+    GLint prevProgram = 0;
+    glGetIntegerv(GL_CURRENT_PROGRAM, &prevProgram);
+    glUseProgram(program);
+
+    for (const auto& info : bindings) {
+        if (info.ArraySize > 0) {
+            GLint location = glGetUniformLocation(program, (info.Name + "[0]").c_str());
+            if (location < 0) {
+                location = glGetUniformLocation(program, info.Name.c_str());
+            }
+            if (location < 0) {
+                continue;
+            }
+            std::vector<GLint> units(static_cast<std::size_t>(std::max(0, info.ArraySize)));
+            for (int i = 0; i < info.ArraySize; ++i) {
+                units[static_cast<std::size_t>(i)] = static_cast<GLint>(info.Binding + i);
+            }
+            if (!units.empty()) {
+                glUniform1iv(location, static_cast<GLsizei>(units.size()), units.data());
+            }
+            continue;
+        }
+
+        const GLint location = glGetUniformLocation(program, info.Name.c_str());
+        if (location < 0) {
+            continue;
+        }
+        glUniform1i(location, static_cast<GLint>(info.Binding));
+    }
+
+    glUseProgram(static_cast<unsigned int>(prevProgram));
+}
+
+} // namespace
 
 GLContext::GLContext(const GLApi api)
     : api_(api) {}
@@ -86,6 +248,9 @@ std::unique_ptr<RHI::IPipeline> GLContext::CreatePipeline(const RHI::PipelineDes
         throw std::runtime_error("OpenGL program link failed: " + log);
     }
 
+    // Some drivers don't consistently honor `layout(binding=...)` for samplers; set explicit texture units.
+    ApplySamplerBindings(program, vertSrc, fragSrc);
+
     return std::make_unique<GLPipeline>(desc, program, [loaded = api_.GladLoaded](const unsigned int programHandle) {
         if (loaded && programHandle != 0U) {
             glDeleteProgram(programHandle);
@@ -97,6 +262,9 @@ std::unique_ptr<RHI::IRenderTarget> GLContext::CreateRenderTarget(const RHI::Ren
     if (!api_.GladLoaded || desc.width == 0U || desc.height == 0U || (desc.colorAttachmentCount == 0U && !desc.hasDepth)) {
         return nullptr;
     }
+
+    GLint prevActiveTexture = 0;
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &prevActiveTexture);
 
     RHI::u32 sampleCount = std::max<RHI::u32>(1U, desc.sampleCount);
     if (desc.depthTexture && sampleCount > 1U) {
@@ -146,6 +314,7 @@ std::unique_ptr<RHI::IRenderTarget> GLContext::CreateRenderTarget(const RHI::Ren
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + index, GL_TEXTURE_2D, handle, 0);
         }
+        glBindTexture(GL_TEXTURE_2D, 0);
 
         std::vector<GLenum> drawBuffers;
         drawBuffers.reserve(desc.colorAttachmentCount);
@@ -232,6 +401,7 @@ std::unique_ptr<RHI::IRenderTarget> GLContext::CreateRenderTarget(const RHI::Ren
             } else {
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
             }
+            glBindTexture(GL_TEXTURE_2D, 0);
         } else {
             const GLenum depthAttachment = (desc.depthFormat == RHI::Format::D24S8) ? GL_DEPTH_STENCIL_ATTACHMENT
                                                                                     : GL_DEPTH_ATTACHMENT;
@@ -271,6 +441,7 @@ std::unique_ptr<RHI::IRenderTarget> GLContext::CreateRenderTarget(const RHI::Ren
     const bool resolveComplete = (resolveFramebuffer == drawFramebuffer) ? drawComplete : checkFramebuffer(resolveFramebuffer);
     glBindFramebuffer(GL_FRAMEBUFFER, api_.DefaultFramebuffer);
     if (!drawComplete || !resolveComplete) {
+        glActiveTexture(static_cast<GLenum>(prevActiveTexture));
         if (depthRenderbuffer != 0U) {
             glDeleteRenderbuffers(1, &depthRenderbuffer);
         }
@@ -305,6 +476,7 @@ std::unique_ptr<RHI::IRenderTarget> GLContext::CreateRenderTarget(const RHI::Ren
         };
     }
 
+    glActiveTexture(static_cast<GLenum>(prevActiveTexture));
     return std::make_unique<Utils::GLRenderTarget>(
         desc.width,
         desc.height,

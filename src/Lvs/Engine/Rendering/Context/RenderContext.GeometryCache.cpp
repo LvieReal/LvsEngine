@@ -13,6 +13,8 @@
 #include "Lvs/Engine/Utils/Benchmark.hpp"
 
 #include <algorithm>
+#include <iomanip>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -195,14 +197,27 @@ void RenderContext::TrackRenderable(const std::shared_ptr<Core::Instance>& insta
             return;
         }
 
-        const bool layoutChanged =
+        bool layoutChanged =
             name == "Renders" || name == "Transparency" || name == "AlwaysOnTop" || name == "CullMode" ||
-            name == "Shape" || name == "ContentId" || name == "SmoothNormals";
-        const bool dataChanged =
+            name == "Shape" || name == "IsBeveled" || name == "BevelWidth" || name == "IsBevelSmooth" ||
+            name == "ContentId" || name == "SmoothNormals";
+        bool dataChanged =
             name == "CFrame" || name == "Position" || name == "Rotation" || name == "Size" || name == "Color" ||
             name == "Metalness" || name == "Roughness" || name == "Emissive" ||
             name == "RightSurface" || name == "LeftSurface" || name == "TopSurface" || name == "BottomSurface" ||
             name == "FrontSurface" || name == "BackSurface";
+
+        // Beveled cubes bake their bevel proportions based on Size, so Size changes must rebuild the mesh.
+        if (name == "Size") {
+            const auto inst = it->second.Instance.lock();
+            if (const auto partInstance = std::dynamic_pointer_cast<Objects::Part>(inst); partInstance != nullptr) {
+                const auto shape = partInstance->GetProperty("Shape").value<Enums::PartShape>();
+                if (shape == Enums::PartShape::Cube && partInstance->GetProperty("IsBeveled").toBool()) {
+                    layoutChanged = true;
+                    dataChanged = true;
+                }
+            }
+        }
 
         if (layoutChanged) {
             it->second.LayoutDirty = true;
@@ -355,6 +370,28 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
         Enums::PartShape shape = Enums::PartShape::Cube;
         if (const auto partInstance = std::dynamic_pointer_cast<Objects::Part>(inst); partInstance != nullptr) {
             shape = partInstance->GetProperty("Shape").value<Enums::PartShape>();
+            if (shape == Enums::PartShape::Cube && partInstance->GetProperty("IsBeveled").toBool()) {
+                const auto basePart = std::dynamic_pointer_cast<Objects::BasePart>(inst);
+                if (basePart != nullptr) {
+                    const Math::Vector3 size = basePart->GetProperty("Size").value<Math::Vector3>();
+                    const float bevelWidth = static_cast<float>(std::max(0.0, partInstance->GetProperty("BevelWidth").toDouble()));
+                    const bool smoothBevel = partInstance->GetProperty("IsBevelSmooth").toBool();
+                    if (bevelWidth > 0.0F) {
+                        std::ostringstream oss;
+                        oss.setf(std::ios::fixed);
+                        oss << std::setprecision(6)
+                            << static_cast<float>(size.x) << "," << static_cast<float>(size.y) << "," << static_cast<float>(size.z)
+                            << "|w=" << bevelWidth
+                            << (smoothBevel ? "|smooth" : "|flat");
+                        const std::string meshKey = oss.str();
+                        GpuMesh* gpuMesh = GetOrCreateBeveledCubeMesh(size, bevelWidth, smoothBevel);
+                        if (gpuMesh == nullptr) {
+                            return nullptr;
+                        }
+                        return GetOrCreateMeshRef("bevelcube:" + meshKey, *gpuMesh);
+                    }
+                }
+            }
         }
         GpuMesh* gpuMesh = GetOrCreatePrimitiveMesh(shape);
         if (gpuMesh == nullptr) {

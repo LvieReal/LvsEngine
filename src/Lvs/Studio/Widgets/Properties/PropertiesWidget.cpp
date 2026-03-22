@@ -204,6 +204,20 @@ void PropertiesWidget::BindInstances(const std::vector<std::shared_ptr<Engine::C
 
     instance_ = instances_.front();
 
+    if (instances_.size() == 1) {
+        // Track VisibleIf dependencies across all properties, not just the currently-visible ones.
+        // This ensures toggling a dependency (e.g. IsBeveled) triggers a full rebuild.
+        for (const auto& [propertyName, def] : instance_->GetClassDescriptor().PropertyDefinitions()) {
+            static_cast<void>(propertyName);
+            for (const auto& tag : def.CustomTags) {
+                const auto parsed = Engine::Core::PropertyTags::ParseVisibleIfTag(tag);
+                if (parsed.has_value()) {
+                    visibilityDependencies_.insert(Engine::Core::QtBridge::ToQString(parsed->first));
+                }
+            }
+        }
+    }
+
     struct OrderedProperty {
         Engine::Core::String Name;
         Engine::Core::String Category;
@@ -253,14 +267,7 @@ void PropertiesWidget::BindInstances(const std::vector<std::shared_ptr<Engine::C
     for (const auto& ordered : orderedProperties) {
         const auto& property = instance_->GetPropertyObject(ordered.Name);
         const auto& definition = property.Definition();
-        if (instances_.size() == 1) {
-            for (const auto& tag : definition.CustomTags) {
-                const auto parsed = Engine::Core::PropertyTags::ParseVisibleIfTag(tag);
-                if (parsed.has_value()) {
-                    visibilityDependencies_.insert(Engine::Core::QtBridge::ToQString(parsed->first));
-                }
-            }
-        }
+        static_cast<void>(definition);
 
         const QString category = Engine::Core::QtBridge::ToQString(definition.Category);
         const QString propertyNameQt = Engine::Core::QtBridge::ToQString(ordered.Name);
