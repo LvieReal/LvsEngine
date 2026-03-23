@@ -15,27 +15,39 @@ file(GLOB_RECURSE LVS_VULKAN_GLSL_SOURCES CONFIGURE_DEPENDS
     "${LVS_SHADER_SOURCE_DIR}/*.frag"
 )
 
+add_executable(lvs_glsl_preprocess "${CMAKE_CURRENT_SOURCE_DIR}/src/Tools/LvsGlslPreprocess.cpp")
+set_target_properties(lvs_glsl_preprocess PROPERTIES OUTPUT_NAME "lvs_glsl_preprocess")
+
 set(LVS_VULKAN_SPV_OUTPUTS "")
 foreach(shader_src IN LISTS LVS_VULKAN_GLSL_SOURCES)
     file(RELATIVE_PATH shader_rel "${LVS_SHADER_SOURCE_DIR}" "${shader_src}")
     set(shader_spv "${LVS_VULKAN_COMPILED_DIR}/${shader_rel}.spv")
     get_filename_component(shader_spv_dir "${shader_spv}" DIRECTORY)
+    get_filename_component(shader_rel_dir "${shader_rel}" DIRECTORY)
+    get_filename_component(shader_rel_name "${shader_rel}" NAME_WE)
+    get_filename_component(shader_rel_ext "${shader_rel}" EXT)
+    set(shader_pp "${LVS_VULKAN_COMPILED_DIR}/${shader_rel_dir}/${shader_rel_name}.pp${shader_rel_ext}")
+    set(shader_depfile "${shader_spv}.d")
     if(LVS_GLSLANG_VALIDATOR)
         add_custom_command(
             OUTPUT "${shader_spv}"
             COMMAND "${CMAKE_COMMAND}" -E make_directory "${shader_spv_dir}"
-            COMMAND "${LVS_GLSLANG_VALIDATOR}" -V "${shader_src}" -o "${shader_spv}"
-            DEPENDS "${shader_src}"
-            COMMENT "Compiling GLSL -> SPIR-V: ${shader_src}"
+            COMMAND "$<TARGET_FILE:lvs_glsl_preprocess>" --input "${shader_src}" --output "${shader_pp}" --root-dir "${LVS_SHADER_SOURCE_DIR}" --depfile "${shader_depfile}" --dep-target "${shader_spv}"
+            COMMAND "${LVS_GLSLANG_VALIDATOR}" -V "${shader_pp}" -o "${shader_spv}"
+            DEPFILE "${shader_depfile}"
+            DEPENDS "${shader_src}" lvs_glsl_preprocess
+            COMMENT "Preprocessing+compiling GLSL -> SPIR-V: ${shader_src}"
             VERBATIM
         )
     else()
         add_custom_command(
             OUTPUT "${shader_spv}"
             COMMAND "${CMAKE_COMMAND}" -E make_directory "${shader_spv_dir}"
-            COMMAND "${LVS_GLSLC}" "${shader_src}" -o "${shader_spv}"
-            DEPENDS "${shader_src}"
-            COMMENT "Compiling GLSL -> SPIR-V: ${shader_src}"
+            COMMAND "$<TARGET_FILE:lvs_glsl_preprocess>" --input "${shader_src}" --output "${shader_pp}" --root-dir "${LVS_SHADER_SOURCE_DIR}" --depfile "${shader_depfile}" --dep-target "${shader_spv}"
+            COMMAND "${LVS_GLSLC}" "${shader_pp}" -o "${shader_spv}"
+            DEPFILE "${shader_depfile}"
+            DEPENDS "${shader_src}" lvs_glsl_preprocess
+            COMMENT "Preprocessing+compiling GLSL -> SPIR-V: ${shader_src}"
             VERBATIM
         )
     endif()
