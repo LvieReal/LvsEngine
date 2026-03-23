@@ -5,6 +5,7 @@
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
 
 namespace Lvs::AppInfo {
 
@@ -19,6 +20,7 @@ struct AppInfoData {
     int Year{0};
     QString LogoPng{"Logo/LogoShape.png"};
     QString LogoIco{"Logo/LogoShape.ico"};
+    QStringList Credits{};
 };
 
 const AppInfoData& LoadInfo() {
@@ -47,6 +49,14 @@ const AppInfoData& LoadInfo() {
         out.Year = obj.value("year").toInt(out.Year);
         out.LogoPng = obj.value("logo_png").toString(out.LogoPng);
         out.LogoIco = obj.value("logo_ico").toString(out.LogoIco);
+        if (obj.contains("credits") && obj.value("credits").isArray()) {
+            const QJsonArray credits = obj.value("credits").toArray();
+            for (const auto& entry : credits) {
+                if (entry.isString()) {
+                    out.Credits.push_back(entry.toString());
+                }
+            }
+        }
         return out;
     }();
     return info;
@@ -84,6 +94,10 @@ QString GetLogoPng() {
 
 QString GetLogoIco() {
     return LoadInfo().LogoIco;
+}
+
+QStringList GetCredits() {
+    return LoadInfo().Credits;
 }
 
 } // namespace Lvs::AppInfo

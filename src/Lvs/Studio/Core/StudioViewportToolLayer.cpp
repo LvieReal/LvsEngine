@@ -469,7 +469,7 @@ void StudioViewportToolLayer::OnMousePress(QMouseEvent* event, const std::option
         : Engine::Core::Tool::SelectTool;
 
     leftMouseDown_ = true;
-    boxSelectPending_ = true;
+    boxSelectPending_ = activeTool == Engine::Core::Tool::SelectTool;
     boxSelecting_ = false;
     boxSelectStart_ = event->position().toPoint();
     boxSelectModifiers_ = event->modifiers();
@@ -840,7 +840,10 @@ bool StudioViewportToolLayer::CanDragPart() const {
     if (context_ == nullptr || context_->EditorToolState == nullptr || selection_ == nullptr) {
         return false;
     }
-    if (context_->EditorToolState->GetActiveTool() != Engine::Core::Tool::SelectTool) {
+    const Engine::Core::Tool activeTool = context_->EditorToolState->GetActiveTool();
+    if (activeTool != Engine::Core::Tool::SelectTool &&
+        activeTool != Engine::Core::Tool::MoveTool &&
+        activeTool != Engine::Core::Tool::SizeTool) {
         return false;
     }
     const auto topLevelSelected = Engine::Utils::FilterTopLevelInstances(selection_->Get());

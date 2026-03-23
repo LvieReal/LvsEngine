@@ -12,5 +12,6 @@ int GetYear();
 QString GetStudioWindowName();
 QString GetLogoPathPNG();
 QString GetLogoPathICO();
+QStringList GetCredits();
 
 } // namespace Lvs::Studio::Configuration

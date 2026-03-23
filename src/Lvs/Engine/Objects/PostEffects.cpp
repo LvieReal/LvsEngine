@@ -19,10 +19,22 @@ Core::ClassDescriptor& PostEffects::Descriptor() {
             "NeonEnabled", true, true, "Post-Process", "Enable neon glow contribution in post-process composite."
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
-            "InaccurateNeon", true, true, "Post-Process", "Allow emissive parts with very dark colors to still emit glow."
+            "InaccurateNeon",
+            true,
+            true,
+            "Post-Process",
+            "Allow emissive parts with very dark colors to still emit glow.",
+            false,
+            {"VisibleIf:NeonEnabled=true"}
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
-            "NeonBlur", 2.0, true, "Post-Process", "Dual Kawase blur amount for neon glow."
+            "NeonBlur",
+            2.0,
+            true,
+            "Post-Process",
+            "Dual Kawase blur amount for neon glow.",
+            false,
+            {"VisibleIf:NeonEnabled=true"}
         ));
 
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(

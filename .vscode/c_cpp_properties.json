@@ -14,7 +14,8 @@
                 "_UNICODE",
                 "VK_USE_PLATFORM_WIN32_KHR",
                 "WIN32_LEAN_AND_MEAN",
-                "NOMINMAX"
+                "NOMINMAX",
+                "LVS_WITH_QT_BRIDGE"
             ],
             "windowsSdkVersion": "10.0.26100.0",
             "intelliSenseMode": "windows-gcc-x64",
@@ -36,7 +37,8 @@
                 "_UNICODE",
                 "VK_USE_PLATFORM_WIN32_KHR",
                 "WIN32_LEAN_AND_MEAN",
-                "NOMINMAX"
+                "NOMINMAX",
+                "LVS_WITH_QT_BRIDGE"
             ],
             "windowsSdkVersion": "10.0.26100.0",
             "intelliSenseMode": "windows-clang-x64",

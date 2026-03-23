@@ -41,4 +41,8 @@ QString GetLogoPathICO() {
     );
 }
 
+QStringList GetCredits() {
+    return AppInfo::GetCredits();
+}
+
 } // namespace Lvs::Studio::Configuration
