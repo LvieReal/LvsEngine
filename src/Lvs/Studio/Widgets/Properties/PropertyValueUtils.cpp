@@ -75,6 +75,15 @@ QString FormatColor3(const Lvs::Engine::Math::Color3& value) {
     return QString("%1, %2, %3").arg(value.r, 0, 'g', 10).arg(value.g, 0, 'g', 10).arg(value.b, 0, 'g', 10);
 }
 
+bool TryParseColor3(const QString& text, Lvs::Engine::Math::Color3& out) {
+    Lvs::Engine::Math::Vector3 vec;
+    if (!TryParseVector3(text, vec)) {
+        return false;
+    }
+    out = {vec.x, vec.y, vec.z};
+    return true;
+}
+
 QString FormatCFrame(const Lvs::Engine::Math::CFrame& value) {
     const auto rotation = value.ToEulerXYZ();
     return QString("%1, %2, %3 | %4, %5, %6")

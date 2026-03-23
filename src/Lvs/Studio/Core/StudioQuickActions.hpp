@@ -59,6 +59,13 @@ public:
     bool TryShowViewportContextMenu(Engine::Core::Viewport& viewport, const QPoint& globalPos) const;
     bool TryShowExplorerContextMenu(Widgets::Explorer::ExplorerWidget& explorer, const QPoint& globalPos) const;
 
+    void EditCut() const;
+    void EditCopy() const;
+    void EditPaste() const;
+    void EditDelete() const;
+    void EditSelectAll() const;
+    void EditDuplicate() const;
+
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
@@ -85,6 +92,7 @@ private:
     void CutSelection() const;
     void PasteSelectionToTopmostService() const;
     void PasteSelectionIntoSelection() const;
+    void SelectAll() const;
     void GroupSelection() const;
     void UngroupSelection() const;
     void FocusOnSelection() const;

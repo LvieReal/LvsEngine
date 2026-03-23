@@ -1,12 +1,17 @@
 #include "Lvs/Studio/Controllers/TopBarController.hpp"
 
 #include "Lvs/Engine/Core/QtBridge.hpp"
+#include "Lvs/Engine/DataModel/Services/ChangeHistoryService.hpp"
+#include "Lvs/Engine/DataModel/Services/Selection.hpp"
 #include "Lvs/Studio/Core/RegularError.hpp"
 #include "Lvs/Studio/Core/Window.hpp"
 #include "Lvs/Engine/DataModel/Place.hpp"
 #include "Lvs/Engine/DataModel/PlaceManager.hpp"
 #include "Lvs/Studio/Core/DockManager.hpp"
+#include "Lvs/Studio/Core/IconPackManager.hpp"
 #include "Lvs/Studio/Core/PlaceFileUtils.hpp"
+#include "Lvs/Studio/Core/StudioQuickActions.hpp"
+#include "Lvs/Studio/Core/StudioShortcutManager.hpp"
 #include "Lvs/Studio/Widgets/AboutStudioDialog.hpp"
 #include "Lvs/Studio/Widgets/Settings/SettingsWidget.hpp"
 
@@ -38,11 +43,17 @@ TopBarController::TopBarController(
 
 TopBarController::~TopBarController() = default;
 
+void TopBarController::SetQuickActions(Core::StudioQuickActions* quickActions) {
+    quickActions_ = quickActions;
+    RefreshEditActions();
+}
+
 void TopBarController::Build() {
     topBar_ = new QToolBar("TopBar", &window_);
     topBar_->setObjectName("TopBar");
-    topBar_->setMovable(false);
-    topBar_->setFloatable(false);
+    topBar_->setMovable(true);
+    topBar_->setFloatable(true);
+    topBar_->setAllowedAreas(Qt::AllToolBarAreas);
     topBar_->setIconSize(QSize(14, 14));
 
     fileButton_ = new QToolButton(topBar_);
@@ -51,14 +62,28 @@ void TopBarController::Build() {
     fileButton_->setPopupMode(QToolButton::InstantPopup);
     topBar_->addWidget(fileButton_);
 
+    editButton_ = new QToolButton(topBar_);
+    editButton_->setObjectName("TopBarAction");
+    editButton_->setText("Edit");
+    editButton_->setPopupMode(QToolButton::InstantPopup);
+    topBar_->addWidget(editButton_);
+
     viewButton_ = new QToolButton(topBar_);
     viewButton_->setObjectName("TopBarAction");
     viewButton_->setText("View");
     viewButton_->setPopupMode(QToolButton::InstantPopup);
     topBar_->addWidget(viewButton_);
 
+    toolsButton_ = new QToolButton(topBar_);
+    toolsButton_->setObjectName("TopBarAction");
+    toolsButton_->setText("Tools");
+    toolsButton_->setPopupMode(QToolButton::InstantPopup);
+    topBar_->addWidget(toolsButton_);
+
     BuildFileMenu();
+    BuildEditMenu();
     BuildViewMenu();
+    BuildToolsMenu();
 
     window_.addToolBar(Qt::TopToolBarArea, topBar_);
 }
@@ -66,9 +91,6 @@ void TopBarController::Build() {
 void TopBarController::BuildFileMenu() {
     fileMenu_ = new QMenu(fileButton_);
     fileButton_->setMenu(fileMenu_);
-
-    settingsWidget_ = std::make_unique<Widgets::Settings::SettingsWidget>(&window_);
-    aboutDialog_ = std::make_unique<Widgets::AboutStudioDialog>(&window_);
 
     newAction_ = fileMenu_->addAction("New");
     openAction_ = fileMenu_->addAction("Open from File");
@@ -84,6 +106,7 @@ void TopBarController::BuildFileMenu() {
             window_.HideBusy("Ready");
             RefreshFileActions();
             RefreshViewActions();
+            RefreshEditActions();
         } catch (const std::exception& ex) {
             window_.HideBusy();
             Engine::Core::RegularError::ShowErrorFromException(ex);
@@ -113,6 +136,7 @@ void TopBarController::BuildFileMenu() {
             window_.HideBusy("Ready");
             RefreshFileActions();
             RefreshViewActions();
+            RefreshEditActions();
         } catch (const std::exception& ex) {
             window_.HideBusy();
             Engine::Core::RegularError::ShowErrorFromException(ex);
@@ -130,27 +154,13 @@ void TopBarController::BuildFileMenu() {
     });
 
     fileMenu_->addSeparator();
-    auto* settingsAction = fileMenu_->addAction("Studio Settings");
-    auto* aboutAction = fileMenu_->addAction("About Studio");
-    fileMenu_->addSeparator();
     closeAction_ = fileMenu_->addAction("Close");
-
-    QObject::connect(settingsAction, &QAction::triggered, &window_, [this]() {
-        settingsWidget_->show();
-        settingsWidget_->raise();
-        settingsWidget_->activateWindow();
-    });
-
-    QObject::connect(aboutAction, &QAction::triggered, &window_, [this]() {
-        aboutDialog_->show();
-        aboutDialog_->raise();
-        aboutDialog_->activateWindow();
-    });
 
     QObject::connect(closeAction_, &QAction::triggered, &window_, [this]() {
         static_cast<void>(CloseCurrentPlaceIfAllowed());
         RefreshFileActions();
         RefreshViewActions();
+        RefreshEditActions();
     });
 
     window_.SetBeforeCloseHandler([this]() {
@@ -160,12 +170,134 @@ void TopBarController::BuildFileMenu() {
     placeManager_.PlaceOpened.Connect([this](const std::shared_ptr<Engine::DataModel::Place>&) {
         RefreshFileActions();
         RefreshViewActions();
+        RefreshEditActions();
     });
     placeManager_.PlaceClosed.Connect([this](const std::shared_ptr<Engine::DataModel::Place>&) {
         RefreshFileActions();
         RefreshViewActions();
+        RefreshEditActions();
     });
     RefreshFileActions();
+}
+
+void TopBarController::BuildEditMenu() {
+    editMenu_ = new QMenu(editButton_);
+    editButton_->setMenu(editMenu_);
+
+    undoAction_ = editMenu_->addAction("Undo");
+    Core::StudioShortcutManager::ApplyToAction(*undoAction_, Core::StudioShortcutAction::Undo);
+    Core::StudioShortcutManager::ApplyIconToAction(*undoAction_, Core::StudioShortcutAction::Undo);
+    QObject::connect(undoAction_, &QAction::triggered, &window_, [this]() {
+        const auto place = placeManager_.GetCurrentPlace();
+        if (place == nullptr) {
+            return;
+        }
+        const auto service = std::dynamic_pointer_cast<Engine::DataModel::ChangeHistoryService>(
+            place->FindService("ChangeHistoryService")
+        );
+        if (service != nullptr) {
+            service->Undo();
+        }
+    });
+
+    redoAction_ = editMenu_->addAction("Redo");
+    Core::StudioShortcutManager::ApplyToAction(*redoAction_, Core::StudioShortcutAction::Redo);
+    Core::StudioShortcutManager::ApplyIconToAction(*redoAction_, Core::StudioShortcutAction::Redo);
+    QObject::connect(redoAction_, &QAction::triggered, &window_, [this]() {
+        const auto place = placeManager_.GetCurrentPlace();
+        if (place == nullptr) {
+            return;
+        }
+        const auto service = std::dynamic_pointer_cast<Engine::DataModel::ChangeHistoryService>(
+            place->FindService("ChangeHistoryService")
+        );
+        if (service != nullptr) {
+            service->Redo();
+        }
+    });
+
+    editMenu_->addSeparator();
+
+    cutAction_ = editMenu_->addAction("Cut");
+    Core::StudioShortcutManager::ApplyToAction(*cutAction_, Core::StudioShortcutAction::Cut);
+    Core::StudioShortcutManager::ApplyIconToAction(*cutAction_, Core::StudioShortcutAction::Cut);
+    QObject::connect(cutAction_, &QAction::triggered, &window_, [this]() {
+        if (quickActions_ != nullptr) {
+            quickActions_->EditCut();
+        }
+    });
+
+    copyAction_ = editMenu_->addAction("Copy");
+    Core::StudioShortcutManager::ApplyToAction(*copyAction_, Core::StudioShortcutAction::Copy);
+    Core::StudioShortcutManager::ApplyIconToAction(*copyAction_, Core::StudioShortcutAction::Copy);
+    QObject::connect(copyAction_, &QAction::triggered, &window_, [this]() {
+        if (quickActions_ != nullptr) {
+            quickActions_->EditCopy();
+        }
+    });
+
+    pasteAction_ = editMenu_->addAction("Paste");
+    Core::StudioShortcutManager::ApplyToAction(*pasteAction_, Core::StudioShortcutAction::Paste);
+    Core::StudioShortcutManager::ApplyIconToAction(*pasteAction_, Core::StudioShortcutAction::Paste);
+    QObject::connect(pasteAction_, &QAction::triggered, &window_, [this]() {
+        if (quickActions_ != nullptr) {
+            quickActions_->EditPaste();
+        }
+    });
+
+    editMenu_->addSeparator();
+
+    deleteAction_ = editMenu_->addAction("Delete");
+    Core::StudioShortcutManager::ApplyToAction(*deleteAction_, Core::StudioShortcutAction::Delete);
+    Core::StudioShortcutManager::ApplyIconToAction(*deleteAction_, Core::StudioShortcutAction::Delete);
+    QObject::connect(deleteAction_, &QAction::triggered, &window_, [this]() {
+        if (quickActions_ != nullptr) {
+            quickActions_->EditDelete();
+        }
+    });
+
+    selectAllAction_ = editMenu_->addAction("Select All");
+    Core::StudioShortcutManager::ApplyToAction(*selectAllAction_, Core::StudioShortcutAction::SelectAll);
+    Core::StudioShortcutManager::ApplyIconToAction(*selectAllAction_, Core::StudioShortcutAction::SelectAll);
+    QObject::connect(selectAllAction_, &QAction::triggered, &window_, [this]() {
+        if (quickActions_ != nullptr) {
+            quickActions_->EditSelectAll();
+        }
+    });
+
+    duplicateAction_ = editMenu_->addAction("Duplicate");
+    Core::StudioShortcutManager::ApplyToAction(*duplicateAction_, Core::StudioShortcutAction::Duplicate);
+    Core::StudioShortcutManager::ApplyIconToAction(*duplicateAction_, Core::StudioShortcutAction::Duplicate);
+    QObject::connect(duplicateAction_, &QAction::triggered, &window_, [this]() {
+        if (quickActions_ != nullptr) {
+            quickActions_->EditDuplicate();
+        }
+    });
+
+    QObject::connect(editMenu_, &QMenu::aboutToShow, &window_, [this]() { RefreshEditActions(); });
+    RefreshEditActions();
+}
+
+void TopBarController::BuildToolsMenu() {
+    toolsMenu_ = new QMenu(toolsButton_);
+    toolsButton_->setMenu(toolsMenu_);
+
+    settingsWidget_ = std::make_unique<Widgets::Settings::SettingsWidget>(&window_);
+    aboutDialog_ = std::make_unique<Widgets::AboutStudioDialog>(&window_);
+
+    auto* settingsAction = toolsMenu_->addAction(Core::GetIconPackManager().GetIcon("cog.png"), "Studio Settings");
+    QObject::connect(settingsAction, &QAction::triggered, &window_, [this]() {
+        settingsWidget_->show();
+        settingsWidget_->raise();
+        settingsWidget_->activateWindow();
+    });
+
+    auto* aboutAction = toolsMenu_->addAction(Core::GetIconPackManager().GetIcon("information.png"), "About Studio");
+    QObject::connect(aboutAction, &QAction::triggered, &window_, [this]() {
+        aboutDialog_->show();
+        aboutDialog_->raise();
+        aboutDialog_->activateWindow();
+    });
 }
 
 void TopBarController::BuildViewMenu() {
@@ -194,6 +326,60 @@ void TopBarController::RefreshFileActions() {
     if (closeAction_ != nullptr) {
         closeAction_->setVisible(hasPlace);
         closeAction_->setEnabled(hasPlace);
+    }
+}
+
+void TopBarController::RefreshEditActions() {
+    const auto place = placeManager_.GetCurrentPlace();
+    const bool hasPlace = place != nullptr;
+
+    if (undoAction_ != nullptr) {
+        undoAction_->setEnabled(hasPlace);
+    }
+    if (redoAction_ != nullptr) {
+        redoAction_->setEnabled(hasPlace);
+    }
+
+    bool canCopy = false;
+    bool canCut = false;
+    bool canDelete = false;
+    bool canDuplicate = false;
+
+    if (place != nullptr) {
+        const auto selection = std::dynamic_pointer_cast<Engine::DataModel::Selection>(place->FindService("Selection"));
+        if (selection != nullptr) {
+            for (const auto& inst : selection->Get()) {
+                if (inst == nullptr || inst->IsService() || !inst->IsInsertable()) {
+                    continue;
+                }
+                canCopy = true;
+                if (inst->GetParent() != nullptr) {
+                    canCut = true;
+                    canDelete = true;
+                    canDuplicate = true;
+                }
+            }
+        }
+    }
+
+    const bool canQuickAction = hasPlace && quickActions_ != nullptr;
+    if (cutAction_ != nullptr) {
+        cutAction_->setEnabled(canQuickAction && canCut);
+    }
+    if (copyAction_ != nullptr) {
+        copyAction_->setEnabled(canQuickAction && canCopy);
+    }
+    if (pasteAction_ != nullptr) {
+        pasteAction_->setEnabled(canQuickAction);
+    }
+    if (deleteAction_ != nullptr) {
+        deleteAction_->setEnabled(canQuickAction && canDelete);
+    }
+    if (selectAllAction_ != nullptr) {
+        selectAllAction_->setEnabled(canQuickAction);
+    }
+    if (duplicateAction_ != nullptr) {
+        duplicateAction_->setEnabled(canQuickAction && canDuplicate);
     }
 }
 

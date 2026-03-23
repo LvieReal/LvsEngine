@@ -39,7 +39,8 @@ void DockManager::Build() {
     placeRequiredDocks_ = {explorer_, properties_, output_};
 
     window_.addDockWidget(Qt::RightDockWidgetArea, explorer_);
-    window_.addDockWidget(Qt::LeftDockWidgetArea, properties_);
+    window_.addDockWidget(Qt::RightDockWidgetArea, properties_);
+    window_.splitDockWidget(explorer_, properties_, Qt::Vertical);
     window_.addDockWidget(Qt::BottomDockWidgetArea, output_);
 
     if (!RestoreDockState()) {
@@ -88,9 +89,6 @@ void DockManager::SaveState() const {
     if (isStateSaveSuppressed_) {
         return;
     }
-    if (!hasOpenPlace_) {
-        return;
-    }
     const QByteArray state = window_.saveState(STATE_VERSION);
     const QString encoded = QString::fromLatin1(state.toBase64());
     Core::Settings::Set("DockLayoutState", encoded);
@@ -100,6 +98,7 @@ void DockManager::CachePlaceRequiredDockVisibility() {
     if (!hasOpenPlace_) {
         return;
     }
+    SaveState();
     cachedPlaceRequiredVisibility_.clear();
     for (QDockWidget* dock : GetDockableWidgets()) {
         if (!DockRequiresOpenPlace(dock)) {
@@ -159,6 +158,11 @@ void DockManager::ApplyDefaultSizing() const {
     const int totalWidth = window_.width();
     const int defaultWidth = static_cast<int>(totalWidth * 0.125);
     window_.resizeDocks({explorer_, properties_}, {defaultWidth, defaultWidth}, Qt::Horizontal);
+
+    const int totalHeight = window_.height();
+    const int explorerHeight = static_cast<int>(totalHeight * 0.40);
+    const int propertiesHeight = static_cast<int>(totalHeight * 0.60);
+    window_.resizeDocks({explorer_, properties_}, {explorerHeight, propertiesHeight}, Qt::Vertical);
 }
 
 void DockManager::ApplyDefaultHiddenState() const {

@@ -444,6 +444,9 @@ bool PropertiesWidget::ShouldShowProperty(
     const std::shared_ptr<Engine::Core::Instance>& instance,
     const Engine::Core::PropertyDefinition& definition
 ) const {
+    if (HasCustomTag(definition.CustomTags, "Hidden")) {
+        return false;
+    }
     for (const auto& tag : definition.CustomTags) {
         const auto parsed = Engine::Core::PropertyTags::ParseVisibleIfTag(tag);
         if (!parsed.has_value()) {
@@ -506,6 +509,38 @@ bool PropertiesWidget::MatchesConditionValue(const QVariant& actualValue, const 
     }
 
     return actualValue.toString().compare(expectedValue, Qt::CaseInsensitive) == 0;
+}
+
+void PropertiesWidget::BeginBatchEdit(const QString& propertyName) {
+    if (historyService_ == nullptr) {
+        return;
+    }
+    if (historyService_->IsRecording()) {
+        return;
+    }
+    if (batchEditStartedRecording_) {
+        return;
+    }
+
+    batchEditProperty_ = propertyName;
+    batchEditStartedRecording_ = true;
+    historyService_->BeginRecording(std::string("Set ") + Engine::Core::QtBridge::ToStdString(propertyName));
+}
+
+void PropertiesWidget::EndBatchEdit(const QString& propertyName) {
+    if (historyService_ == nullptr) {
+        return;
+    }
+    if (!batchEditStartedRecording_) {
+        return;
+    }
+    if (batchEditProperty_ != propertyName) {
+        return;
+    }
+
+    batchEditStartedRecording_ = false;
+    batchEditProperty_.clear();
+    historyService_->FinishRecording();
 }
 
 void PropertiesWidget::OnPropertyEdited(const QString& propertyName, const QVariant& value) {
@@ -616,6 +651,12 @@ QWidget* PropertiesWidget::CreateEditor(
             parent,
             [this](const QString& editedPropertyName, const QVariant& editedValue) {
                 OnPropertyEdited(editedPropertyName, editedValue);
+            },
+            [this](const QString& editedPropertyName) {
+                BeginBatchEdit(editedPropertyName);
+            },
+            [this](const QString& editedPropertyName) {
+                EndBatchEdit(editedPropertyName);
             }
         );
     }

@@ -10,6 +10,22 @@ Core::ClassDescriptor& PostEffects::Descriptor() {
     static Core::ClassDescriptor descriptor("PostEffects", &Core::Instance::Descriptor());
     static const bool initialized = []() {
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
+            "GammaCorrection", true, true, "Post-Process", "Apply regular 2.2 gamma to lighting."
+        ));
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
+            "Dithering", true, true, "Post-Process", "Apply post-process dithering to reduce visible color banding."
+        ));
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
+            "NeonEnabled", true, true, "Post-Process", "Enable neon glow contribution in post-process composite."
+        ));
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
+            "InaccurateNeon", true, true, "Post-Process", "Allow emissive parts with very dark colors to still emit glow."
+        ));
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
+            "NeonBlur", 2.0, true, "Post-Process", "Dual Kawase blur amount for neon glow."
+        ));
+
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
             "HBAOEnabled", true, true, "HBAO", "Enable Horizon-Based Ambient Occlusion post effect."
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(

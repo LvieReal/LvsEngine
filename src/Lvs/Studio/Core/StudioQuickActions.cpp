@@ -126,6 +126,30 @@ void StudioQuickActions::SetContext(const Engine::EngineContextPtr& context) {
     context_ = context;
 }
 
+void StudioQuickActions::EditCut() const {
+    CutSelection();
+}
+
+void StudioQuickActions::EditCopy() const {
+    CopySelection();
+}
+
+void StudioQuickActions::EditPaste() const {
+    PasteSelectionToTopmostService();
+}
+
+void StudioQuickActions::EditDelete() const {
+    DeleteSelection();
+}
+
+void StudioQuickActions::EditSelectAll() const {
+    SelectAll();
+}
+
+void StudioQuickActions::EditDuplicate() const {
+    DuplicateSelection();
+}
+
 bool StudioQuickActions::TryShowViewportContextMenu(Engine::Core::Viewport& viewport, const QPoint& globalPos) const {
     if (!viewport.hasFocus() && !viewport.underMouse()) {
         return false;
@@ -221,6 +245,7 @@ bool StudioQuickActions::eventFilter(QObject* watched, QEvent* event) {
     const bool quickActionShortcut = quickActionContext && (
         StudioShortcutManager::Matches(StudioShortcutAction::Duplicate, *keyEvent) ||
         StudioShortcutManager::Matches(StudioShortcutAction::Delete, *keyEvent) ||
+        StudioShortcutManager::Matches(StudioShortcutAction::SelectAll, *keyEvent) ||
         StudioShortcutManager::Matches(StudioShortcutAction::Group, *keyEvent) ||
         StudioShortcutManager::Matches(StudioShortcutAction::Ungroup, *keyEvent) ||
         StudioShortcutManager::Matches(StudioShortcutAction::Copy, *keyEvent) ||
@@ -255,6 +280,8 @@ bool StudioQuickActions::eventFilter(QObject* watched, QEvent* event) {
         DuplicateSelection();
     } else if (StudioShortcutManager::Matches(StudioShortcutAction::Delete, *keyEvent)) {
         DeleteSelection();
+    } else if (StudioShortcutManager::Matches(StudioShortcutAction::SelectAll, *keyEvent)) {
+        SelectAll();
     } else if (StudioShortcutManager::Matches(StudioShortcutAction::Group, *keyEvent)) {
         GroupSelection();
     } else if (StudioShortcutManager::Matches(StudioShortcutAction::Ungroup, *keyEvent)) {
@@ -273,6 +300,33 @@ bool StudioQuickActions::eventFilter(QObject* watched, QEvent* event) {
 
     event->accept();
     return true;
+}
+
+void StudioQuickActions::SelectAll() const {
+    try {
+        const auto place = GetCurrentPlace();
+        const auto selectionService = GetSelectionService(place);
+        if (place == nullptr || selectionService == nullptr) {
+            return;
+        }
+
+        const auto workspace = std::dynamic_pointer_cast<Engine::DataModel::Workspace>(place->FindService("Workspace"));
+        if (workspace == nullptr) {
+            return;
+        }
+
+        std::vector<std::shared_ptr<Engine::Core::Instance>> targets;
+        for (const auto& inst : workspace->GetDescendants()) {
+            if (inst == nullptr || inst->IsService() || !inst->IsInsertable() || inst->GetParent() == nullptr) {
+                continue;
+            }
+            targets.push_back(inst);
+        }
+
+        selectionService->Set(targets);
+    } catch (const std::exception& ex) {
+        Engine::Core::RegularError::ShowErrorFromException(ex);
+    }
 }
 
 std::shared_ptr<Engine::DataModel::Place> StudioQuickActions::GetCurrentPlace() const {
@@ -369,13 +423,18 @@ void StudioQuickActions::ActivateTool(const Engine::Core::Tool tool) const {
         return;
     }
 
-    if (toolbarController_ != nullptr) {
-        toolbarController_->ActivateTool(tool);
+    if (context_->EditorToolState == nullptr) {
         return;
     }
-    if (context_->EditorToolState != nullptr) {
-        context_->EditorToolState->SetTool(tool);
+
+    const Engine::Core::Tool currentTool = context_->EditorToolState->GetActiveTool();
+    const Engine::Core::Tool nextTool = (currentTool == tool) ? Engine::Core::Tool::NoneTool : tool;
+
+    if (toolbarController_ != nullptr) {
+        toolbarController_->ActivateTool(nextTool);
+        return;
     }
+    context_->EditorToolState->SetTool(nextTool);
 }
 
 void StudioQuickActions::DeleteSelection() const {

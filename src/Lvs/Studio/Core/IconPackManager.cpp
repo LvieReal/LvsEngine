@@ -31,6 +31,7 @@ const QHash<QString, QString> CLASS_ICON_MAP = {
     {"Camera", "camera.png"},
     {"DirectionalLight", "weather_sun.png"},
     {"Skybox", "picture.png"},
+    {"PostEffects", "color_wheel.png"},
     {"Part", "brick.png"},
     {"MeshPart", "box.png"},
     {"Model", "bricks.png"},

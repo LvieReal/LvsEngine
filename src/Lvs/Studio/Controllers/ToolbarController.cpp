@@ -28,8 +28,9 @@ void ToolbarController::Build() {
 
     toolbar_ = new QToolBar("Edit Modes", &window_);
     toolbar_->setObjectName("EditModes");
-    toolbar_->setMovable(false);
-    toolbar_->setFloatable(false);
+    toolbar_->setMovable(true);
+    toolbar_->setFloatable(true);
+    toolbar_->setAllowedAreas(Qt::AllToolBarAreas);
     toolbar_->setIconSize(QSize(16, 16));
     toolbar_->setToolButtonStyle(Qt::ToolButtonIconOnly);
 

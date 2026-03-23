@@ -18,6 +18,7 @@ class Window;
 
 namespace Lvs::Studio::Core {
 class DockManager;
+class StudioQuickActions;
 }
 
 namespace Lvs::Engine::DataModel {
@@ -43,11 +44,15 @@ public:
     );
     ~TopBarController();
     void Build();
+    void SetQuickActions(Core::StudioQuickActions* quickActions);
 
 private:
     void BuildFileMenu();
+    void BuildEditMenu();
     void BuildViewMenu();
+    void BuildToolsMenu();
     void RefreshFileActions();
+    void RefreshEditActions();
     void RefreshViewActions();
     bool SaveCurrentPlaceWithDialog() const;
     bool CloseCurrentPlaceIfAllowed();
@@ -60,16 +65,29 @@ private:
     Engine::DataModel::PlaceManager& placeManager_;
     QToolBar* topBar_{nullptr};
     QToolButton* fileButton_{nullptr};
+    QToolButton* editButton_{nullptr};
     QToolButton* viewButton_{nullptr};
+    QToolButton* toolsButton_{nullptr};
     QMenu* fileMenu_{nullptr};
+    QMenu* editMenu_{nullptr};
     QMenu* viewMenu_{nullptr};
+    QMenu* toolsMenu_{nullptr};
     QAction* newAction_{nullptr};
     QAction* openAction_{nullptr};
     QAction* saveAction_{nullptr};
     QAction* closeAction_{nullptr};
+    QAction* undoAction_{nullptr};
+    QAction* redoAction_{nullptr};
+    QAction* cutAction_{nullptr};
+    QAction* copyAction_{nullptr};
+    QAction* pasteAction_{nullptr};
+    QAction* deleteAction_{nullptr};
+    QAction* selectAllAction_{nullptr};
+    QAction* duplicateAction_{nullptr};
     QList<QPair<QDockWidget*, QAction*>> viewActions_;
     std::unique_ptr<Widgets::AboutStudioDialog> aboutDialog_;
     std::unique_ptr<Widgets::Settings::SettingsWidget> settingsWidget_;
+    Core::StudioQuickActions* quickActions_{nullptr};
 };
 
 } // namespace Lvs::Studio::Controllers

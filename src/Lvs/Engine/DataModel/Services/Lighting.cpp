@@ -16,19 +16,49 @@ Core::ClassDescriptor& Lighting::Descriptor() {
     static Core::ClassDescriptor descriptor("Lighting", &Service::Descriptor());
     static const bool initialized = []() {
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
-            "GammaCorrection", true, true, "Rendering", "Apply regular 2.2 gamma to lighting."
+            "GammaCorrection",
+            true,
+            false,
+            "Rendering",
+            "Moved to Lighting/PostEffects (legacy).",
+            true,
+            {"Hidden"}
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
-            "Dithering", true, true, "Rendering", "Apply post-process dithering to reduce visible color banding."
+            "Dithering",
+            true,
+            false,
+            "Rendering",
+            "Moved to Lighting/PostEffects (legacy).",
+            true,
+            {"Hidden"}
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
-            "InaccurateNeon", true, true, "Rendering", "Allow emissive parts with very dark colors to still emit glow."
+            "NeonEnabled",
+            true,
+            false,
+            "Rendering",
+            "Moved to Lighting/PostEffects (legacy).",
+            true,
+            {"Hidden"}
+        ));
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
+            "InaccurateNeon",
+            true,
+            false,
+            "Rendering",
+            "Moved to Lighting/PostEffects (legacy).",
+            true,
+            {"Hidden"}
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
-            "NeonBlur", 2.0, true, "Rendering", "Dual Kawase blur amount for neon glow."
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
-            "NeonEnabled", true, true, "Rendering", "Enable neon glow contribution in post-process composite."
+            "NeonBlur",
+            2.0,
+            false,
+            "Rendering",
+            "Moved to Lighting/PostEffects (legacy).",
+            true,
+            {"Hidden"}
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Math::Color3>(
             "Ambient", Math::Color3{1.0, 1.0, 1.0}, true, "Rendering", "Global ambient color."

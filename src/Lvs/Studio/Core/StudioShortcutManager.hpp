@@ -18,6 +18,7 @@ enum class StudioShortcutAction {
     Redo,
     Duplicate,
     Delete,
+    SelectAll,
     Group,
     Ungroup,
     Copy,
@@ -33,6 +34,7 @@ public:
     [[nodiscard]] static QList<QKeySequence> Shortcuts(StudioShortcutAction action);
     [[nodiscard]] static bool Matches(StudioShortcutAction action, const QKeyEvent& event);
     static void ApplyToAction(QAction& action, StudioShortcutAction shortcut);
+    static void ApplyIconToAction(QAction& action, StudioShortcutAction shortcut);
 };
 
 } // namespace Lvs::Studio::Core

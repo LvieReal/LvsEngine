@@ -114,7 +114,6 @@ void RenderContext::Render() {
     if (place_ != nullptr) {
         lightingService = std::dynamic_pointer_cast<DataModel::Lighting>(place_->FindService("Lighting"));
         if (lightingService != nullptr) {
-            scene.NeonBlur = static_cast<float>(std::max(0.0, lightingService->GetProperty("NeonBlur").toDouble()));
             fresnelAmount = static_cast<float>(std::clamp(lightingService->GetProperty("FresnelAmount").toDouble(), 0.0, 1.0));
 
             scene.DirectionalShadowCount = 0U;
@@ -168,6 +167,13 @@ void RenderContext::Render() {
                 );
             }
         }
+    }
+
+    if (postEffects != nullptr) {
+        scene.NeonBlur = static_cast<float>(std::max(0.0, postEffects->GetProperty("NeonBlur").toDouble()));
+    } else if (lightingService != nullptr) {
+        // Back-compat: moved to Lighting/PostEffects, but old places may still have it on Lighting.
+        scene.NeonBlur = static_cast<float>(std::max(0.0, lightingService->GetProperty("NeonBlur").toDouble()));
     }
     scene.EnableShadows = scene.DirectionalShadowCount > 0U;
     scene.ShadowTarget = SceneData::PassTarget{

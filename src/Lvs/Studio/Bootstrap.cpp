@@ -83,6 +83,9 @@ void Run(QApplication& app, Engine::Core::Window& window, const Engine::EngineCo
         studio->ViewportManager != nullptr ? studio->ViewportManager->GetViewport() : nullptr,
         studio->ToolbarController.get()
     );
+    if (studio->TopBarController != nullptr) {
+        studio->TopBarController->SetQuickActions(studio->StudioQuickActions.get());
+    }
 
     studio->DockManager->HidePlaceRequiredDocks();
     studio->ViewportManager->Hide();

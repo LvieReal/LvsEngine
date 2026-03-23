@@ -1,5 +1,6 @@
 #include "Lvs/Studio/Core/StudioShortcutManager.hpp"
 
+#include "Lvs/Studio/Core/IconPackManager.hpp"
 #include "Lvs/Studio/Core/Settings.hpp"
 
 #include <QAction>
@@ -44,6 +45,8 @@ QList<QKeySequence> DefaultShortcuts(const StudioShortcutAction action) {
             return ParseShortcuts("Ctrl+D");
         case StudioShortcutAction::Delete:
             return ParseShortcuts("Delete");
+        case StudioShortcutAction::SelectAll:
+            return ParseShortcuts("Ctrl+A");
         case StudioShortcutAction::Group:
             return ParseShortcuts("Ctrl+G");
         case StudioShortcutAction::Ungroup:
@@ -58,6 +61,29 @@ QList<QKeySequence> DefaultShortcuts(const StudioShortcutAction action) {
             return ParseShortcuts("Ctrl+Shift+V");
         case StudioShortcutAction::FocusOnSelection:
             return ParseShortcuts("F");
+        default:
+            return {};
+    }
+}
+
+QString DefaultIconName(const StudioShortcutAction action) {
+    switch (action) {
+        case StudioShortcutAction::Undo:
+            return "arrow_undo.png";
+        case StudioShortcutAction::Redo:
+            return "arrow_redo.png";
+        case StudioShortcutAction::Cut:
+            return "cut.png";
+        case StudioShortcutAction::Copy:
+            return "page_copy.png";
+        case StudioShortcutAction::Paste:
+            return "page_paste.png";
+        case StudioShortcutAction::Delete:
+            return "delete.png";
+        case StudioShortcutAction::Duplicate:
+            return "page_copy.png";
+        case StudioShortcutAction::SelectAll:
+            return "table_multiple.png";
         default:
             return {};
     }
@@ -108,6 +134,14 @@ void StudioShortcutManager::ApplyToAction(QAction& action, const StudioShortcutA
         return;
     }
     action.setShortcuts(shortcuts);
+}
+
+void StudioShortcutManager::ApplyIconToAction(QAction& action, const StudioShortcutAction shortcut) {
+    const QString iconName = DefaultIconName(shortcut);
+    if (iconName.isEmpty()) {
+        return;
+    }
+    action.setIcon(Core::GetIconPackManager().GetIcon(iconName));
 }
 
 } // namespace Lvs::Studio::Core

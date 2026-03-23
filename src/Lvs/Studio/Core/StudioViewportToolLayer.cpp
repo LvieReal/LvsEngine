@@ -256,6 +256,7 @@ const Engine::Utils::PartBVH* StudioViewportToolLayer::GetWorkspaceRaycastBVH() 
     auto markStructureDirty = [this]() {
         workspaceRaycastCacheDirty_ = true;
         workspaceSelectionCacheDirty_ = true;
+        InvalidateSelectionBoxCache();
         if (gizmoDragging_ || partDragging_) {
             return;
         }
@@ -420,7 +421,7 @@ void StudioViewportToolLayer::OnFrame(const double deltaSeconds, const std::opti
         LVS_BENCH_SCOPE("StudioViewportToolLayer::OnFrame");
     }
     selectionBoxRescanSeconds_ += std::max(0.0, deltaSeconds);
-    const double rescanInterval = selectionBoxCache_.empty() ? 15.0 : 1.0;
+    const double rescanInterval = selectionBoxCache_.empty() ? 0.25 : 1.0;
     if (selectionBoxCacheDirty_ || selectionBoxRescanSeconds_ >= rescanInterval) {
         RescanSelectionBoxCache();
         selectionBoxRescanSeconds_ = 0.0;
@@ -462,6 +463,11 @@ void StudioViewportToolLayer::OnMousePress(QMouseEvent* event, const std::option
         return;
     }
 
+    const Engine::Core::Tool activeTool =
+        context_ != nullptr && context_->EditorToolState != nullptr
+        ? context_->EditorToolState->GetActiveTool()
+        : Engine::Core::Tool::SelectTool;
+
     leftMouseDown_ = true;
     boxSelectPending_ = true;
     boxSelecting_ = false;
@@ -475,6 +481,11 @@ void StudioViewportToolLayer::OnMousePress(QMouseEvent* event, const std::option
     }
     if (boxSelectRubberBand_ != nullptr) {
         boxSelectRubberBand_->hide();
+    }
+    if (activeTool == Engine::Core::Tool::NoneTool) {
+        boxSelectPending_ = false;
+        boxSelecting_ = false;
+        return;
     }
     if (!ray.has_value()) {
         return;
@@ -829,6 +840,9 @@ bool StudioViewportToolLayer::CanDragPart() const {
     if (context_ == nullptr || context_->EditorToolState == nullptr || selection_ == nullptr) {
         return false;
     }
+    if (context_->EditorToolState->GetActiveTool() != Engine::Core::Tool::SelectTool) {
+        return false;
+    }
     const auto topLevelSelected = Engine::Utils::FilterTopLevelInstances(selection_->Get());
     const auto selectedParts = Engine::Utils::CollectBasePartsFromInstances(topLevelSelected);
     for (const auto& part : selectedParts) {
@@ -867,13 +881,24 @@ bool StudioViewportToolLayer::TryBeginPartDrag(const Engine::Utils::Ray& ray) {
         return false;
     }
 
-    const auto aabb = Engine::Utils::BuildPartWorldAABB(hitPart);
-    const Engine::Math::Vector3 halfExtents = (aabb.Max - aabb.Min) * 0.5;
-    const Engine::Math::Vector3 startPosition = hitPart->GetWorldPosition();
     const Engine::Math::Vector3 hitPoint = ray.Origin + ray.Direction * hitDistance;
+
+    std::vector<std::shared_ptr<Engine::Objects::BasePart>> dragParts;
+    if (selection_ != nullptr) {
+        const auto topLevelSelected = Engine::Utils::FilterTopLevelInstances(selection_->Get());
+        dragParts = Engine::Utils::CollectBasePartsFromInstances(topLevelSelected);
+    }
+    if (dragParts.empty()) {
+        dragParts.push_back(hitPart);
+    }
+
+    const auto dragBounds = Engine::Utils::ComputeCombinedWorldAABB(dragParts);
+    const Engine::Math::AABB aabb = dragBounds.has_value() ? dragBounds.value() : Engine::Utils::BuildPartWorldAABB(hitPart);
+    const Engine::Math::Vector3 halfExtents = (aabb.Max - aabb.Min) * 0.5;
+    const Engine::Math::Vector3 startPosition = aabb.Centroid();
     const Engine::Math::Vector3 grabOffset = hitPoint - startPosition;
-    const Engine::Math::Vector3 size = hitPart->GetProperty("Size").value<Engine::Math::Vector3>();
-    const double maxAxis = std::max({std::abs(size.x), std::abs(size.y), std::abs(size.z)});
+    const Engine::Math::Vector3 extents = aabb.Max - aabb.Min;
+    const double maxAxis = std::max({std::abs(extents.x), std::abs(extents.y), std::abs(extents.z)});
     const double fallbackDepth = std::max(0.1, maxAxis * 2.0);
 
     PartDragState state{
@@ -1122,7 +1147,12 @@ void StudioViewportToolLayer::AppendGizmoSelectionBox(
         }
     }
 
-    if (hoveredPart_ != nullptr && hoveredPart_->GetParent() != nullptr) {
+    const Engine::Core::Tool activeTool =
+        context_ != nullptr && context_->EditorToolState != nullptr
+        ? context_->EditorToolState->GetActiveTool()
+        : Engine::Core::Tool::SelectTool;
+
+    if (activeTool != Engine::Core::Tool::NoneTool && hoveredPart_ != nullptr && hoveredPart_->GetParent() != nullptr) {
         const bool isHoveredSelected = cachedSelectedParts_.contains(hoveredPart_.get());
 
         if (!isHoveredSelected) {
@@ -1214,14 +1244,25 @@ void StudioViewportToolLayer::AppendSelectionBoxInstances(
             adorneeInstance = adorneeProp.Get<Engine::Core::Variant::InstanceRef>().lock();
         }
         auto adorneePart = std::dynamic_pointer_cast<Engine::Objects::BasePart>(adorneeInstance);
-        if (adorneePart == nullptr) {
+        if (adorneePart == nullptr && adorneeInstance == nullptr) {
             adorneePart = std::dynamic_pointer_cast<Engine::Objects::BasePart>(box->GetParent());
         }
-        if (adorneePart == nullptr || adorneePart->GetParent() == nullptr) {
-            return;
+
+        std::optional<Engine::Math::AABB> bounds;
+        bool boundsArePartLocal = false;
+        if (adorneePart != nullptr && adorneePart->GetParent() != nullptr) {
+            bounds = Engine::Utils::BuildPartWorldAABB(adorneePart);
+            boundsArePartLocal = true;
+        } else if (adorneeInstance != nullptr) {
+            const auto parts = Engine::Utils::CollectDescendantBaseParts(adorneeInstance);
+            bounds = Engine::Utils::ComputeCombinedWorldAABB(parts);
         }
 
-        const auto aabb = Engine::Utils::BuildPartWorldAABB(adorneePart);
+        if (!bounds.has_value()) {
+            continue;
+        }
+
+        const Engine::Math::AABB aabb = bounds.value();
         const double distance = DistanceToAabb(cameraPos, aabb);
 
         const float alpha = std::clamp(
@@ -1244,7 +1285,7 @@ void StudioViewportToolLayer::AppendSelectionBoxInstances(
             .ScaleWithDistance = scaleWithDistance
         };
 
-        if (localSpace) {
+        if (localSpace && boundsArePartLocal) {
             Engine::Core::AppendSelectionBoxOutlinePrimitivesRotated(
                 adorneePart->GetWorldCFrame(),
                 adorneePart->GetProperty("Size").value<Engine::Math::Vector3>(),

@@ -25,6 +25,7 @@
 #include "Lvs/Engine/Objects/Model.hpp"
 #include "Lvs/Engine/Objects/MeshPart.hpp"
 #include "Lvs/Engine/Objects/Part.hpp"
+#include "Lvs/Engine/Objects/PostEffects.hpp"
 #include "Lvs/Engine/Objects/SelectionBox.hpp"
 #include "Lvs/Engine/Objects/Skybox.hpp"
 #include "Lvs/Engine/Objects/Folder.hpp"
@@ -314,6 +315,40 @@ void Place::LoadFromXmlRoot(IO::IXmlReader& reader) {
     }
 
     EnsureWorkspaceCurrentCamera(std::dynamic_pointer_cast<Workspace>(FindService("Workspace")));
+
+    if (const auto lighting = std::dynamic_pointer_cast<Lighting>(FindService("Lighting")); lighting != nullptr) {
+        std::shared_ptr<Objects::PostEffects> postEffects{};
+        for (const auto& child : lighting->GetChildren()) {
+            postEffects = std::dynamic_pointer_cast<Objects::PostEffects>(child);
+            if (postEffects != nullptr) {
+                break;
+            }
+        }
+        if (postEffects == nullptr) {
+            postEffects = std::make_shared<Objects::PostEffects>();
+            postEffects->SetParent(lighting);
+        }
+
+        auto migrate = [&](const char* name) {
+            const Core::String prop(name);
+            try {
+                const auto& def = postEffects->GetPropertyObject(prop).Definition();
+                const Core::Variant postValue = postEffects->GetProperty(prop);
+                const Core::Variant legacyValue = lighting->GetProperty(prop);
+                if (postValue == def.Default && legacyValue != def.Default) {
+                    postEffects->SetProperty(prop, legacyValue);
+                }
+            } catch (...) {
+                // Ignore missing properties.
+            }
+        };
+
+        migrate("GammaCorrection");
+        migrate("Dithering");
+        migrate("NeonEnabled");
+        migrate("InaccurateNeon");
+        migrate("NeonBlur");
+    }
 }
 
 void Place::PrepareServiceForLoad(const std::shared_ptr<Service>& service) {

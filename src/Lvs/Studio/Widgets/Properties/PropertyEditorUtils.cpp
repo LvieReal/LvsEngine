@@ -16,8 +16,10 @@
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QGridLayout>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QLocale>
 #include <QPointer>
 #include <QPushButton>
 #include <QSignalBlocker>
@@ -102,6 +104,35 @@ private:
     QLineEdit* rotationEdit_{nullptr};
 };
 
+class SmartDoubleSpinBox final : public QDoubleSpinBox {
+public:
+    explicit SmartDoubleSpinBox(QWidget* parent)
+        : QDoubleSpinBox(parent) {
+    }
+
+protected:
+    QString textFromValue(double value) const override {
+        const QLocale loc = locale();
+        const QString decPoint = loc.decimalPoint();
+        QString text = loc.toString(value, 'f', decimals());
+
+        const int sepIndex = text.indexOf(decPoint);
+        if (sepIndex < 0) {
+            return text;
+        }
+
+        int trimIndex = text.size();
+        while (trimIndex > sepIndex + 1 && text.at(trimIndex - 1) == QLatin1Char('0')) {
+            --trimIndex;
+        }
+        if (trimIndex == sepIndex + 1) {
+            trimIndex = sepIndex + 2;
+        }
+        text.truncate(trimIndex);
+        return text;
+    }
+};
+
 void SetColorButtonPreview(QPushButton* button, const Lvs::Engine::Math::Color3& value) {
     if (button == nullptr) {
         return;
@@ -139,6 +170,155 @@ bool HasCustomTag(const Engine::Core::StringList& tags, const char* tag) {
     return false;
 }
 
+class Color3Editor final : public QWidget {
+public:
+    Color3Editor(
+        const QString& propertyName,
+        const Engine::Core::PropertyDefinition& definition,
+        const QVariant& value,
+        const std::function<void(const QString&, const QVariant&)>& onEdited,
+        const std::function<void(const QString&)>& onEditBegin,
+        const std::function<void(const QString&)>& onEditEnd,
+        QWidget* parent
+    )
+        : QWidget(parent),
+          propertyName_(propertyName),
+          onEdited_(onEdited),
+          onEditBegin_(onEditBegin),
+          onEditEnd_(onEditEnd) {
+        auto* layout = new QHBoxLayout(this);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->setSpacing(6);
+
+        line_ = new QLineEdit(this);
+        line_->setPlaceholderText("r, g, b");
+        layout->addWidget(line_, 1);
+
+        button_ = new QPushButton(this);
+        button_->setText("");
+        button_->setToolTip("Pick color");
+        button_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        layout->addWidget(button_, 0);
+
+        if (definition.ReadOnly) {
+            line_->setReadOnly(true);
+            button_->setEnabled(false);
+        }
+
+        SetValue(value.value<Lvs::Engine::Math::Color3>());
+
+        const QPointer<Color3Editor> safeEditor(this);
+        QObject::connect(line_, &QLineEdit::editingFinished, this, [safeEditor]() {
+            if (safeEditor.isNull()) {
+                return;
+            }
+            safeEditor->CommitFromText();
+        });
+
+        QObject::connect(button_, &QPushButton::clicked, this, [safeEditor]() {
+            if (safeEditor.isNull()) {
+                return;
+            }
+            safeEditor->OpenPicker();
+        });
+    }
+
+    void SetValue(const Lvs::Engine::Math::Color3& value) {
+        current_ = value;
+        const QSignalBlocker blocker(line_);
+        line_->setText(ValueUtils::FormatColor3(value));
+        SetColorButtonPreview(button_, value);
+        UpdateButtonSquare();
+    }
+
+protected:
+    void resizeEvent(QResizeEvent* event) override {
+        QWidget::resizeEvent(event);
+        UpdateButtonSquare();
+    }
+
+private:
+    void UpdateButtonSquare() {
+        if (line_ == nullptr || button_ == nullptr) {
+            return;
+        }
+        const int h = line_->sizeHint().height();
+        if (h > 0 && (button_->width() != h || button_->height() != h)) {
+            button_->setFixedSize(h, h);
+        }
+    }
+
+    void CommitFromText() {
+        Lvs::Engine::Math::Color3 parsed{};
+        if (!ValueUtils::TryParseColor3(line_->text(), parsed)) {
+            SetValue(current_);
+            return;
+        }
+        current_ = parsed;
+        SetColorButtonPreview(button_, parsed);
+        onEdited_(propertyName_, QVariant::fromValue(parsed));
+    }
+
+    void OpenPicker() {
+        const auto start = current_;
+        if (onEditBegin_) {
+            onEditBegin_(propertyName_);
+        }
+
+        auto* dialog = new QColorDialog(ValueUtils::ToQColor(start), this);
+        dialog->setWindowTitle("Select Color");
+        dialog->setOption(QColorDialog::ShowAlphaChannel, false);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+
+        const QPointer<QColorDialog> safeDialog(dialog);
+        const QPointer<Color3Editor> safeEditor(this);
+
+        QObject::connect(dialog, &QColorDialog::currentColorChanged, dialog, [safeEditor](const QColor& color) {
+            if (safeEditor.isNull()) {
+                return;
+            }
+            const auto next = ValueUtils::FromQColor(color);
+            safeEditor->SetValue(next);
+            safeEditor->onEdited_(safeEditor->propertyName_, QVariant::fromValue(next));
+        });
+
+        QObject::connect(dialog, &QColorDialog::rejected, dialog, [safeEditor, start]() {
+            if (safeEditor.isNull()) {
+                return;
+            }
+            safeEditor->SetValue(start);
+            safeEditor->onEdited_(safeEditor->propertyName_, QVariant::fromValue(start));
+            if (safeEditor->onEditEnd_) {
+                safeEditor->onEditEnd_(safeEditor->propertyName_);
+            }
+        });
+
+        QObject::connect(dialog, &QColorDialog::accepted, dialog, [safeEditor, safeDialog]() {
+            if (safeEditor.isNull()) {
+                return;
+            }
+            if (!safeDialog.isNull()) {
+                const auto next = ValueUtils::FromQColor(safeDialog->selectedColor());
+                safeEditor->SetValue(next);
+                safeEditor->onEdited_(safeEditor->propertyName_, QVariant::fromValue(next));
+            }
+            if (safeEditor->onEditEnd_) {
+                safeEditor->onEditEnd_(safeEditor->propertyName_);
+            }
+        });
+
+        dialog->open();
+    }
+
+    QString propertyName_;
+    std::function<void(const QString&, const QVariant&)> onEdited_;
+    std::function<void(const QString&)> onEditBegin_;
+    std::function<void(const QString&)> onEditEnd_;
+    QLineEdit* line_{nullptr};
+    QPushButton* button_{nullptr};
+    Lvs::Engine::Math::Color3 current_{};
+};
+
 QVariantMap ToQVariantMap(const Engine::Core::HashMap<Engine::Core::String, Engine::Core::Variant>& attributes) {
     QVariantMap out;
     for (const auto& [key, val] : attributes) {
@@ -162,7 +342,9 @@ QWidget* CreateEditor(
     const Engine::Core::PropertyDefinition& definition,
     const QVariant& value,
     QWidget* parent,
-    const std::function<void(const QString&, const QVariant&)>& onEdited
+    const std::function<void(const QString&, const QVariant&)>& onEdited,
+    const std::function<void(const QString&)>& onEditBegin,
+    const std::function<void(const QString&)>& onEditEnd
 ) {
     const Engine::Core::TypeId typeId = definition.Type;
 
@@ -225,7 +407,7 @@ QWidget* CreateEditor(
         return editor;
     }
     if (typeId == Engine::Core::TypeId::Double) {
-        auto* editor = new QDoubleSpinBox(parent);
+        auto* editor = new SmartDoubleSpinBox(parent);
         editor->setRange(-1'000'000.0, 1'000'000.0);
         editor->setDecimals(4);
         editor->setSingleStep(0.1);
@@ -242,26 +424,8 @@ QWidget* CreateEditor(
     }
 
     if (typeId == Engine::Core::TypeId::Color3) {
-        auto* editor = new QPushButton(parent);
-        editor->setFixedHeight(20);
-        editor->setText("Pick...");
+        auto* editor = new Color3Editor(propertyName, definition, value, onEdited, onEditBegin, onEditEnd, parent);
         editor->setProperty("keep_size_policy", true);
-        editor->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-        SetColorButtonPreview(editor, value.value<Lvs::Engine::Math::Color3>());
-        const QPointer<QPushButton> safeEditor(editor);
-        QObject::connect(editor, &QPushButton::clicked, editor, [propertyName, onEdited, safeEditor]() {
-            if (safeEditor.isNull()) {
-                return;
-            }
-            const auto current = safeEditor->property("color3_value").value<Lvs::Engine::Math::Color3>();
-            const QColor selected = QColorDialog::getColor(ValueUtils::ToQColor(current), safeEditor, "Select Color");
-            if (!selected.isValid()) {
-                return;
-            }
-            const auto next = ValueUtils::FromQColor(selected);
-            SetColorButtonPreview(safeEditor, next);
-            onEdited(propertyName, QVariant::fromValue(next));
-        });
         return editor;
     }
 
@@ -356,6 +520,10 @@ void SetEditorValue(
     }
     if (auto* cframeEditor = dynamic_cast<CFrameEditor*>(editor); cframeEditor != nullptr) {
         cframeEditor->SetValue(value.value<Lvs::Engine::Math::CFrame>());
+        return;
+    }
+    if (auto* color3Editor = dynamic_cast<Color3Editor*>(editor); color3Editor != nullptr) {
+        color3Editor->SetValue(value.value<Lvs::Engine::Math::Color3>());
         return;
     }
     if (auto* line = qobject_cast<QLineEdit*>(editor); line != nullptr) {

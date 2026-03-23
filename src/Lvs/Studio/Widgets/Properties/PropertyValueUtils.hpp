@@ -25,6 +25,7 @@ QString FormatVector3(const Lvs::Engine::Math::Vector3& value);
 bool TryParseVector3(const QString& text, Lvs::Engine::Math::Vector3& out);
 
 QString FormatColor3(const Lvs::Engine::Math::Color3& value);
+bool TryParseColor3(const QString& text, Lvs::Engine::Math::Color3& out);
 
 QString FormatCFrame(const Lvs::Engine::Math::CFrame& value);
 bool TryParseCFrame(const QString& text, Lvs::Engine::Math::CFrame& out);

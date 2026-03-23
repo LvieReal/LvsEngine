@@ -48,6 +48,8 @@ private:
         const Engine::Core::PropertyDefinition& definition
     ) const;
     bool MatchesConditionValue(const QVariant& actualValue, const QString& expectedValue) const;
+    void BeginBatchEdit(const QString& propertyName);
+    void EndBatchEdit(const QString& propertyName);
     void OnPropertyEdited(const QString& propertyName, const QVariant& value);
     void OnPropertyChanged(const QString& propertyName, const QVariant& value);
     void SetEditorValue(QWidget* editor, const QVariant& value, const Engine::Core::PropertyDefinition& definition) const;
@@ -77,6 +79,8 @@ private:
     bool clearQueued_{false};
     bool bindQueued_{false};
     std::vector<std::shared_ptr<Engine::Core::Instance>> queuedInstances_;
+    bool batchEditStartedRecording_{false};
+    QString batchEditProperty_{};
 };
 
 } // namespace Lvs::Studio::Widgets::Properties

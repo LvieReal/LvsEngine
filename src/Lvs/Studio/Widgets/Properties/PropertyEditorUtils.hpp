@@ -14,7 +14,9 @@ QWidget* CreateEditor(
     const Engine::Core::PropertyDefinition& definition,
     const QVariant& value,
     QWidget* parent,
-    const std::function<void(const QString&, const QVariant&)>& onEdited
+    const std::function<void(const QString&, const QVariant&)>& onEdited,
+    const std::function<void(const QString&)>& onEditBegin = {},
+    const std::function<void(const QString&)>& onEditEnd = {}
 );
 
 void SetEditorValue(

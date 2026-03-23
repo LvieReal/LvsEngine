@@ -11,6 +11,7 @@
 #include "Lvs/Engine/Objects/DirectionalLight.hpp"
 #include "Lvs/Engine/Objects/MeshPart.hpp"
 #include "Lvs/Engine/Objects/Part.hpp"
+#include "Lvs/Engine/Objects/PostEffects.hpp"
 #include "Lvs/Engine/Rendering/Context/RenderContextUtils.hpp"
 
 #include <algorithm>
@@ -44,12 +45,29 @@ Common::CameraUniformData RenderContext::BuildCameraUniforms() {
             ambientColor,
             static_cast<float>(std::clamp(lightingService->GetProperty("AmbientStrength").toDouble(), 0.0, 1.0))
         );
-        uniforms.RenderSettings = {
-            lightingService->GetProperty("GammaCorrection").toBool() ? 1.0F : 0.0F,
-            lightingService->GetProperty("Dithering").toBool() ? 1.0F : 0.0F,
-            lightingService->GetProperty("NeonEnabled").toBool() ? 1.0F : 0.0F,
-            lightingService->GetProperty("InaccurateNeon").toBool() ? 1.0F : 0.0F
-        };
+        std::shared_ptr<Objects::PostEffects> postEffects{};
+        for (const auto& child : lightingService->GetChildren()) {
+            postEffects = std::dynamic_pointer_cast<Objects::PostEffects>(child);
+            if (postEffects != nullptr) {
+                break;
+            }
+        }
+
+        if (postEffects != nullptr) {
+            uniforms.RenderSettings = {
+                postEffects->GetProperty("GammaCorrection").toBool() ? 1.0F : 0.0F,
+                postEffects->GetProperty("Dithering").toBool() ? 1.0F : 0.0F,
+                postEffects->GetProperty("NeonEnabled").toBool() ? 1.0F : 0.0F,
+                postEffects->GetProperty("InaccurateNeon").toBool() ? 1.0F : 0.0F
+            };
+        } else {
+            uniforms.RenderSettings = {
+                lightingService->GetProperty("GammaCorrection").toBool() ? 1.0F : 0.0F,
+                lightingService->GetProperty("Dithering").toBool() ? 1.0F : 0.0F,
+                lightingService->GetProperty("NeonEnabled").toBool() ? 1.0F : 0.0F,
+                lightingService->GetProperty("InaccurateNeon").toBool() ? 1.0F : 0.0F
+            };
+        }
         const auto shadingMode =
             lightingService->GetProperty("Shading").value<Enums::LightingComputationMode>();
         uniforms.LightingSettings[0] = shadingMode == Enums::LightingComputationMode::PerVertex ? 1.0F : 0.0F;
