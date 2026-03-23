@@ -1,6 +1,7 @@
 #include "Lvs/Engine/Objects/BasePart.hpp"
 
 #include "Lvs/Engine/DataModel/ClassRegistry.hpp"
+#include "Lvs/Engine/Core/PropertyTags.hpp"
 #include "Lvs/Engine/Enums/MeshCullMode.hpp"
 #include "Lvs/Engine/Math/Color3.hpp"
 
@@ -9,6 +10,8 @@ namespace Lvs::Engine::Objects {
 Core::ClassDescriptor& BasePart::Descriptor() {
     static Core::ClassDescriptor descriptor("BasePart", &Core::Instance::Descriptor());
     static const bool initialized = []() {
+        const Core::String alwaysOnTopVisibleTag = Core::PropertyTags::BuildVisibleIfTag("AlwaysOnTop", "true");
+
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Math::Color3>(
             "Color", Math::Color3{0.7, 0.7, 0.7}, true, "Appearance"
         ));
@@ -29,6 +32,9 @@ Core::ClassDescriptor& BasePart::Descriptor() {
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
             "AlwaysOnTop", false, true, "Appearance"
+        ));
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<int>(
+            "ZIndex", 0, true, "Appearance", {}, false, Core::StringList{alwaysOnTopVisibleTag}
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Enums::MeshCullMode>(
             "CullMode", Enums::MeshCullMode::Back, true, "Appearance"

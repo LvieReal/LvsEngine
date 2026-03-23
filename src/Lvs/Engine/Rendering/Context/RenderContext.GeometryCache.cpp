@@ -11,6 +11,7 @@
 #include "Lvs/Engine/Objects/Part.hpp"
 #include "Lvs/Engine/Rendering/Context/RenderContextUtils.hpp"
 #include "Lvs/Engine/Utils/Benchmark.hpp"
+#include "Lvs/Engine/Utils/Raycast.hpp"
 
 #include <algorithm>
 #include <iomanip>
@@ -20,11 +21,58 @@
 
 namespace Lvs::Engine::Rendering {
 
+namespace {
+
+Math::AABB BuildAabbFromUnitCubeModel(const Math::Matrix4& model) {
+    // Local cube corners for a unit cube centered at origin (matching primitive mesh scale conventions).
+    constexpr std::array<Math::Vector3, 8> corners{{
+        {-0.5, -0.5, -0.5},
+        {0.5, -0.5, -0.5},
+        {-0.5, 0.5, -0.5},
+        {0.5, 0.5, -0.5},
+        {-0.5, -0.5, 0.5},
+        {0.5, -0.5, 0.5},
+        {-0.5, 0.5, 0.5},
+        {0.5, 0.5, 0.5},
+    }};
+
+    const auto& m = model.Rows();
+    auto transformPoint = [&m](const Math::Vector3& p) -> Math::Vector3 {
+        const double x = m[0][0] * p.x + m[0][1] * p.y + m[0][2] * p.z + m[0][3];
+        const double y = m[1][0] * p.x + m[1][1] * p.y + m[1][2] * p.z + m[1][3];
+        const double z = m[2][0] * p.x + m[2][1] * p.y + m[2][2] * p.z + m[2][3];
+        return {x, y, z};
+    };
+
+    Math::AABB aabb{};
+    aabb.Min = transformPoint(corners[0]);
+    aabb.Max = aabb.Min;
+    for (std::size_t i = 1; i < corners.size(); ++i) {
+        const Math::Vector3 p = transformPoint(corners[i]);
+        aabb.Min.x = std::min(aabb.Min.x, p.x);
+        aabb.Min.y = std::min(aabb.Min.y, p.y);
+        aabb.Min.z = std::min(aabb.Min.z, p.z);
+        aabb.Max.x = std::max(aabb.Max.x, p.x);
+        aabb.Max.y = std::max(aabb.Max.y, p.y);
+        aabb.Max.z = std::max(aabb.Max.z, p.z);
+    }
+    return aabb;
+}
+
+void WriteDrawPacketSortBounds(SceneData::DrawPacket& draw, const Math::AABB& bounds) {
+    draw.SortBoundsMin = {static_cast<float>(bounds.Min.x), static_cast<float>(bounds.Min.y), static_cast<float>(bounds.Min.z)};
+    draw.SortBoundsMax = {static_cast<float>(bounds.Max.x), static_cast<float>(bounds.Max.y), static_cast<float>(bounds.Max.z)};
+    draw.HasSortBounds = true;
+}
+
+} // namespace
+
 void RenderContext::ClearGeometryCache() {
     for (auto& [raw, watched] : watchedNodes_) {
         static_cast<void>(raw);
         watched.ChildAdded.Disconnect();
         watched.ChildRemoved.Disconnect();
+        watched.PropertyChanged.Disconnect();
         watched.Destroying.Disconnect();
     }
     watchedNodes_.clear();
@@ -125,6 +173,13 @@ void RenderContext::WatchNodeRecursive(const std::shared_ptr<Core::Instance>& no
         UnwatchNodeRecursive(child);
         MarkGeometryLayoutDirty();
     });
+    if (node->GetClassName() == "Model") {
+        watched.PropertyChanged = node->PropertyChanged.Connect([this](const Core::String& name, const Core::Variant&) {
+            if (name == "Renders") {
+                MarkGeometryLayoutDirty();
+            }
+        });
+    }
     watched.Destroying = node->Destroying.Connect([this, raw = node.get()]() {
         UntrackRenderable(raw);
         const auto it = watchedNodes_.find(raw);
@@ -133,6 +188,7 @@ void RenderContext::WatchNodeRecursive(const std::shared_ptr<Core::Instance>& no
         }
         it->second.ChildAdded.Disconnect();
         it->second.ChildRemoved.Disconnect();
+        it->second.PropertyChanged.Disconnect();
         it->second.Destroying.Disconnect();
         watchedNodes_.erase(it);
         MarkGeometryLayoutDirty();
@@ -170,6 +226,7 @@ void RenderContext::UnwatchNodeRecursive(const std::shared_ptr<Core::Instance>& 
         }
         it->second.ChildAdded.Disconnect();
         it->second.ChildRemoved.Disconnect();
+        it->second.PropertyChanged.Disconnect();
         it->second.Destroying.Disconnect();
         watchedNodes_.erase(it);
     }
@@ -198,7 +255,7 @@ void RenderContext::TrackRenderable(const std::shared_ptr<Core::Instance>& insta
         }
 
         bool layoutChanged =
-            name == "Renders" || name == "Transparency" || name == "AlwaysOnTop" || name == "CullMode" ||
+            name == "Renders" || name == "Transparency" || name == "AlwaysOnTop" || name == "ZIndex" || name == "CullMode" ||
             name == "Shape" || name == "IsBeveled" || name == "BevelWidth" || name == "IsBevelSmooth" ||
             name == "ContentId" || name == "SmoothNormals";
         bool dataChanged =
@@ -289,11 +346,22 @@ void RenderContext::UpdateDirtyInstanceData() {
             entry.DataDirty = false;
             continue;
         }
+        const bool suppressedByModel = [&inst]() {
+            auto parent = inst != nullptr ? inst->GetParent() : nullptr;
+            while (parent != nullptr) {
+                if (parent->GetClassName() == "Model" && !parent->GetProperty("Renders").toBool()) {
+                    return true;
+                }
+                parent = parent->GetParent();
+            }
+            return false;
+        }();
 
         const double transparency = part->GetProperty("Transparency").toDouble();
         const float alpha = static_cast<float>(1.0 - std::clamp(transparency, 0.0, 1.0));
         const Math::Vector3 size = part->GetProperty("Size").value<Math::Vector3>();
-        if (!part->GetProperty("Renders").toBool() || transparency >= 1.0 || size.x <= 0.0 || size.y <= 0.0 || size.z <= 0.0) {
+        if (suppressedByModel || !part->GetProperty("Renders").toBool() || transparency >= 1.0 || size.x <= 0.0 || size.y <= 0.0 ||
+            size.z <= 0.0) {
             entry.LayoutDirty = true;
             MarkGeometryLayoutDirty();
             return;
@@ -334,6 +402,21 @@ void RenderContext::UpdateDirtyInstanceData() {
         }
         entry.InstanceData = drawInstance;
         entry.Alpha = alpha;
+
+        if (entry.AlwaysOnTop) {
+            entry.ZIndex = part->GetProperty("ZIndex").toInt();
+            entry.WorldAabb = Utils::BuildPartWorldAABB(part);
+            entry.HasWorldAabb = true;
+
+            if (entry.PackedAlwaysOnTopDrawIndex.has_value()) {
+                const std::size_t drawIndex = *entry.PackedAlwaysOnTopDrawIndex;
+                if (drawIndex < cachedAlwaysOnTopDraws_.size()) {
+                    auto& draw = cachedAlwaysOnTopDraws_[drawIndex];
+                    draw.ZIndex = entry.ZIndex;
+                    WriteDrawPacketSortBounds(draw, entry.WorldAabb);
+                }
+            }
+        }
         entry.DataDirty = false;
     }
 
@@ -348,8 +431,8 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
     cachedAlwaysOnTopDraws_.clear();
 
     std::unordered_map<BatchKey, std::vector<CachedRenderable*>, BatchKeyHash> opaqueBatches;
-    std::unordered_map<BatchKey, std::vector<CachedRenderable*>, BatchKeyHash> onTopBatches;
     std::vector<CachedRenderable*> transparentItems;
+    std::vector<CachedRenderable*> alwaysOnTopItems;
 
     const auto getMeshRefForInstance = [this](const std::shared_ptr<Core::Instance>& inst) -> const SceneData::MeshRef* {
         if (const auto meshPart = std::dynamic_pointer_cast<Objects::MeshPart>(inst); meshPart != nullptr) {
@@ -402,6 +485,7 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
 
     for (auto& [raw, entry] : renderables_) {
         static_cast<void>(raw);
+        entry.PackedAlwaysOnTopDrawIndex.reset();
         const auto inst = entry.Instance.lock();
         if (inst == nullptr) {
             entry.Visible = false;
@@ -426,6 +510,24 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
         }
 
         if (!part->GetProperty("Renders").toBool()) {
+            entry.Visible = false;
+            entry.Mesh = nullptr;
+            entry.LayoutDirty = false;
+            entry.DataDirty = false;
+            continue;
+        }
+
+        const bool suppressedByModel = [&inst]() {
+            auto parent = inst != nullptr ? inst->GetParent() : nullptr;
+            while (parent != nullptr) {
+                if (parent->GetClassName() == "Model" && !parent->GetProperty("Renders").toBool()) {
+                    return true;
+                }
+                parent = parent->GetParent();
+            }
+            return false;
+        }();
+        if (suppressedByModel) {
             entry.Visible = false;
             entry.Mesh = nullptr;
             entry.LayoutDirty = false;
@@ -468,6 +570,7 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
         entry.Visible = true;
         entry.Alpha = alpha;
         entry.AlwaysOnTop = alwaysOnTop;
+        entry.ZIndex = alwaysOnTop ? part->GetProperty("ZIndex").toInt() : 0;
         entry.Transparent = (alpha < 1.0F) || alwaysOnTop;
         entry.IgnoreLighting = false;
         entry.LayoutDirty = false;
@@ -504,7 +607,9 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
         entry.InstanceData = drawInstance;
 
         if (alwaysOnTop) {
-            onTopBatches[BatchKey{meshRef, entry.CullMode, true}].push_back(&entry);
+            entry.WorldAabb = Utils::BuildPartWorldAABB(part);
+            entry.HasWorldAabb = true;
+            alwaysOnTopItems.push_back(&entry);
         } else if (alpha < 1.0F) {
             transparentItems.push_back(&entry);
         } else {
@@ -518,11 +623,14 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
         bool AlwaysOnTop{true};
         bool Transparent{true};
         bool IgnoreLighting{false};
+        int ZIndex{0};
+        Math::AABB Bounds{};
+        bool HasBounds{false};
         Common::DrawInstanceData Data{};
     };
 
     std::unordered_map<BatchKey, std::vector<OverlayItem>, BatchKeyHash> overlayOpaque;
-    std::unordered_map<BatchKey, std::vector<OverlayItem>, BatchKeyHash> overlayOnTop;
+    std::vector<OverlayItem> overlayOnTop;
     std::vector<OverlayItem> overlayTransparent;
 
     for (const auto& overlay : overlayPrimitives_) {
@@ -548,19 +656,22 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
         item.AlwaysOnTop = overlay.AlwaysOnTop;
         item.Transparent = alpha < 1.0F || overlay.AlwaysOnTop;
         item.IgnoreLighting = overlay.IgnoreLighting;
+        item.ZIndex = 1'000'000;
+        item.Bounds = BuildAabbFromUnitCubeModel(overlay.Model);
+        item.HasBounds = true;
         item.Data.Model = Context::ToFloatMat4ColumnMajor(overlay.Model);
         item.Data.BaseColor = Context::ToVec4(overlay.Color, alpha);
         item.Data.Material = {
             std::clamp(overlay.Metalness, 0.0F, 1.0F),
             std::clamp(overlay.Roughness, 0.0F, 1.0F),
             std::max(0.0F, overlay.Emissive),
-            overlay.IgnoreLighting ? 1.0F : 0.0F
+            static_cast<float>((overlay.IgnoreLighting ? 1 : 0) | 2)
         };
         item.Data.SurfaceData0 = {0.0F, 0.0F, 0.0F, overlay.AlwaysOnTop ? 1.0F : 0.0F};
         item.Data.SurfaceData1 = {0.0F, 0.0F, 0.0F, 0.0F};
 
         if (item.AlwaysOnTop) {
-            overlayOnTop[BatchKey{meshRef, item.CullMode, true}].push_back(item);
+            overlayOnTop.push_back(item);
         } else if (item.Transparent) {
             overlayTransparent.push_back(item);
         } else {
@@ -660,15 +771,24 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
         });
     }
 
-    keys.clear();
-    keys.reserve(onTopBatches.size());
-    for (const auto& [key, items] : onTopBatches) {
-        static_cast<void>(items);
-        keys.push_back(key);
-    }
-    std::sort(keys.begin(), keys.end(), batchKeyLess);
-    for (const auto& key : keys) {
-        packBatch(key, onTopBatches.at(key), cachedAlwaysOnTopDraws_, true, true);
+    for (auto* item : alwaysOnTopItems) {
+        const RHI::u32 baseInstance = static_cast<RHI::u32>(cachedInstanceData_.size());
+        item->PackedInstanceIndex = cachedInstanceData_.size();
+        cachedInstanceData_.push_back(item->InstanceData);
+        SceneData::DrawPacket draw{
+            .Mesh = item->Mesh,
+            .BaseInstance = baseInstance,
+            .InstanceCount = 1U,
+            .CullMode = item->CullMode,
+            .Transparent = true,
+            .AlwaysOnTop = true,
+            .IgnoreLighting = false,
+            .SortDepth = 0.0F,
+            .ZIndex = item->ZIndex
+        };
+        WriteDrawPacketSortBounds(draw, item->WorldAabb);
+        item->PackedAlwaysOnTopDrawIndex = cachedAlwaysOnTopDraws_.size();
+        cachedAlwaysOnTopDraws_.push_back(draw);
     }
 
     cachedGeometryInstanceCount_ = cachedInstanceData_.size();
@@ -702,15 +822,24 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
         });
     }
 
-    keys.clear();
-    keys.reserve(overlayOnTop.size());
-    for (const auto& [key, items] : overlayOnTop) {
-        static_cast<void>(items);
-        keys.push_back(key);
-    }
-    std::sort(keys.begin(), keys.end(), batchKeyLess);
-    for (const auto& key : keys) {
-        packOverlayBatch(key, overlayOnTop.at(key), cachedAlwaysOnTopDraws_, true, true);
+    for (const auto& item : overlayOnTop) {
+        const RHI::u32 baseInstance = static_cast<RHI::u32>(cachedInstanceData_.size());
+        cachedInstanceData_.push_back(item.Data);
+        SceneData::DrawPacket draw{
+            .Mesh = item.Mesh,
+            .BaseInstance = baseInstance,
+            .InstanceCount = 1U,
+            .CullMode = item.CullMode,
+            .Transparent = true,
+            .AlwaysOnTop = true,
+            .IgnoreLighting = item.IgnoreLighting,
+            .SortDepth = 0.0F,
+            .ZIndex = item.ZIndex
+        };
+        if (item.HasBounds) {
+            WriteDrawPacketSortBounds(draw, item.Bounds);
+        }
+        cachedAlwaysOnTopDraws_.push_back(draw);
     }
 
     geometryLayoutDirty_ = false;
@@ -761,6 +890,70 @@ void RenderContext::UpdateTransparentSortDepths() {
     }
 }
 
+void RenderContext::UpdateAlwaysOnTopSortDepths() {
+    LVS_BENCH_SCOPE("RenderContext::UpdateAlwaysOnTopSortDepths");
+    bool hasCameraPosition = false;
+    Math::Vector3 cameraPosition{};
+    if (place_ != nullptr) {
+        if (const auto workspaceService = std::dynamic_pointer_cast<DataModel::Workspace>(place_->FindService("Workspace"));
+            workspaceService != nullptr) {
+            const auto cameraVar = workspaceService->GetProperty("CurrentCamera");
+            if (cameraVar.Is<Core::Variant::InstanceRef>()) {
+                if (const auto locked = cameraVar.Get<Core::Variant::InstanceRef>().lock()) {
+                    if (const auto camera = std::dynamic_pointer_cast<Objects::Camera>(locked); camera != nullptr) {
+                        cameraPosition = camera->GetProperty("CFrame").value<Math::CFrame>().Position;
+                        hasCameraPosition = true;
+                    }
+                }
+            }
+        }
+    }
+
+    if (!hasCameraPosition) {
+        for (auto& draw : cachedAlwaysOnTopDraws_) {
+            draw.SortDepth = 0.0F;
+        }
+        return;
+    }
+
+    for (auto& draw : cachedAlwaysOnTopDraws_) {
+        if (draw.HasSortBounds) {
+            const double minX = static_cast<double>(draw.SortBoundsMin[0]);
+            const double minY = static_cast<double>(draw.SortBoundsMin[1]);
+            const double minZ = static_cast<double>(draw.SortBoundsMin[2]);
+            const double maxX = static_cast<double>(draw.SortBoundsMax[0]);
+            const double maxY = static_cast<double>(draw.SortBoundsMax[1]);
+            const double maxZ = static_cast<double>(draw.SortBoundsMax[2]);
+
+            double dx = 0.0;
+            double dy = 0.0;
+            double dz = 0.0;
+            if (cameraPosition.x < minX) dx = minX - cameraPosition.x;
+            else if (cameraPosition.x > maxX) dx = cameraPosition.x - maxX;
+            if (cameraPosition.y < minY) dy = minY - cameraPosition.y;
+            else if (cameraPosition.y > maxY) dy = cameraPosition.y - maxY;
+            if (cameraPosition.z < minZ) dz = minZ - cameraPosition.z;
+            else if (cameraPosition.z > maxZ) dz = cameraPosition.z - maxZ;
+
+            draw.SortDepth = static_cast<float>(dx * dx + dy * dy + dz * dz);
+            continue;
+        }
+
+        if (draw.BaseInstance >= cachedInstanceData_.size()) {
+            draw.SortDepth = 0.0F;
+            continue;
+        }
+        const auto& inst = cachedInstanceData_[draw.BaseInstance];
+        const float x = inst.Model[12];
+        const float y = inst.Model[13];
+        const float z = inst.Model[14];
+        const double dx = static_cast<double>(x) - cameraPosition.x;
+        const double dy = static_cast<double>(y) - cameraPosition.y;
+        const double dz = static_cast<double>(z) - cameraPosition.z;
+        draw.SortDepth = static_cast<float>(dx * dx + dy * dy + dz * dz);
+    }
+}
+
 void RenderContext::RebuildOverlayBatchesAndInstances() {
     LVS_BENCH_SCOPE("RenderContext::RebuildOverlayBatchesAndInstances");
 
@@ -781,11 +974,14 @@ void RenderContext::RebuildOverlayBatchesAndInstances() {
         bool AlwaysOnTop{true};
         bool Transparent{true};
         bool IgnoreLighting{false};
+        int ZIndex{0};
+        Math::AABB Bounds{};
+        bool HasBounds{false};
         Common::DrawInstanceData Data{};
     };
 
     std::unordered_map<BatchKey, std::vector<OverlayItem>, BatchKeyHash> overlayOpaque;
-    std::unordered_map<BatchKey, std::vector<OverlayItem>, BatchKeyHash> overlayOnTop;
+    std::vector<OverlayItem> overlayOnTop;
     std::vector<OverlayItem> overlayTransparent;
 
     for (const auto& overlay : overlayPrimitives_) {
@@ -811,19 +1007,22 @@ void RenderContext::RebuildOverlayBatchesAndInstances() {
         item.AlwaysOnTop = overlay.AlwaysOnTop;
         item.Transparent = alpha < 1.0F || overlay.AlwaysOnTop;
         item.IgnoreLighting = overlay.IgnoreLighting;
+        item.ZIndex = 1'000'000;
+        item.Bounds = BuildAabbFromUnitCubeModel(overlay.Model);
+        item.HasBounds = true;
         item.Data.Model = Context::ToFloatMat4ColumnMajor(overlay.Model);
         item.Data.BaseColor = Context::ToVec4(overlay.Color, alpha);
         item.Data.Material = {
             std::clamp(overlay.Metalness, 0.0F, 1.0F),
             std::clamp(overlay.Roughness, 0.0F, 1.0F),
             std::max(0.0F, overlay.Emissive),
-            overlay.IgnoreLighting ? 1.0F : 0.0F
+            static_cast<float>((overlay.IgnoreLighting ? 1 : 0) | 2)
         };
         item.Data.SurfaceData0 = {0.0F, 0.0F, 0.0F, overlay.AlwaysOnTop ? 1.0F : 0.0F};
         item.Data.SurfaceData1 = {0.0F, 0.0F, 0.0F, 0.0F};
 
         if (item.AlwaysOnTop) {
-            overlayOnTop[BatchKey{meshRef, item.CullMode, true}].push_back(item);
+            overlayOnTop.push_back(item);
         } else if (item.Transparent) {
             overlayTransparent.push_back(item);
         } else {
@@ -895,15 +1094,24 @@ void RenderContext::RebuildOverlayBatchesAndInstances() {
         });
     }
 
-    keys.clear();
-    keys.reserve(overlayOnTop.size());
-    for (const auto& [key, items] : overlayOnTop) {
-        static_cast<void>(items);
-        keys.push_back(key);
-    }
-    std::sort(keys.begin(), keys.end(), batchKeyLess);
-    for (const auto& key : keys) {
-        packOverlayBatch(key, overlayOnTop.at(key), cachedAlwaysOnTopDraws_, true, true);
+    for (const auto& item : overlayOnTop) {
+        const RHI::u32 baseInstance = static_cast<RHI::u32>(cachedInstanceData_.size());
+        cachedInstanceData_.push_back(item.Data);
+        SceneData::DrawPacket draw{
+            .Mesh = item.Mesh,
+            .BaseInstance = baseInstance,
+            .InstanceCount = 1U,
+            .CullMode = item.CullMode,
+            .Transparent = true,
+            .AlwaysOnTop = true,
+            .IgnoreLighting = item.IgnoreLighting,
+            .SortDepth = 0.0F,
+            .ZIndex = item.ZIndex
+        };
+        if (item.HasBounds) {
+            WriteDrawPacketSortBounds(draw, item.Bounds);
+        }
+        cachedAlwaysOnTopDraws_.push_back(draw);
     }
 
     overlayDirty_ = false;
@@ -941,6 +1149,10 @@ std::vector<SceneData::DrawPacket> RenderContext::BuildGeometryDraws() {
         LVS_BENCH_SCOPE("RenderContext::BuildGeometryDraws::UpdateTransparentSortDepths");
         UpdateTransparentSortDepths();
     }
+    {
+        LVS_BENCH_SCOPE("RenderContext::BuildGeometryDraws::UpdateAlwaysOnTopSortDepths");
+        UpdateAlwaysOnTopSortDepths();
+    }
 
     std::vector<const SceneData::DrawPacket*> transparentPtrs;
     {
@@ -954,6 +1166,21 @@ std::vector<SceneData::DrawPacket> RenderContext::BuildGeometryDraws() {
         });
     }
 
+    std::vector<const SceneData::DrawPacket*> alwaysOnTopPtrs;
+    {
+        LVS_BENCH_SCOPE("RenderContext::BuildGeometryDraws::SortAlwaysOnTop");
+        alwaysOnTopPtrs.reserve(cachedAlwaysOnTopDraws_.size());
+        for (const auto& draw : cachedAlwaysOnTopDraws_) {
+            alwaysOnTopPtrs.push_back(&draw);
+        }
+        std::sort(alwaysOnTopPtrs.begin(), alwaysOnTopPtrs.end(), [](const auto* lhs, const auto* rhs) {
+            if (lhs->ZIndex != rhs->ZIndex) {
+                return lhs->ZIndex < rhs->ZIndex;
+            }
+            return lhs->SortDepth > rhs->SortDepth;
+        });
+    }
+
     std::vector<SceneData::DrawPacket> draws;
     {
         LVS_BENCH_SCOPE("RenderContext::BuildGeometryDraws::AssembleDrawList");
@@ -962,7 +1189,9 @@ std::vector<SceneData::DrawPacket> RenderContext::BuildGeometryDraws() {
         for (const auto* draw : transparentPtrs) {
             draws.push_back(*draw);
         }
-        draws.insert(draws.end(), cachedAlwaysOnTopDraws_.begin(), cachedAlwaysOnTopDraws_.end());
+        for (const auto* draw : alwaysOnTopPtrs) {
+            draws.push_back(*draw);
+        }
     }
     return draws;
 }

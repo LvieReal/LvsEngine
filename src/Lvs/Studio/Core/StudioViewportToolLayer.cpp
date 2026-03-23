@@ -91,18 +91,36 @@ HitFace FindClosestHitFace(const Engine::Math::AABB& aabb, const Engine::Math::V
     }
 }
 
+double DistanceToAabb(const Engine::Math::Vector3& point, const Engine::Math::AABB& aabb) {
+    double dx = 0.0;
+    double dy = 0.0;
+    double dz = 0.0;
+
+    if (point.x < aabb.Min.x) dx = aabb.Min.x - point.x;
+    else if (point.x > aabb.Max.x) dx = point.x - aabb.Max.x;
+
+    if (point.y < aabb.Min.y) dy = aabb.Min.y - point.y;
+    else if (point.y > aabb.Max.y) dy = point.y - aabb.Max.y;
+
+    if (point.z < aabb.Min.z) dz = aabb.Min.z - point.z;
+    else if (point.z > aabb.Max.z) dz = point.z - aabb.Max.z;
+
+    return std::sqrt(dx * dx + dy * dy + dz * dz);
+}
+
 std::shared_ptr<Engine::Core::Instance> FindAncestorModel(const std::shared_ptr<Engine::Objects::BasePart>& part) {
     if (part == nullptr) {
         return nullptr;
     }
     auto parent = part->GetParent();
+    std::shared_ptr<Engine::Core::Instance> topLevelModel;
     while (parent != nullptr) {
         if (parent->GetClassName() == "Model") {
-            return parent;
+            topLevelModel = parent;
         }
         parent = parent->GetParent();
     }
-    return nullptr;
+    return topLevelModel;
 }
 
 } // namespace
@@ -772,8 +790,7 @@ void StudioViewportToolLayer::AppendGizmoSelectionBox(
                 }
 
                 const Engine::Math::AABB aabb = Engine::Utils::BuildPartWorldAABB(selected);
-                const Engine::Math::Vector3 center = (aabb.Min + aabb.Max) * 0.5;
-                const double distance = (center - cameraPos).Magnitude();
+                const double distance = DistanceToAabb(cameraPos, aabb);
 
                 if (localSpace) {
                     Engine::Core::AppendSelectionBoxOutlinePrimitivesRotated(
@@ -794,8 +811,7 @@ void StudioViewportToolLayer::AppendGizmoSelectionBox(
             }
 
             const Engine::Math::AABB bounds = entry.Bounds.value();
-            const Engine::Math::Vector3 center = bounds.Centroid();
-            const double distance = (center - cameraPos).Magnitude();
+            const double distance = DistanceToAabb(cameraPos, bounds);
             Engine::Core::AppendSelectionBoxOutlinePrimitives(bounds, style, overlay, distance);
         }
     }
@@ -809,8 +825,7 @@ void StudioViewportToolLayer::AppendGizmoSelectionBox(
                 return;
             }
             const Engine::Math::AABB bounds = hoveredBoundsCache_.value();
-            const Engine::Math::Vector3 center = bounds.Centroid();
-            const double distance = (center - cameraPos).Magnitude();
+            const double distance = DistanceToAabb(cameraPos, bounds);
 
             const bool ignoreLighting = gizmoIgnoreDiffuseSpecular_;
             const Engine::Core::SelectionBoxStyle style{
@@ -901,8 +916,7 @@ void StudioViewportToolLayer::AppendSelectionBoxInstances(
         }
 
         const auto aabb = Engine::Utils::BuildPartWorldAABB(adorneePart);
-        const Engine::Math::Vector3 center = (aabb.Min + aabb.Max) * 0.5;
-        const double distance = (center - cameraPos).Magnitude();
+        const double distance = DistanceToAabb(cameraPos, aabb);
 
         const float alpha = std::clamp(
             static_cast<float>(1.0 - box->GetProperty("Transparency").toDouble()),

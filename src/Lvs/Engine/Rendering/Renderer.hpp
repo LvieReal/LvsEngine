@@ -50,6 +50,10 @@ struct SceneData {
         bool AlwaysOnTop{false};
         bool IgnoreLighting{false};
         float SortDepth{0.0F};
+        int ZIndex{0};
+        std::array<float, 3> SortBoundsMin{};
+        std::array<float, 3> SortBoundsMax{};
+        bool HasSortBounds{false};
     };
 
     bool EnableShadows{true};

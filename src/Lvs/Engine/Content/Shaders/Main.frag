@@ -419,7 +419,10 @@ void main() {
     vec3 surfaceDetail = SampleSurfaceColor(surfaceType, faceUV);
     albedo *= surfaceDetail;
 
-    float ignoreLighting = fragMaterial.w;
+    uint materialFlags = uint(fragMaterial.w + 0.5);
+    bool ignoreLighting = (materialFlags & 1u) != 0u;
+    bool excludeHbao = (materialFlags & 2u) != 0u;
+    float hbaoDepth = excludeHbao ? 1.0 : gl_FragCoord.z;
 
     float metalness = clamp(fragMaterial.x, 0.0, 1.0);
     float roughness = clamp(fragMaterial.y, 0.0, 1.0);
@@ -428,7 +431,7 @@ void main() {
     bool allowBlackNeon = (camera.renderSettings.w > 0.5) && neonEnabled;
 
     float albedoL2 = dot(albedo, albedo);
-    float glowMask = (neonEnabled && ignoreLighting <= 0.5 && emissive > 1e-4) ? 1.0 : 0.0;
+    float glowMask = (neonEnabled && !ignoreLighting && emissive > 1e-4) ? 1.0 : 0.0;
     if (!allowBlackNeon && albedoL2 < 1e-6) {
         glowMask = 0.0;
     }
@@ -444,10 +447,10 @@ void main() {
     vec2 neonUv = gl_FragCoord.xy / vec2(max(textureSize(neonTexture, 0), ivec2(1)));
     vec3 neonSample = neonEnabled ? texture(neonTexture, neonUv).rgb : vec3(0.0);
 
-    if (ignoreLighting > 0.5) {
+    if (ignoreLighting) {
         outSceneColor = vec4(albedo + emissiveScene + ((neonSample * 0.1) * glowMask), alpha);
         outGlowColor = vec4(0.0);
-        outDepthColor = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0);
+        outDepthColor = vec4(hbaoDepth, 0.0, 0.0, 1.0);
         return;
     }
 
@@ -456,7 +459,7 @@ void main() {
     if (allowBlackNeon && emissive > 0.0) {
         outSceneColor = vec4(albedo + emissiveScene + ((neonSample * 0.1) * glowMask), alpha);
         outGlowColor = vec4(glowColor, glowMask);
-        outDepthColor = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0);
+        outDepthColor = vec4(hbaoDepth, 0.0, 0.0, 1.0);
         return;
     }
 
@@ -501,7 +504,7 @@ void main() {
         color += emissiveScene;
         outSceneColor = vec4(color + ((neonSample * 0.1) * glowMask), alpha);
         outGlowColor = vec4(glowColor, glowMask);
-        outDepthColor = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0);
+        outDepthColor = vec4(hbaoDepth, 0.0, 0.0, 1.0);
         return;
     }
 
@@ -583,5 +586,5 @@ void main() {
     color += emissiveScene;
     outSceneColor = vec4(color + ((neonSample * 0.1) * glowMask), alpha);
     outGlowColor = vec4(glowColor, glowMask);
-    outDepthColor = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0);
+    outDepthColor = vec4(hbaoDepth, 0.0, 0.0, 1.0);
 }

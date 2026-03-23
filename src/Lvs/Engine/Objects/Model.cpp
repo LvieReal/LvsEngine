@@ -7,6 +7,14 @@ namespace Lvs::Engine::Objects {
 Core::ClassDescriptor& Model::Descriptor() {
     static Core::ClassDescriptor descriptor("Model", &Core::Instance::Descriptor());
     static const bool initialized = []() {
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
+            "Renders",
+            true,
+            true,
+            "Appearance",
+            "When disabled, geometry within this model will not be rendered."
+        ));
+
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Core::Variant::InstanceRef>(
             "PrimaryPart",
             {},

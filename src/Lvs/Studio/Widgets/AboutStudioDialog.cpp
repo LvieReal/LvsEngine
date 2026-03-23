@@ -35,6 +35,7 @@ AboutStudioDialog::AboutStudioDialog(QWidget* parent)
     auto* title = new QLabel(Configuration::GetFullName(), this);
     QFont fontBold;
     fontBold.setBold(true);
+    fontBold.setPixelSize(fontBold.pixelSize() * 2);
     title->setFont(fontBold);
 
     auto* version = new QLabel(QString("Version: %1").arg(Configuration::GetVersion()), this);

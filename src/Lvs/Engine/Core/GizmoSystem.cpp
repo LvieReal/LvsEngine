@@ -22,6 +22,23 @@ double SnapToStep(const double value, const double step) {
     return std::round(value / step) * step;
 }
 
+double DistanceToAabb(const Math::Vector3& point, const Math::AABB& aabb) {
+    double dx = 0.0;
+    double dy = 0.0;
+    double dz = 0.0;
+
+    if (point.x < aabb.Min.x) dx = aabb.Min.x - point.x;
+    else if (point.x > aabb.Max.x) dx = point.x - aabb.Max.x;
+
+    if (point.y < aabb.Min.y) dy = aabb.Min.y - point.y;
+    else if (point.y > aabb.Max.y) dy = point.y - aabb.Max.y;
+
+    if (point.z < aabb.Min.z) dz = aabb.Min.z - point.z;
+    else if (point.z > aabb.Max.z) dz = point.z - aabb.Max.z;
+
+    return std::sqrt(dx * dx + dy * dy + dz * dz);
+}
+
 } // namespace
 
 void GizmoSystem::Bind(const std::shared_ptr<Objects::Camera>& camera) {
@@ -471,10 +488,20 @@ double GizmoSystem::DistanceScale() const {
     if (camera_ == nullptr) {
         return 1.0;
     }
-    const Math::Vector3 targetPos = hasSelectionBounds_ ? selectionCenter_
-                                                        : (targetPart_ != nullptr ? targetPart_->GetWorldCFrame().Position : Math::Vector3{});
     const Math::Vector3 cameraPos = camera_->GetProperty("CFrame").value<Math::CFrame>().Position;
-    return std::max(0.1, (cameraPos - targetPos).Magnitude() / 10.0);
+
+    Math::AABB bounds{};
+    bool hasBounds = false;
+    if (hasSelectionBounds_) {
+        bounds = selectionBounds_;
+        hasBounds = true;
+    } else if (targetPart_ != nullptr) {
+        bounds = Utils::BuildPartWorldAABB(targetPart_);
+        hasBounds = true;
+    }
+
+    const double distance = hasBounds ? DistanceToAabb(cameraPos, bounds) : 0.0;
+    return std::max(0.1, distance / 10.0);
 }
 
 Math::Vector3 GizmoSystem::Center() const {

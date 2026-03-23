@@ -690,14 +690,26 @@ void main()
     vec2 param_4 = faceUV;
     vec3 surfaceDetail = SampleSurfaceColor(param_3, param_4);
     albedo *= surfaceDetail;
-    float ignoreLighting = fragMaterial.w;
+    uint materialFlags = uint(fragMaterial.w + 0.5);
+    bool ignoreLighting = (materialFlags & 1u) != 0u;
+    bool excludeHbao = (materialFlags & 2u) != 0u;
+    float _1512;
+    if (excludeHbao)
+    {
+        _1512 = 1.0;
+    }
+    else
+    {
+        _1512 = gl_FragCoord.z;
+    }
+    float hbaoDepth = _1512;
     float metalness = clamp(fragMaterial.x, 0.0, 1.0);
     float roughness = clamp(fragMaterial.y, 0.0, 1.0);
     float emissive = max(fragMaterial.z, 0.0);
     bool neonEnabled = camera.renderSettings.z > 0.5;
     bool allowBlackNeon = (camera.renderSettings.w > 0.5) && neonEnabled;
     float albedoL2 = dot(albedo, albedo);
-    float glowMask = float((neonEnabled && (ignoreLighting <= 0.5)) && (emissive > 9.9999997473787516355514526367188e-05));
+    float glowMask = float((neonEnabled && (!ignoreLighting)) && (emissive > 9.9999997473787516355514526367188e-05));
     if ((!allowBlackNeon) && (albedoL2 < 9.9999999747524270787835121154785e-07))
     {
         glowMask = 0.0;
@@ -712,28 +724,28 @@ void main()
     vec3 emissiveScene = (albedo * emissive) * 4.0;
     vec3 glowColor = (((glowBase * emissive) * 8.0) * blackNeonGlowBoost) * glowMask;
     vec2 neonUv = gl_FragCoord.xy / vec2(max(textureSize(neonTexture, 0), ivec2(1)));
-    vec3 _1580;
+    vec3 _1599;
     if (neonEnabled)
     {
-        _1580 = texture(neonTexture, neonUv).xyz;
+        _1599 = texture(neonTexture, neonUv).xyz;
     }
     else
     {
-        _1580 = vec3(0.0);
+        _1599 = vec3(0.0);
     }
-    vec3 neonSample = _1580;
-    if (ignoreLighting > 0.5)
+    vec3 neonSample = _1599;
+    if (ignoreLighting)
     {
         outSceneColor = vec4((albedo + emissiveScene) + ((neonSample * 0.100000001490116119384765625) * glowMask), alpha);
         outGlowColor = vec4(0.0);
-        outDepthColor = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0);
+        outDepthColor = vec4(hbaoDepth, 0.0, 0.0, 1.0);
         return;
     }
     if (allowBlackNeon && (emissive > 0.0))
     {
         outSceneColor = vec4((albedo + emissiveScene) + ((neonSample * 0.100000001490116119384765625) * glowMask), alpha);
         outGlowColor = vec4(glowColor, glowMask);
-        outDepthColor = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0);
+        outDepthColor = vec4(hbaoDepth, 0.0, 0.0, 1.0);
         return;
     }
     vec3 param_5 = fragLocalNormal;
@@ -762,17 +774,17 @@ void main()
                 continue;
             }
             fresnelAmount = clamp(light.specular.z, 0.0, 1.0);
-            bool _1734 = light.type == 0u;
-            bool _1741;
-            if (_1734)
+            bool _1750 = light.type == 0u;
+            bool _1757;
+            if (_1750)
             {
-                _1741 = light.shadowIndex != 4294967295u;
+                _1757 = light.shadowIndex != 4294967295u;
             }
             else
             {
-                _1741 = _1734;
+                _1757 = _1750;
             }
-            if (_1741)
+            if (_1757)
             {
                 dl.direction = lightData.directionalLights[light.dataIndex].direction;
                 dl.shadowCascadeSplits = lightData.directionalLights[light.dataIndex].shadowCascadeSplits;
@@ -816,7 +828,7 @@ void main()
         color += emissiveScene;
         outSceneColor = vec4(color + ((neonSample * 0.100000001490116119384765625) * glowMask), alpha);
         outGlowColor = vec4(glowColor, glowMask);
-        outDepthColor = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0);
+        outDepthColor = vec4(hbaoDepth, 0.0, 0.0, 1.0);
         return;
     }
     vec3 color_1 = (camera.ambient.xyz * camera.ambient.w) * albedo;
@@ -950,6 +962,6 @@ void main()
     color_1 += emissiveScene;
     outSceneColor = vec4(color_1 + ((neonSample * 0.100000001490116119384765625) * glowMask), alpha);
     outGlowColor = vec4(glowColor, glowMask);
-    outDepthColor = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0);
+    outDepthColor = vec4(hbaoDepth, 0.0, 0.0, 1.0);
 }
 

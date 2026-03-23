@@ -2,6 +2,7 @@
 
 #include "Lvs/Engine/Enums/PartShape.hpp"
 #include "Lvs/Engine/Core/Instance.hpp"
+#include "Lvs/Engine/Math/AABB.hpp"
 #include "Lvs/Engine/Math/Color3.hpp"
 #include "Lvs/Engine/Rendering/Backends/OpenGL/GLApi.hpp"
 #include "Lvs/Engine/Rendering/Backends/Vulkan/VulkanApi.hpp"
@@ -10,6 +11,11 @@
 #include "Lvs/Engine/Rendering/Common/SkyboxSettingsResolver.hpp"
 #include "Lvs/Engine/Rendering/IRenderContext.hpp"
 #include "Lvs/Engine/Rendering/Renderer.hpp"
+
+// Windows headers define GetClassName as a macro, which conflicts with Core::Instance::GetClassName().
+#ifdef GetClassName
+#undef GetClassName
+#endif
 
 #include <array>
 #include <cstdint>
@@ -61,6 +67,7 @@ private:
         std::weak_ptr<Core::Instance> Instance{};
         Core::Instance::InstanceConnection ChildAdded{};
         Core::Instance::InstanceConnection ChildRemoved{};
+        Core::Instance::PropertyChangedConnection PropertyChanged{};
         Utils::Signal<>::Connection Destroying{};
     };
 
@@ -77,6 +84,9 @@ private:
         bool IgnoreLighting{false};
         float Alpha{1.0F};
         float SortDepth{0.0F};
+        int ZIndex{0};
+        Math::AABB WorldAabb{};
+        bool HasWorldAabb{false};
         RHI::CullMode CullMode{RHI::CullMode::Back};
         const SceneData::MeshRef* Mesh{nullptr};
         std::string MeshKey{};
@@ -84,6 +94,7 @@ private:
         bool LayoutDirty{true};
         bool DataDirty{true};
         std::size_t PackedInstanceIndex{0};
+        std::optional<std::size_t> PackedAlwaysOnTopDrawIndex{};
 
         Common::DrawInstanceData InstanceData{};
     };
@@ -140,6 +151,7 @@ private:
     void RebuildOverlayBatchesAndInstances();
     void UpdateDirtyInstanceData();
     void UpdateTransparentSortDepths();
+    void UpdateAlwaysOnTopSortDepths();
     [[nodiscard]] std::vector<SceneData::DrawPacket> BuildGeometryDraws();
     [[nodiscard]] Common::CameraUniformData BuildCameraUniforms();
     [[nodiscard]] Common::SkyboxPushConstants BuildSkyboxPushConstants() const;
