@@ -9,6 +9,7 @@
 #include <QVariant>
 #include <QString>
 #include <QTreeWidget>
+#include <QPoint>
 
 #include <functional>
 #include <memory>
@@ -23,6 +24,7 @@ class QMimeData;
 class QMouseEvent;
 class QPushButton;
 class QTreeWidgetItem;
+class QRubberBand;
 
 namespace Lvs::Engine::Core {
 class Instance;
@@ -49,6 +51,8 @@ public:
     Engine::Utils::Signal<const std::shared_ptr<Engine::Core::Instance>&> InstanceActivated;
 
 protected:
+    void mousePressEvent(QMouseEvent* event) override;
+    void mouseReleaseEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void leaveEvent(QEvent* event) override;
     void startDrag(Qt::DropActions supportedActions) override;
@@ -117,6 +121,13 @@ private:
 	    Core::Settings::Connection iconPackConnection_{};
 	    Core::Settings::Connection showHiddenServicesConnection_{};
 	    bool showHiddenServices_{false};
+
+        bool leftMouseDown_{false};
+        bool rubberBandSelecting_{false};
+        QPoint rubberBandStart_{};
+        Qt::KeyboardModifiers rubberBandModifiers_{Qt::NoModifier};
+        bool dragEnabledBeforeRubberBand_{true};
+        std::unique_ptr<QRubberBand> rubberBand_;
 };
 
 } // namespace Lvs::Studio::Widgets::Explorer

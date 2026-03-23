@@ -31,6 +31,9 @@ Core::ClassDescriptor& BasePart::Descriptor() {
             "Renders", true, true, "Appearance"
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
+            "Locked", false, true, "Behavior", "Locked parts cannot be selected."
+        ));
+        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
             "AlwaysOnTop", false, true, "Appearance"
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<int>(

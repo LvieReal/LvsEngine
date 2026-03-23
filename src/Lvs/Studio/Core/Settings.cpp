@@ -35,6 +35,7 @@ QMap<QString, SettingMeta> g_settings = {
     {"GizmoAlwaysOnTop", {"Gizmo Always On Top", "Render gizmos on top of scene geometry", true}},
     {"GizmoIgnoreDiffuseSpecular", {"Gizmo Ignore Lighting", "Ignore diffuse and specular lighting for gizmos", true}},
     {"GizmoAlignByMagnitude", {"Gizmo Align By Magnitude", "Place gizmo handles using bounds magnitude", true}},
+    {"GizmoSizeCollisions", {"Gizmo Size Collisions", "Stop resize gizmo at scene obstacles", true}},
     {"TransformSnapIncrement", {"Transform Snap Increment", "Snap amount for drag/move/size transforms (0 disables snap)", 1.0}},
     {"DockLayoutState", {"Dock Layout State", "Serialized dock and toolbar layout", ""}},
     {"LocalAssetsPath", {"Local Assets Folder", "Folder used for local assets (can be changed to any folder on this device)", ""}},
@@ -59,6 +60,7 @@ QMap<QString, QStringList> g_categories = {
 	     "GizmoAlwaysOnTop",
 	     "GizmoIgnoreDiffuseSpecular",
 	     "GizmoAlignByMagnitude",
+         "GizmoSizeCollisions",
          "@Transforms", // TODO: move into toolbar
 	     "TransformSnapIncrement"
         }

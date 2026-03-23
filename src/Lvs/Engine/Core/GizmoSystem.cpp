@@ -6,6 +6,7 @@
 #include "Lvs/Engine/Objects/BasePart.hpp"
 #include "Lvs/Engine/Objects/Camera.hpp"
 #include "Lvs/Engine/Utils/InstanceSelection.hpp"
+#include "Lvs/Engine/Utils/Raycast.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -208,6 +209,10 @@ bool GizmoSystem::TryBeginDrag(const Utils::Ray& ray) {
 }
 
 void GizmoSystem::UpdateDrag(const Utils::Ray& ray) {
+    UpdateDragWithCollisions(ray, nullptr, false);
+}
+
+void GizmoSystem::UpdateDragWithCollisions(const Utils::Ray& ray, const Utils::PartBVH* bvh, const bool enableSizeCollisions) {
     if (targetPart_ == nullptr || activeAxis_.empty() || !dragStartPoint_.has_value() || !hasDragCenter_) {
         return;
     }
@@ -291,6 +296,44 @@ void GizmoSystem::UpdateDrag(const Utils::Ray& ray) {
     auto snap = dragSnapshots_.front();
     if (snap.Part == nullptr || snap.Part->GetParent() == nullptr) {
         return;
+    }
+
+    if (enableSizeCollisions && bvh != nullptr && amount > 0.0) {
+        const Math::Vector3 dir = activeAxisDirection_.Unit();
+        const Math::AABB localAabb{Math::Vector3{-0.5, -0.5, -0.5}, Math::Vector3{0.5, 0.5, 0.5}};
+        const Math::Matrix4 startWorld = snap.StartWorldCFrame.ToMatrix4() * Math::Matrix4::Scale(snap.StartSize);
+        const Math::AABB startAabb = Math::TransformAABB(localAabb, startWorld);
+        const Math::Vector3 facePoint{
+            (dir.x >= 0.0) ? startAabb.Max.x : startAabb.Min.x,
+            (dir.y >= 0.0) ? startAabb.Max.y : startAabb.Min.y,
+            (dir.z >= 0.0) ? startAabb.Max.z : startAabb.Min.z
+        };
+
+        std::vector<std::shared_ptr<Objects::BasePart>> exclude;
+        exclude.reserve(16);
+        exclude.push_back(snap.Part);
+        snap.Part->ForEachDescendant([&exclude](const std::shared_ptr<Instance>& desc) {
+            if (const auto descPart = std::dynamic_pointer_cast<Objects::BasePart>(desc); descPart != nullptr) {
+                exclude.push_back(descPart);
+            }
+        });
+
+        constexpr double originOffset = 1e-3;
+        constexpr double clearance = 1e-3;
+        const Utils::Ray collisionRay{facePoint + dir * originOffset, dir};
+
+        const auto [hitPart, hitDistance] = Utils::RaycastPartBVHWithFilter(
+            collisionRay,
+            *bvh,
+            exclude,
+            Utils::DescendantFilterType::Exclude
+        );
+
+        if (hitPart != nullptr && std::isfinite(hitDistance)) {
+            const double distanceFromFace = originOffset + hitDistance;
+            const double maxAmount = std::max(0.0, distanceFromFace - clearance);
+            amount = std::min(amount, maxAmount);
+        }
     }
 
     Math::Vector3 newSize = snap.StartSize;

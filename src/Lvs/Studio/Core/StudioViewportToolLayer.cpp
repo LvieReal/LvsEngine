@@ -19,6 +19,7 @@
 #include "Lvs/Engine/Utils/Benchmark.hpp"
 
 #include <QMouseEvent>
+#include <QRubberBand>
 #include <Qt>
 
 #include <algorithm>
@@ -123,6 +124,46 @@ std::shared_ptr<Engine::Core::Instance> FindAncestorModel(const std::shared_ptr<
     return topLevelModel;
 }
 
+std::array<double, 4> MulMat4Vec4(const Engine::Math::Matrix4& matrix, const std::array<double, 4>& vector) {
+    const auto& m = matrix.Rows();
+    return {
+        m[0][0] * vector[0] + m[0][1] * vector[1] + m[0][2] * vector[2] + m[0][3] * vector[3],
+        m[1][0] * vector[0] + m[1][1] * vector[1] + m[1][2] * vector[2] + m[1][3] * vector[3],
+        m[2][0] * vector[0] + m[2][1] * vector[1] + m[2][2] * vector[2] + m[2][3] * vector[3],
+        m[3][0] * vector[0] + m[3][1] * vector[1] + m[3][2] * vector[2] + m[3][3] * vector[3]
+    };
+}
+
+bool ProjectWorldToScreen(
+    const std::shared_ptr<Engine::Objects::Camera>& camera,
+    const Engine::Math::Vector3& world,
+    int viewportWidth,
+    int viewportHeight,
+    QPointF& outScreen
+) {
+    if (camera == nullptr) {
+        return false;
+    }
+    viewportWidth = std::max(1, viewportWidth);
+    viewportHeight = std::max(1, viewportHeight);
+
+    const auto view = camera->GetViewMatrix();
+    const auto proj = camera->GetProjectionMatrix();
+    const auto viewProj = proj * view;
+    std::array<double, 4> clip = MulMat4Vec4(viewProj, {world.x, world.y, world.z, 1.0});
+    const double w = clip[3];
+    if (w <= 1e-8) {
+        return false;
+    }
+    const double ndcX = clip[0] / w;
+    const double ndcY = clip[1] / w;
+
+    const double sx = (ndcX * 0.5 + 0.5) * static_cast<double>(viewportWidth);
+    const double sy = (1.0 - (ndcY * 0.5 + 0.5)) * static_cast<double>(viewportHeight);
+    outScreen = QPointF{sx, sy};
+    return true;
+}
+
 } // namespace
 
 StudioViewportToolLayer::StudioViewportToolLayer(Engine::Core::Viewport& viewport, const Engine::EngineContextPtr& context)
@@ -152,6 +193,7 @@ void StudioViewportToolLayer::InvalidateWorkspaceRaycastCache() {
     }
     workspaceRaycastCache_.reset();
     workspaceRaycastCacheDirty_ = false;
+    workspaceSelectionCacheDirty_ = false;
 }
 
 const Engine::Utils::PartBVH* StudioViewportToolLayer::GetWorkspaceRaycastBVH() {
@@ -164,7 +206,26 @@ const Engine::Utils::PartBVH* StudioViewportToolLayer::GetWorkspaceRaycastBVH() 
     if (workspaceRaycastCache_.has_value()) {
         if (workspaceRaycastCacheDirty_) {
             Engine::Utils::RebuildPartBVH(workspaceRaycastCache_->Bvh);
+            Engine::Utils::RebuildPartBVH(workspaceRaycastCache_->SelectionBvh);
             workspaceRaycastCacheDirty_ = false;
+            workspaceSelectionCacheDirty_ = false;
+        }
+        if (workspaceSelectionCacheDirty_) {
+            // Locked state changes require rebuilding selection BVH membership.
+            const auto allParts = CollectWorkspaceParts();
+            std::vector<std::shared_ptr<Engine::Objects::BasePart>> selectableParts;
+            selectableParts.reserve(allParts.size());
+            for (const auto& part : allParts) {
+                if (part == nullptr) {
+                    continue;
+                }
+                if (part->GetProperty("Locked").toBool()) {
+                    continue;
+                }
+                selectableParts.push_back(part);
+            }
+            workspaceRaycastCache_->SelectionBvh = Engine::Utils::BuildPartBVH(selectableParts);
+            workspaceSelectionCacheDirty_ = false;
         }
         return &workspaceRaycastCache_->Bvh;
     }
@@ -172,7 +233,21 @@ const Engine::Utils::PartBVH* StudioViewportToolLayer::GetWorkspaceRaycastBVH() 
     InvalidateWorkspaceRaycastCache();
 
     WorkspaceRaycastCache cache;
-    cache.Bvh = Engine::Utils::BuildPartBVH(CollectWorkspaceParts());
+    const auto allParts = CollectWorkspaceParts();
+    cache.Bvh = Engine::Utils::BuildPartBVH(allParts);
+
+    std::vector<std::shared_ptr<Engine::Objects::BasePart>> selectableParts;
+    selectableParts.reserve(allParts.size());
+    for (const auto& part : allParts) {
+        if (part == nullptr) {
+            continue;
+        }
+        if (part->GetProperty("Locked").toBool()) {
+            continue;
+        }
+        selectableParts.push_back(part);
+    }
+    cache.SelectionBvh = Engine::Utils::BuildPartBVH(selectableParts);
 
     auto markTransformDirty = [this]() {
         workspaceRaycastCacheDirty_ = true;
@@ -180,6 +255,7 @@ const Engine::Utils::PartBVH* StudioViewportToolLayer::GetWorkspaceRaycastBVH() 
 
     auto markStructureDirty = [this]() {
         workspaceRaycastCacheDirty_ = true;
+        workspaceSelectionCacheDirty_ = true;
         if (gizmoDragging_ || partDragging_) {
             return;
         }
@@ -204,9 +280,12 @@ const Engine::Utils::PartBVH* StudioViewportToolLayer::GetWorkspaceRaycastBVH() 
             continue;
         }
 
-        cache.PartPropertyChanged.push_back(part->PropertyChanged.Connect([markTransformDirty](const Engine::Core::String& name, const Engine::Core::Variant&) {
+        cache.PartPropertyChanged.push_back(part->PropertyChanged.Connect([markTransformDirty, markStructureDirty](const Engine::Core::String& name, const Engine::Core::Variant&) {
             if (name == "CFrame" || name == "Size") {
                 markTransformDirty();
+            }
+            if (name == "Locked") {
+                markStructureDirty();
             }
         }));
 
@@ -217,7 +296,17 @@ const Engine::Utils::PartBVH* StudioViewportToolLayer::GetWorkspaceRaycastBVH() 
 
     workspaceRaycastCache_ = std::move(cache);
     workspaceRaycastCacheDirty_ = false;
+    workspaceSelectionCacheDirty_ = false;
     return &workspaceRaycastCache_->Bvh;
+}
+
+const Engine::Utils::PartBVH* StudioViewportToolLayer::GetWorkspaceSelectionBVH() {
+    const auto* all = GetWorkspaceRaycastBVH();
+    static_cast<void>(all);
+    if (!workspaceRaycastCache_.has_value()) {
+        return nullptr;
+    }
+    return &workspaceRaycastCache_->SelectionBvh;
 }
 
 void StudioViewportToolLayer::BindToPlace(const std::shared_ptr<Engine::DataModel::Place>& place) {
@@ -267,6 +356,15 @@ void StudioViewportToolLayer::Unbind() {
     leftMouseDown_ = false;
     gizmoDragging_ = false;
     partDragging_ = false;
+    boxSelectPending_ = false;
+    boxSelecting_ = false;
+    boxSelectInitialSelection_.clear();
+    boxSelectLastRect_ = {};
+    boxSelectHasLastRect_ = false;
+    if (boxSelectRubberBand_ != nullptr) {
+        boxSelectRubberBand_->hide();
+        boxSelectRubberBand_.reset();
+    }
     partDragState_.reset();
     hoveredPart_.reset();
     hoveredBoundsKey_.reset();
@@ -313,6 +411,10 @@ void StudioViewportToolLayer::SetSnapIncrement(const double value) {
     }
 }
 
+void StudioViewportToolLayer::SetGizmoSizeCollisions(const bool value) {
+    gizmoSizeCollisions_ = value;
+}
+
 void StudioViewportToolLayer::OnFrame(const double deltaSeconds, const std::optional<Engine::Utils::Ray>& cursorRay) {
     if (Engine::Utils::Benchmark::Enabled()) {
         LVS_BENCH_SCOPE("StudioViewportToolLayer::OnFrame");
@@ -330,7 +432,7 @@ void StudioViewportToolLayer::OnFrame(const double deltaSeconds, const std::opti
     if (!leftMouseDown_ && !gizmoDragging_ && !partDragging_ && workspace_ != nullptr) {
         const auto previousHovered = hoveredPart_;
         if (cursorRay.has_value()) {
-            if (const auto* bvh = GetWorkspaceRaycastBVH(); bvh != nullptr) {
+            if (const auto* bvh = GetWorkspaceSelectionBVH(); bvh != nullptr) {
                 const auto [hitPart, distance] = Engine::Utils::RaycastPartBVH(cursorRay.value(), *bvh);
                 static_cast<void>(distance);
                 hoveredPart_ = hitPart;
@@ -347,7 +449,8 @@ void StudioViewportToolLayer::OnFrame(const double deltaSeconds, const std::opti
 
     if (leftMouseDown_ && (gizmoDragging_ || partDragging_) && cursorRay.has_value() && workspace_ != nullptr) {
         if (gizmoDragging_ && gizmoSystem_ != nullptr) {
-            gizmoSystem_->UpdateDrag(cursorRay.value());
+            const auto* bvh = GetWorkspaceRaycastBVH();
+            gizmoSystem_->UpdateDragWithCollisions(cursorRay.value(), bvh, gizmoSizeCollisions_);
         } else if (partDragging_) {
             UpdatePartDrag(cursorRay.value());
         }
@@ -360,6 +463,19 @@ void StudioViewportToolLayer::OnMousePress(QMouseEvent* event, const std::option
     }
 
     leftMouseDown_ = true;
+    boxSelectPending_ = true;
+    boxSelecting_ = false;
+    boxSelectStart_ = event->position().toPoint();
+    boxSelectModifiers_ = event->modifiers();
+    boxSelectHasLastRect_ = false;
+    boxSelectLastRect_ = {};
+    boxSelectInitialSelection_.clear();
+    if (selection_ != nullptr) {
+        boxSelectInitialSelection_ = Engine::Utils::FilterTopLevelInstances(selection_->Get());
+    }
+    if (boxSelectRubberBand_ != nullptr) {
+        boxSelectRubberBand_->hide();
+    }
     if (!ray.has_value()) {
         return;
     }
@@ -369,6 +485,7 @@ void StudioViewportToolLayer::OnMousePress(QMouseEvent* event, const std::option
         hoveredPart_.reset();
         BeginGizmoHistory(gizmoSystem_->GetTargetPart());
         gizmoDragging_ = true;
+        boxSelectPending_ = false;
         return;
     }
 
@@ -376,6 +493,7 @@ void StudioViewportToolLayer::OnMousePress(QMouseEvent* event, const std::option
         hoveredPart_.reset();
         BeginGizmoHistory(partDragState_.has_value() ? partDragState_->Instance : nullptr);
         partDragging_ = true;
+        boxSelectPending_ = false;
         return;
     }
 
@@ -387,6 +505,7 @@ void StudioViewportToolLayer::OnMousePress(QMouseEvent* event, const std::option
         hoveredPart_.reset();
         BeginGizmoHistory(partDragState_.has_value() ? partDragState_->Instance : nullptr);
         partDragging_ = true;
+        boxSelectPending_ = false;
     }
 }
 
@@ -395,7 +514,24 @@ void StudioViewportToolLayer::OnMouseRelease(QMouseEvent* event) {
         return;
     }
 
+    if (boxSelecting_) {
+        boxSelecting_ = false;
+        boxSelectPending_ = false;
+        if (boxSelectRubberBand_ != nullptr) {
+            boxSelectRubberBand_->hide();
+        }
+
+        UpdateViewportBoxSelection(QRect(boxSelectStart_, event->position().toPoint()).normalized());
+
+        leftMouseDown_ = false;
+        return;
+    }
+
     leftMouseDown_ = false;
+    boxSelectPending_ = false;
+    if (boxSelectRubberBand_ != nullptr) {
+        boxSelectRubberBand_->hide();
+    }
     const bool wasDragging = gizmoDragging_ || partDragging_;
     if (gizmoDragging_ && gizmoSystem_ != nullptr) {
         CommitGizmoHistory();
@@ -412,14 +548,48 @@ void StudioViewportToolLayer::OnMouseRelease(QMouseEvent* event) {
 }
 
 void StudioViewportToolLayer::OnMouseMove(QMouseEvent* event, const std::optional<Engine::Utils::Ray>& ray) {
-    static_cast<void>(event);
+    if (leftMouseDown_ && boxSelectPending_ && !gizmoDragging_ && !partDragging_) {
+        const QPoint current = event->position().toPoint();
+        const int threshold = 4;
+        if (!boxSelecting_ && (current - boxSelectStart_).manhattanLength() > threshold) {
+            boxSelecting_ = true;
+            if (viewport_ != nullptr && boxSelectRubberBand_ == nullptr) {
+                boxSelectRubberBand_ = std::make_unique<QRubberBand>(QRubberBand::Rectangle, nullptr);
+                boxSelectRubberBand_->setFocusPolicy(Qt::NoFocus);
+            }
+            if (boxSelectRubberBand_ != nullptr) {
+                const QRect rect = QRect(boxSelectStart_, current).normalized();
+                if (viewport_ != nullptr) {
+                    const QPoint globalTopLeft = viewport_->mapToGlobal(rect.topLeft());
+                    boxSelectRubberBand_->setGeometry(QRect(globalTopLeft, rect.size()));
+                }
+                boxSelectRubberBand_->show();
+            }
+        }
+        if (boxSelecting_ && boxSelectRubberBand_ != nullptr) {
+            const QRect rect = QRect(boxSelectStart_, current).normalized();
+            if (viewport_ != nullptr) {
+                const QPoint globalTopLeft = viewport_->mapToGlobal(rect.topLeft());
+                boxSelectRubberBand_->setGeometry(QRect(globalTopLeft, rect.size()));
+            }
+            if (!boxSelectHasLastRect_ || rect != boxSelectLastRect_) {
+                boxSelectLastRect_ = rect;
+                boxSelectHasLastRect_ = true;
+                UpdateViewportBoxSelection(rect);
+            }
+        }
+
+        // While box selecting, do not interact with gizmos or drag behavior.
+        return;
+    }
     if (!ray.has_value()) {
         return;
     }
 
     UpdateGizmo(ray);
     if (gizmoDragging_ && gizmoSystem_ != nullptr) {
-        gizmoSystem_->UpdateDrag(ray.value());
+        const auto* bvh = GetWorkspaceRaycastBVH();
+        gizmoSystem_->UpdateDragWithCollisions(ray.value(), bvh, gizmoSizeCollisions_);
     } else if (partDragging_) {
         UpdatePartDrag(ray.value());
     }
@@ -447,7 +617,7 @@ void StudioViewportToolLayer::PickSelection(const Engine::Utils::Ray& ray, const
         return;
     }
 
-    const auto* bvh = GetWorkspaceRaycastBVH();
+    const auto* bvh = GetWorkspaceSelectionBVH();
     const auto [hitPart, distance] = bvh != nullptr
         ? Engine::Utils::RaycastPartBVH(ray, *bvh)
         : std::pair<std::shared_ptr<Engine::Objects::BasePart>, double>{nullptr, std::numeric_limits<double>::infinity()};
@@ -482,6 +652,142 @@ void StudioViewportToolLayer::PickSelection(const Engine::Utils::Ray& ray, const
     }
 
     selection_->Set(selectTarget);
+}
+
+void StudioViewportToolLayer::UpdateViewportBoxSelection(const QRect& rect) {
+    if (selection_ == nullptr || workspace_ == nullptr || viewport_ == nullptr) {
+        return;
+    }
+
+    const auto camera = GetWorkspaceCamera(workspace_);
+    if (camera == nullptr || rect.width() <= 1 || rect.height() <= 1) {
+        return;
+    }
+
+    std::vector<std::shared_ptr<Engine::Core::Instance>> targets;
+    std::unordered_set<const Engine::Core::Instance*> seen;
+
+    const int viewportWidth = viewport_->width();
+    const int viewportHeight = viewport_->height();
+    const auto parts = CollectWorkspaceParts();
+    for (const auto& part : parts) {
+        if (part == nullptr || part->GetParent() == nullptr) {
+            continue;
+        }
+        if (part->GetProperty("Locked").toBool()) {
+            continue;
+        }
+
+        const Engine::Math::AABB aabb = Engine::Utils::BuildPartWorldAABB(part);
+        const std::array<Engine::Math::Vector3, 8> corners{{
+            {aabb.Min.x, aabb.Min.y, aabb.Min.z},
+            {aabb.Max.x, aabb.Min.y, aabb.Min.z},
+            {aabb.Min.x, aabb.Max.y, aabb.Min.z},
+            {aabb.Max.x, aabb.Max.y, aabb.Min.z},
+            {aabb.Min.x, aabb.Min.y, aabb.Max.z},
+            {aabb.Max.x, aabb.Min.y, aabb.Max.z},
+            {aabb.Min.x, aabb.Max.y, aabb.Max.z},
+            {aabb.Max.x, aabb.Max.y, aabb.Max.z},
+        }};
+
+        bool anyProjected = false;
+        double minX = std::numeric_limits<double>::infinity();
+        double minY = std::numeric_limits<double>::infinity();
+        double maxX = -std::numeric_limits<double>::infinity();
+        double maxY = -std::numeric_limits<double>::infinity();
+
+        for (const auto& corner : corners) {
+            QPointF screen;
+            if (!ProjectWorldToScreen(camera, corner, viewportWidth, viewportHeight, screen)) {
+                continue;
+            }
+            anyProjected = true;
+            minX = std::min(minX, screen.x());
+            minY = std::min(minY, screen.y());
+            maxX = std::max(maxX, screen.x());
+            maxY = std::max(maxY, screen.y());
+        }
+
+        if (!anyProjected) {
+            continue;
+        }
+
+        const QRectF partRect(QPointF(minX, minY), QPointF(maxX, maxY));
+        if (!partRect.intersects(QRectF(rect))) {
+            continue;
+        }
+
+        const auto hitModel = FindAncestorModel(part);
+        const std::shared_ptr<Engine::Core::Instance> target =
+            hitModel != nullptr ? hitModel : std::static_pointer_cast<Engine::Core::Instance>(part);
+        if (target == nullptr) {
+            continue;
+        }
+        if (!seen.insert(target.get()).second) {
+            continue;
+        }
+        targets.push_back(target);
+    }
+
+    const auto topLevelTargets = Engine::Utils::FilterTopLevelInstances(targets);
+    const bool ctrl = (boxSelectModifiers_ & Qt::ControlModifier) != 0;
+    const bool shift = (boxSelectModifiers_ & Qt::ShiftModifier) != 0;
+
+    if (!ctrl && !shift) {
+        selection_->Set(topLevelTargets);
+        return;
+    }
+
+    std::vector<std::shared_ptr<Engine::Core::Instance>> next = boxSelectInitialSelection_;
+    std::unordered_set<const Engine::Core::Instance*> initialSet;
+    initialSet.reserve(boxSelectInitialSelection_.size());
+    for (const auto& inst : boxSelectInitialSelection_) {
+        if (inst != nullptr) {
+            initialSet.insert(inst.get());
+        }
+    }
+
+    auto eraseInstance = [&next](const std::shared_ptr<Engine::Core::Instance>& inst) {
+        next.erase(std::remove_if(next.begin(), next.end(), [&inst](const auto& cur) {
+            return cur != nullptr && inst != nullptr && cur.get() == inst.get();
+        }), next.end());
+    };
+
+    auto insertFrontIfMissing = [&next](const std::shared_ptr<Engine::Core::Instance>& inst) {
+        if (inst == nullptr) {
+            return;
+        }
+        const bool exists = std::any_of(next.begin(), next.end(), [&inst](const auto& cur) {
+            return cur != nullptr && cur.get() == inst.get();
+        });
+        if (!exists) {
+            next.insert(next.begin(), inst);
+        }
+    };
+
+    if (ctrl) {
+        for (const auto& inst : topLevelTargets) {
+            if (inst == nullptr) {
+                continue;
+            }
+            if (initialSet.contains(inst.get())) {
+                eraseInstance(inst);
+            } else {
+                insertFrontIfMissing(inst);
+            }
+        }
+    } else {
+        for (const auto& inst : topLevelTargets) {
+            if (inst == nullptr) {
+                continue;
+            }
+            if (!initialSet.contains(inst.get())) {
+                insertFrontIfMissing(inst);
+            }
+        }
+    }
+
+    selection_->Set(Engine::Utils::FilterTopLevelInstances(next));
 }
 
 bool StudioViewportToolLayer::CanDragGizmo() const {

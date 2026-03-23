@@ -13,9 +13,12 @@
 #include <unordered_set>
 #include <vector>
 
+#include <QPoint>
+#include <QRect>
 #include <Qt>
 
 class QMouseEvent;
+class QRubberBand;
 
 namespace Lvs::Engine {
 struct EngineContext;
@@ -60,10 +63,12 @@ public:
     void SetGizmoIgnoreDiffuseSpecular(bool value);
     void SetGizmoAlignByMagnitude(bool value);
     void SetSnapIncrement(double value);
+    void SetGizmoSizeCollisions(bool value);
 
 private:
     void InvalidateWorkspaceRaycastCache();
     [[nodiscard]] const Engine::Utils::PartBVH* GetWorkspaceRaycastBVH();
+    [[nodiscard]] const Engine::Utils::PartBVH* GetWorkspaceSelectionBVH();
 
     void RebuildHoveredBoundsCache();
     void DisconnectSelectionCacheSignals();
@@ -73,6 +78,7 @@ private:
     void RescanSelectionBoxCache();
 
     void PickSelection(const Engine::Utils::Ray& ray, Qt::KeyboardModifiers modifiers = Qt::NoModifier);
+    void UpdateViewportBoxSelection(const QRect& rect);
     bool CanDragGizmo() const;
     void EnsureGizmoSystem();
     void UpdateGizmo(const std::optional<Engine::Utils::Ray>& ray);
@@ -141,6 +147,7 @@ private:
     std::vector<std::weak_ptr<Engine::Objects::SelectionBox>> selectionBoxCache_;
     struct WorkspaceRaycastCache {
         Engine::Utils::PartBVH Bvh;
+        Engine::Utils::PartBVH SelectionBvh;
         Engine::Core::Instance::InstanceConnection WorkspaceChildAdded;
         Engine::Core::Instance::InstanceConnection WorkspaceChildRemoved;
         Engine::Core::Instance::InstanceConnection WorkspaceAncestryChanged;
@@ -149,6 +156,18 @@ private:
     };
     std::optional<WorkspaceRaycastCache> workspaceRaycastCache_;
     bool workspaceRaycastCacheDirty_{false};
+    bool workspaceSelectionCacheDirty_{false};
+
+    bool boxSelectPending_{false};
+    bool boxSelecting_{false};
+    QPoint boxSelectStart_{};
+    Qt::KeyboardModifiers boxSelectModifiers_{Qt::NoModifier};
+    std::unique_ptr<QRubberBand> boxSelectRubberBand_;
+    std::vector<std::shared_ptr<Engine::Core::Instance>> boxSelectInitialSelection_{};
+    QRect boxSelectLastRect_{};
+    bool boxSelectHasLastRect_{false};
+
+    bool gizmoSizeCollisions_{true};
     struct GizmoHistorySnapshot {
         struct TransformSnapshot {
             std::shared_ptr<Engine::Objects::BasePart> Instance;

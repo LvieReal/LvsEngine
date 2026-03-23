@@ -26,6 +26,7 @@
 #include <QMimeData>
 #include <QMouseEvent>
 #include <QPushButton>
+#include <QRubberBand>
 #include <QRegularExpression>
 #include <QSize>
 #include <QTimer>
@@ -186,7 +187,92 @@ void ExplorerWidget::SetSelection(const std::vector<std::shared_ptr<Engine::Core
     suppressSelectionSignal_ = false;
 }
 
+void ExplorerWidget::mousePressEvent(QMouseEvent* event) {
+    if (event->button() == Qt::LeftButton) {
+        leftMouseDown_ = true;
+        rubberBandSelecting_ = false;
+        rubberBandStart_ = event->pos();
+        rubberBandModifiers_ = event->modifiers();
+        if (rubberBand_ != nullptr) {
+            rubberBand_->hide();
+        }
+
+        // Start rubber band selection only when clicking empty space.
+        if (itemAt(rubberBandStart_) == nullptr) {
+            event->accept();
+            return;
+        }
+    }
+
+    QTreeWidget::mousePressEvent(event);
+}
+
+void ExplorerWidget::mouseReleaseEvent(QMouseEvent* event) {
+    if (event->button() == Qt::LeftButton) {
+        leftMouseDown_ = false;
+
+        if (rubberBandSelecting_) {
+            rubberBandSelecting_ = false;
+            if (rubberBand_ != nullptr) {
+                rubberBand_->hide();
+            }
+            setDragEnabled(dragEnabledBeforeRubberBand_);
+
+            const QRect rect = QRect(rubberBandStart_, event->pos()).normalized();
+            suppressSelectionSignal_ = true;
+
+            const bool ctrl = (rubberBandModifiers_ & Qt::ControlModifier) != 0;
+            const bool shift = (rubberBandModifiers_ & Qt::ShiftModifier) != 0;
+            if (!ctrl && !shift) {
+                clearSelection();
+            }
+
+            for (QTreeWidgetItemIterator it(this); *it != nullptr; ++it) {
+                QTreeWidgetItem* item = *it;
+                if (item == nullptr) {
+                    continue;
+                }
+                const QRect itemRect = visualItemRect(item);
+                if (!itemRect.isValid() || !itemRect.intersects(rect)) {
+                    continue;
+                }
+
+                if (ctrl) {
+                    item->setSelected(!item->isSelected());
+                } else {
+                    item->setSelected(true);
+                }
+            }
+
+            suppressSelectionSignal_ = false;
+            OnQtSelectionChanged();
+            event->accept();
+            return;
+        }
+    }
+
+    QTreeWidget::mouseReleaseEvent(event);
+}
+
 void ExplorerWidget::mouseMoveEvent(QMouseEvent* event) {
+    if (leftMouseDown_ && itemAt(rubberBandStart_) == nullptr) {
+        const int threshold = 4;
+        if (!rubberBandSelecting_ && (event->pos() - rubberBandStart_).manhattanLength() > threshold) {
+            rubberBandSelecting_ = true;
+            if (rubberBand_ == nullptr) {
+                rubberBand_ = std::make_unique<QRubberBand>(QRubberBand::Rectangle, this);
+            }
+            dragEnabledBeforeRubberBand_ = dragEnabled();
+            setDragEnabled(false);
+        }
+        if (rubberBandSelecting_ && rubberBand_ != nullptr) {
+            rubberBand_->setGeometry(QRect(rubberBandStart_, event->pos()).normalized());
+            rubberBand_->show();
+            event->accept();
+            return;
+        }
+    }
+
     QTreeWidget::mouseMoveEvent(event);
 
     QTreeWidgetItem* item = itemAt(event->pos());
@@ -301,7 +387,8 @@ void ExplorerWidget::OnQtSelectionChanged() {
         return;
     }
 
-    const QList<QTreeWidgetItem*> selected = selectedItems();
+    QList<QTreeWidgetItem*> selected = selectedItems();
+
     if (selected.isEmpty()) {
         SelectionChanged.Fire({});
         InstanceActivated.Fire(nullptr);
