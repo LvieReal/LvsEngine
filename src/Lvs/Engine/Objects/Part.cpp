@@ -21,7 +21,7 @@ Core::ClassDescriptor& Part::Descriptor() {
             "IsBeveled", false, true, "Appearance", {}, false, Core::StringList{cubeVisibleTag}
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
-            "BevelWidth", 0.1, true, "Appearance", "Bevel width in world units.", false, Core::StringList{cubeVisibleTag, beveledVisibleTag}
+            "BevelWidth", 0.05, true, "Appearance", "Bevel width in world units.", false, Core::StringList{cubeVisibleTag, beveledVisibleTag}
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
             "IsBevelSmooth", true, true, "Appearance", "Smooth normals across bevel faces.", false, Core::StringList{cubeVisibleTag, beveledVisibleTag}

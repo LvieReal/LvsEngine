@@ -270,7 +270,7 @@ void Place::CreateDefaultScene() {
         auto basePlate = std::make_shared<Objects::Part>();
         basePlate->SetProperty("Name", "BasePlate");
         basePlate->SetProperty("Anchored", true);
-        basePlate->SetProperty("Size", Math::Vector3{128.0, 4.0, 128.0});
+        basePlate->SetProperty("Size", Math::Vector3{1024.0, 6.0, 1024.0});
         basePlate->SetParent(workspaceService);
     }
 
