@@ -328,26 +328,6 @@ void Place::LoadFromXmlRoot(IO::IXmlReader& reader) {
             postEffects = std::make_shared<Objects::PostEffects>();
             postEffects->SetParent(lighting);
         }
-
-        auto migrate = [&](const char* name) {
-            const Core::String prop(name);
-            try {
-                const auto& def = postEffects->GetPropertyObject(prop).Definition();
-                const Core::Variant postValue = postEffects->GetProperty(prop);
-                const Core::Variant legacyValue = lighting->GetProperty(prop);
-                if (postValue == def.Default && legacyValue != def.Default) {
-                    postEffects->SetProperty(prop, legacyValue);
-                }
-            } catch (...) {
-                // Ignore missing properties.
-            }
-        };
-
-        migrate("GammaCorrection");
-        migrate("Dithering");
-        migrate("NeonEnabled");
-        migrate("InaccurateNeon");
-        migrate("NeonBlur");
     }
 }
 
@@ -446,9 +426,8 @@ void Place::DeserializeProperties(const std::shared_ptr<Core::Instance>& instanc
 
         const auto& props = instance->GetProperties();
         const auto it = props.find(propertyNameStd);
-        if (it == props.end()) {
+        if (it == props.end())
             continue;
-        }
 
         const auto& definition = it->second.Definition();
         if (definition.IsInstanceReference) {

@@ -25,9 +25,9 @@ struct ShadowSettings {
     float MaxDistance{220.0F};
     int TapCount{32};
     float BlurAmount{4.0F};
-    float Bias{1.0F};
+    float DepthBias{2.0F};
     float FadeWidth{0.25F};
-    float SlopeBias{2.0F};
+    float NormalOffset{2.0F};
 };
 
 struct ShadowCascadeComputation {

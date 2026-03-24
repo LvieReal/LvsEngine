@@ -376,17 +376,43 @@ float ComputeDirectionalBias(DirectionalLight dl, int shadowMapBase, int cascade
     vec2 texelSize = GetDirectionalShadowTexelSize(shadowMapBase, cascadeIndex);
     float texelScale = max(texelSize.x, texelSize.y);
 
-    float constantBiasTexels = max(dl.shadowParams.x, 0.0);
-    float slopeBiasFactor = max(dl.shadowBiasParams.x, 0.0);
-    float maxBiasTexels = max(dl.shadowBiasParams.y, 0.0);
+    float depthBiasTexels = max(dl.shadowParams.x, 0.0);
+    return depthBiasTexels * texelScale;
+}
 
-    float ndotl = max(dot(normalize(normal), normalize(lightDir)), 0.0);
-    float tanTheta = sqrt(max(1.0 - (ndotl * ndotl), 0.0)) / max(ndotl, 1e-3);
-    float biasTexels = constantBiasTexels + (slopeBiasFactor * tanTheta);
-    if (maxBiasTexels > 0.0) {
-        biasTexels = min(biasTexels, maxBiasTexels);
+vec3 ApplyDirectionalNormalOffset(
+    DirectionalLight dl,
+    int cascadeIndex,
+    vec3 worldPos,
+    vec3 normal,
+    vec2 shadowUv,
+    float receiverDepth,
+    vec2 texelSize
+) {
+    float normalOffsetTexels = max(dl.shadowBiasParams.x, 0.0);
+    if (normalOffsetTexels <= 1e-6) {
+        return worldPos;
     }
-    return biasTexels * texelScale;
+
+    vec3 ndc0 = vec3((shadowUv * 2.0) - 1.0, receiverDepth);
+    vec3 ndcX = vec3(((shadowUv + vec2(texelSize.x, 0.0)) * 2.0) - 1.0, receiverDepth);
+    vec3 ndcY = vec3(((shadowUv + vec2(0.0, texelSize.y)) * 2.0) - 1.0, receiverDepth);
+
+    vec4 w0 = dl.shadowInvMatrices[cascadeIndex] * vec4(ndc0, 1.0);
+    vec4 wX = dl.shadowInvMatrices[cascadeIndex] * vec4(ndcX, 1.0);
+    vec4 wY = dl.shadowInvMatrices[cascadeIndex] * vec4(ndcY, 1.0);
+
+    float invW0 = 1.0 / max(abs(w0.w), 1e-6);
+    float invWX = 1.0 / max(abs(wX.w), 1e-6);
+    float invWY = 1.0 / max(abs(wY.w), 1e-6);
+
+    vec3 p0 = w0.xyz * invW0;
+    vec3 pX = wX.xyz * invWX;
+    vec3 pY = wY.xyz * invWY;
+
+    float worldPerTexel = max(length(pX - p0), length(pY - p0));
+    float offsetWorld = normalOffsetTexels * worldPerTexel;
+    return worldPos + (normalize(normal) * offsetWorld);
 }
 
 float ComputeDirectionalShadowFactor(
@@ -428,6 +454,32 @@ float ComputeDirectionalShadowFactor(
         return 1.0;
     }
 
+    vec2 texelSize = GetDirectionalShadowTexelSize(shadowMapBase, cascadeIndex);
+    vec3 biasedWorldPos = ApplyDirectionalNormalOffset(
+        dl,
+        cascadeIndex,
+        worldPos,
+        normal,
+        shadowUv,
+        receiverDepth,
+        texelSize
+    );
+    if (distance(biasedWorldPos, worldPos) > 1e-7) {
+        lightClip = dl.shadowMatrices[cascadeIndex] * vec4(biasedWorldPos, 1.0);
+        if (abs(lightClip.w) <= 1e-6) {
+            return 1.0;
+        }
+        lightNdc = lightClip.xyz / lightClip.w;
+        shadowUv = (lightNdc.xy * 0.5) + 0.5;
+        receiverDepth = lightNdc.z;
+        if (receiverDepth <= 0.0 || receiverDepth >= 1.0) {
+            return 1.0;
+        }
+        if (shadowUv.x < 0.0 || shadowUv.x > 1.0 || shadowUv.y < 0.0 || shadowUv.y > 1.0) {
+            return 1.0;
+        }
+    }
+
     float softness = dl.shadowParams.y;
     vec2 baseSize = vec2(max(textureSize(directionalShadowMaps[clamp(shadowMapBase + 0, 0, 5)], 0), ivec2(1)));
     vec2 cascadeSize = baseSize;
@@ -461,7 +513,6 @@ float ComputeDirectionalShadowFactor(
 }
 
 #endif
-
 
 
 // --- include end: D:\VSCode\PROJECTS\LvsEngine\src\Lvs\Engine\Content\Shaders\Utils\DirectionalShadows.glsl

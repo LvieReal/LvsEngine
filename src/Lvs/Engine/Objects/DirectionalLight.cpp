@@ -21,10 +21,18 @@ Core::ClassDescriptor& DirectionalLight::Descriptor() {
             "ShadowTapCount", 64, true, "Shadow", "Number of Poisson PCF taps."
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
-            "ShadowBias", 1.5, true, "Shadow", "Directional shadow depth bias (in shadow texels); excess bias will result into peter panning."
+            "ShadowDepthBias",
+            0.0,
+            true,
+            "Shadow",
+            "Directional shadow depth bias (in shadow texels). Higher reduces acne but may cause peter panning. Prefer normal offset."
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
-            "ShadowSlopeBias", 0.0, true, "Shadow", "Directional shadow slope-scaled bias factor (in shadow texels); may cause bright spots."
+            "ShadowNormalOffset",
+            4.0,
+            true,
+            "Shadow",
+            "Directional shadow normal offset (in shadow texels). Virtually pushes receivers along surface normal toward the light."
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<int>(
             "ShadowCascadeCount", 3, true, "Shadow", "Directional shadow cascade count (1-3)."

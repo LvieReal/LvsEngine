@@ -144,8 +144,8 @@ void RenderContext::Render() {
                 Common::ShadowSettings desired{};
                 desired.BlurAmount = static_cast<float>(std::max(0.0, directional->GetProperty("ShadowBlur").toDouble()));
                 desired.TapCount = std::max(1, directional->GetProperty("ShadowTapCount").toInt());
-                desired.Bias = static_cast<float>(std::max(0.0, directional->GetProperty("ShadowBias").toDouble()));
-                desired.SlopeBias = static_cast<float>(std::max(0.0, directional->GetProperty("ShadowSlopeBias").toDouble()));
+                desired.DepthBias = static_cast<float>(std::max(0.0, directional->GetProperty("ShadowDepthBias").toDouble()));
+                desired.NormalOffset = static_cast<float>(std::max(0.0, directional->GetProperty("ShadowNormalOffset").toDouble()));
                 desired.CascadeCount = std::max(
                     1,
                     std::min(Common::kMaxShadowCascades, directional->GetProperty("ShadowCascadeCount").toInt())
@@ -558,12 +558,12 @@ void RenderContext::Render() {
                 static_cast<float>(settings.CascadeCount)
             };
             dir.ShadowParams = {
-                settings.Bias,
+                settings.DepthBias,
                 settings.BlurAmount,
                 static_cast<float>(settings.TapCount),
                 settings.FadeWidth
             };
-            dir.ShadowBiasParams = {settings.SlopeBias, 32.0F, 0.0F, 0.0F};
+            dir.ShadowBiasParams = {settings.NormalOffset, 0.0F, 0.0F, 0.0F};
 
             for (int c = 0; c < Common::kMaxShadowCascades; ++c) {
                 const auto matrix = directionalShadowCascadeComputations_[shadowIndex].Matrices[static_cast<std::size_t>(c)];

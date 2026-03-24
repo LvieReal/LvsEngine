@@ -39,8 +39,8 @@ struct alignas(16) GpuDirectionalLight {
 
     // Shadow data for this directional light (valid when ShadowState.x > 0.5 and base.ShadowIndex != 0xFFFFFFFF).
     std::array<float, 4> ShadowCascadeSplits{}; // split0, split1, maxDistance, cascadeCount
-    std::array<float, 4> ShadowParams{};        // bias, blurRadiusTexels, tapCount, fadeWidth
-    std::array<float, 4> ShadowBiasParams{};    // slopeBias, maxBiasTexels, unused, unused
+    std::array<float, 4> ShadowParams{};        // depthBiasTexels, blurRadiusTexels, tapCount, fadeWidth
+    std::array<float, 4> ShadowBiasParams{};    // normalOffsetTexels, unused, unused, unused
     std::array<float, 4> ShadowState{};         // x enabled, y jitterScaleX, z jitterScaleY, w unused
 
     std::array<std::array<float, 16>, kMaxShadowCascades> ShadowMatrices{};
