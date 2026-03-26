@@ -412,6 +412,10 @@ void StudioViewportToolLayer::SetSnapIncrement(const double value) {
     }
 }
 
+void StudioViewportToolLayer::SetGizmoMoveCollisions(const bool value) {
+    gizmoMoveCollisions_ = value;
+}
+
 void StudioViewportToolLayer::SetGizmoSizeCollisions(const bool value) {
     gizmoSizeCollisions_ = value;
 }
@@ -451,7 +455,7 @@ void StudioViewportToolLayer::OnFrame(const double deltaSeconds, const std::opti
     if (leftMouseDown_ && (gizmoDragging_ || partDragging_) && cursorRay.has_value() && workspace_ != nullptr) {
         if (gizmoDragging_ && gizmoSystem_ != nullptr) {
             const auto* bvh = GetWorkspaceRaycastBVH();
-            gizmoSystem_->UpdateDragWithCollisions(cursorRay.value(), bvh, gizmoSizeCollisions_);
+            gizmoSystem_->UpdateDragWithCollisions(cursorRay.value(), bvh, gizmoMoveCollisions_, gizmoSizeCollisions_);
         } else if (partDragging_) {
             UpdatePartDrag(cursorRay.value());
         }
@@ -600,7 +604,7 @@ void StudioViewportToolLayer::OnMouseMove(QMouseEvent* event, const std::optiona
     UpdateGizmo(ray);
     if (gizmoDragging_ && gizmoSystem_ != nullptr) {
         const auto* bvh = GetWorkspaceRaycastBVH();
-        gizmoSystem_->UpdateDragWithCollisions(ray.value(), bvh, gizmoSizeCollisions_);
+        gizmoSystem_->UpdateDragWithCollisions(ray.value(), bvh, gizmoMoveCollisions_, gizmoSizeCollisions_);
     } else if (partDragging_) {
         UpdatePartDrag(ray.value());
     }

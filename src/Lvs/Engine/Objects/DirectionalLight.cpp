@@ -18,7 +18,7 @@ Core::ClassDescriptor& DirectionalLight::Descriptor() {
         };
 
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Math::Vector3>(
-            "Direction", {0.5, -1.0, 0.5}, true, "Appearance"
+            "Direction", {0.5, -1.0, 0.5}, true, "Appearance", "Direction of the light."
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
             "ShadowEnabled", true, true, "Shadow", "Enable directional shadows for this light."
@@ -28,7 +28,7 @@ Core::ClassDescriptor& DirectionalLight::Descriptor() {
             Enums::ShadowType::Cascaded,
             true,
             "Shadow",
-            "Directional shadow technique (Cascaded shadow maps or Shadow Volumes)."
+            "Directional shadow technique."
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
             "ShadowBlur",
@@ -76,7 +76,7 @@ Core::ClassDescriptor& DirectionalLight::Descriptor() {
             cascadedOnlyTags
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
-            "ShadowMaxDistance", 1000.0, true, "Shadow", "Maximum distance for directional shadows."
+            "ShadowMaxDistance", 1000.0, true, "Shadow", "Maximum distance for shadows."
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<int>(
             "ShadowMapResolution",

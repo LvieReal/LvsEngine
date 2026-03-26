@@ -90,6 +90,11 @@ void ViewportManager::BindSettings() {
             toolLayer_->SetGizmoAlignByMagnitude(value.toBool());
         }
     }, true));
+    settingsConnections_.push_back(Settings::Changed("GizmoMoveCollisions", [this](const QVariant& value) {
+        if (toolLayer_ != nullptr) {
+            toolLayer_->SetGizmoMoveCollisions(value.toBool());
+        }
+    }, true));
     settingsConnections_.push_back(Settings::Changed("GizmoSizeCollisions", [this](const QVariant& value) {
         if (toolLayer_ != nullptr) {
             toolLayer_->SetGizmoSizeCollisions(value.toBool());

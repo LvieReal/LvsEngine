@@ -48,7 +48,6 @@ void main()
 {
     vec4 sceneSample = texture(sceneColor, fragUv);
     vec3 hdrColor = sceneSample.xyz;
-    float sceneAlpha = sceneSample.w;
     if (pushData.settings.z > 0.5)
     {
         hdrColor += texture(glowColor, fragUv).xyz;
@@ -57,7 +56,6 @@ void main()
     hdrColor *= mix(pushData.aoTint.xyz, vec3(1.0), vec3(clamp(ao, 0.0, 1.0)));
     float shadow = texture(shadowVolumeMask, fragUv).x;
     shadow = clamp(shadow, 0.0, 1.0);
-    shadow *= smoothstep(0.99500000476837158203125, 1.0, sceneAlpha);
     float shadowMaxDist = camera.lightingSettings.y;
     float shadowFadeStart = camera.lightingSettings.z;
     if ((shadowMaxDist > 9.9999997473787516355514526367188e-05) && (shadowFadeStart > 0.0))

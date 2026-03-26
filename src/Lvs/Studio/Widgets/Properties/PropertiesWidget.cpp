@@ -353,6 +353,33 @@ void PropertiesWidget::BindInstances(const std::vector<std::shared_ptr<Engine::C
             if (!description.isEmpty()) {
                 tooltip += "\n\n" + description;
             }
+            if (definition.Type == Engine::Core::TypeId::Enum) {
+                Engine::Core::String enumType;
+                if (const auto attrIt = definition.CustomAttributes.find("EnumType"); attrIt != definition.CustomAttributes.end()) {
+                    enumType = attrIt->second.toString();
+                }
+                if (!enumType.empty()) {
+                    QString enumValueDescriptions;
+                    for (const auto& entry : Engine::Enums::Metadata::EntriesForEnum(enumType)) {
+                        if (entry.Description == nullptr || entry.Description[0] == '\0') {
+                            continue;
+                        }
+                        const QString entryName = QString::fromUtf8(
+                            (entry.DisplayName != nullptr && entry.DisplayName[0] != '\0') ? entry.DisplayName : entry.Name
+                        );
+                        if (entryName.isEmpty()) {
+                            continue;
+                        }
+                        if (!enumValueDescriptions.isEmpty()) {
+                            enumValueDescriptions += "\n";
+                        }
+                        enumValueDescriptions += QString("%1: %2").arg(entryName, QString::fromUtf8(entry.Description));
+                    }
+                    if (!enumValueDescriptions.isEmpty()) {
+                        tooltip += "\n\n" + enumValueDescriptions;
+                    }
+                }
+            }
             label->setToolTip(tooltip);
 
             const int row = grid->rowCount();

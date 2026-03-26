@@ -1,5 +1,7 @@
 #include "Lvs/Engine/Enums/EnumMetadata.hpp"
 
+#include "Lvs/Engine/Enums/EnumMetadataTraits.hpp"
+
 #include "Lvs/Engine/Enums/LightingComputationMode.hpp"
 #include "Lvs/Engine/Enums/LightingTechnology.hpp"
 #include "Lvs/Engine/Enums/MSAA.hpp"
@@ -29,7 +31,7 @@ namespace Lvs::Engine::Enums::Metadata {
 namespace {
 
 struct EnumInfo {
-    Core::Vector<EnumOption> Options{};
+    Core::Vector<EnumEntry> Entries{};
 };
 
 [[nodiscard]] std::string LowerAscii(std::string_view text) {
@@ -42,8 +44,8 @@ struct EnumInfo {
 }
 
 [[nodiscard]] bool IsAllowedValue(const EnumInfo& info, const int value) {
-    for (const auto& opt : info.Options) {
-        if (opt.Value == value) {
+    for (const auto& entry : info.Entries) {
+        if (entry.Value == value) {
             return true;
         }
     }
@@ -56,9 +58,12 @@ struct EnumInfo {
         return std::nullopt;
     }
 
-    for (const auto& opt : info.Options) {
-        if (LowerAscii(opt.Name) == needle) {
-            return opt.Value;
+    for (const auto& entry : info.Entries) {
+        if (entry.Name != nullptr && LowerAscii(entry.Name) == needle) {
+            return entry.Value;
+        }
+        if (entry.DisplayName != nullptr && LowerAscii(entry.DisplayName) == needle) {
+            return entry.Value;
         }
     }
 
@@ -73,114 +78,52 @@ struct EnumInfo {
     return std::nullopt;
 }
 
+template <typename E>
+void AddEnum(Core::HashMap<Core::String, EnumInfo>& out) {
+    constexpr std::string_view enumName = Core::EnumTraits<E>::Name;
+    if (enumName.empty()) {
+        return;
+    }
+
+    EnumInfo info;
+    info.Entries.reserve(EnumInfoTraits<E>::ValueCount);
+    for (std::size_t i = 0; i < EnumInfoTraits<E>::ValueCount; ++i) {
+        const auto& meta = EnumInfoTraits<E>::Values[i];
+        info.Entries.push_back(EnumEntry{
+            .Name = meta.Name,
+            .Value = meta.Id,
+            .DisplayName = meta.DisplayName,
+            .Description = meta.Description
+        });
+    }
+
+    out.insert_or_assign(Core::String(enumName), std::move(info));
+}
+
 [[nodiscard]] const Core::HashMap<Core::String, EnumInfo>& Registry() {
     using namespace Lvs::Engine::Enums;
     using Lvs::Engine::Rendering::RenderApi;
 
     static const Core::HashMap<Core::String, EnumInfo> registry = [] {
         Core::HashMap<Core::String, EnumInfo> out;
-        auto add = [&out](const Core::String& name, std::initializer_list<EnumOption> options) {
-            EnumInfo info;
-            info.Options.reserve(options.size());
-            for (const auto& opt : options) {
-                info.Options.push_back(opt);
-            }
-            out.insert_or_assign(name, std::move(info));
-        };
-
-        add(Core::String(Core::EnumTraits<LightingTechnology>::Name), {
-            {"Default", static_cast<int>(LightingTechnology::Default)},
-        });
-        add(Core::String(Core::EnumTraits<LightingComputationMode>::Name), {
-            {"Per-Pixel", static_cast<int>(LightingComputationMode::PerPixel)},
-            {"Per-Vertex", static_cast<int>(LightingComputationMode::PerVertex)},
-        });
-        add(Core::String(Core::EnumTraits<TextureFiltering>::Name), {
-            {"Linear", static_cast<int>(TextureFiltering::Linear)},
-            {"Nearest", static_cast<int>(TextureFiltering::Nearest)},
-        });
-        add(Core::String(Core::EnumTraits<SpecularHighlightType>::Name), {
-            {"Phong", static_cast<int>(SpecularHighlightType::Phong)},
-            {"Blinn-Phong", static_cast<int>(SpecularHighlightType::BlinnPhong)},
-            {"Cook-Torrance", static_cast<int>(SpecularHighlightType::CookTorrance)},
-        });
-        add(Core::String(Core::EnumTraits<MSAA>::Name), {
-            {"Off", static_cast<int>(MSAA::Off)},
-            {"2x", static_cast<int>(MSAA::X2)},
-            {"4x", static_cast<int>(MSAA::X4)},
-            {"8x", static_cast<int>(MSAA::X8)},
-        });
-        add(Core::String(Core::EnumTraits<SurfaceMipmapping>::Name), {
-            {"Off", static_cast<int>(SurfaceMipmapping::Off)},
-            {"On", static_cast<int>(SurfaceMipmapping::On)},
-        });
-        add(Core::String(Core::EnumTraits<SkyboxTextureLayout>::Name), {
-            {"Individual", static_cast<int>(SkyboxTextureLayout::Individual)},
-            {"Cross", static_cast<int>(SkyboxTextureLayout::Cross)},
-        });
-        add(Core::String(Core::EnumTraits<MeshCullMode>::Name), {
-            {"NoCull", static_cast<int>(MeshCullMode::NoCull)},
-            {"Back", static_cast<int>(MeshCullMode::Back)},
-            {"Front", static_cast<int>(MeshCullMode::Front)},
-        });
-        add(Core::String(Core::EnumTraits<PartShape>::Name), {
-            {"Cube", static_cast<int>(PartShape::Cube)},
-            {"Sphere", static_cast<int>(PartShape::Sphere)},
-            {"Cylinder", static_cast<int>(PartShape::Cylinder)},
-            {"Cone", static_cast<int>(PartShape::Cone)},
-        });
-        add(Core::String(Core::EnumTraits<PartSurface>::Name), {
-            {"RightSurface", static_cast<int>(PartSurface::RightSurface)},
-            {"LeftSurface", static_cast<int>(PartSurface::LeftSurface)},
-            {"TopSurface", static_cast<int>(PartSurface::TopSurface)},
-            {"BottomSurface", static_cast<int>(PartSurface::BottomSurface)},
-            {"FrontSurface", static_cast<int>(PartSurface::FrontSurface)},
-            {"BackSurface", static_cast<int>(PartSurface::BackSurface)},
-        });
-        add(Core::String(Core::EnumTraits<PartSurfaceType>::Name), {
-            {"Smooth", static_cast<int>(PartSurfaceType::Smooth)},
-            {"Studs", static_cast<int>(PartSurfaceType::Studs)},
-            {"Inlets", static_cast<int>(PartSurfaceType::Inlets)},
-        });
-        add(Core::String(Core::EnumTraits<Theme>::Name), {
-            {"Light", static_cast<int>(Theme::Light)},
-            {"Dark", static_cast<int>(Theme::Dark)},
-            {"Auto", static_cast<int>(Theme::Auto)},
-        });
-        add(Core::String(Core::EnumTraits<ShadowType>::Name), {
-            {"Volumes", static_cast<int>(ShadowType::Volumes)},
-            {"Cascaded", static_cast<int>(ShadowType::Cascaded)},
-        });
-        add(Core::String(Core::EnumTraits<RenderCullMode>::Name), {
-            {"None", static_cast<int>(RenderCullMode::None)},
-            {"Front", static_cast<int>(RenderCullMode::Front)},
-            {"Back", static_cast<int>(RenderCullMode::Back)},
-        });
-        add(Core::String(Core::EnumTraits<RenderDepthCompare>::Name), {
-            {"Always", static_cast<int>(RenderDepthCompare::Always)},
-            {"Equal", static_cast<int>(RenderDepthCompare::Equal)},
-            {"NotEqual", static_cast<int>(RenderDepthCompare::NotEqual)},
-            {"Less", static_cast<int>(RenderDepthCompare::Less)},
-            {"LessOrEqual", static_cast<int>(RenderDepthCompare::LessOrEqual)},
-            {"Greater", static_cast<int>(RenderDepthCompare::Greater)},
-            {"GreaterOrEqual", static_cast<int>(RenderDepthCompare::GreaterOrEqual)},
-        });
-        add(Core::String(Core::EnumTraits<ShadowVolumeCapMode>::Name), {
-            {"FrontNear_BackFar", static_cast<int>(ShadowVolumeCapMode::FrontNear_BackFar)},
-            {"BackNear_FrontFar", static_cast<int>(ShadowVolumeCapMode::BackNear_FrontFar)},
-            {"None", static_cast<int>(ShadowVolumeCapMode::None)},
-        });
-        add(Core::String(Core::EnumTraits<ShadowVolumeStencilMode>::Name), {
-            {"ZFail", static_cast<int>(ShadowVolumeStencilMode::ZFail)},
-            {"ZPass", static_cast<int>(ShadowVolumeStencilMode::ZPass)},
-        });
-
-        // Non-Engine-Enums enum types.
-        add(Core::String(Core::EnumTraits<RenderApi>::Name), {
-            {"Auto", static_cast<int>(RenderApi::Auto)},
-            {"Vulkan", static_cast<int>(RenderApi::Vulkan)},
-            {"OpenGL", static_cast<int>(RenderApi::OpenGL)},
-        });
+        AddEnum<LightingTechnology>(out);
+        AddEnum<LightingComputationMode>(out);
+        AddEnum<TextureFiltering>(out);
+        AddEnum<SpecularHighlightType>(out);
+        AddEnum<MSAA>(out);
+        AddEnum<SurfaceMipmapping>(out);
+        AddEnum<SkyboxTextureLayout>(out);
+        AddEnum<MeshCullMode>(out);
+        AddEnum<PartShape>(out);
+        AddEnum<PartSurface>(out);
+        AddEnum<PartSurfaceType>(out);
+        AddEnum<Theme>(out);
+        AddEnum<ShadowType>(out);
+        AddEnum<RenderCullMode>(out);
+        AddEnum<RenderDepthCompare>(out);
+        AddEnum<ShadowVolumeCapMode>(out);
+        AddEnum<ShadowVolumeStencilMode>(out);
+        AddEnum<RenderApi>(out);
 
         return out;
     }();
@@ -196,9 +139,24 @@ struct EnumInfo {
 
 } // namespace
 
+Core::Vector<EnumEntry> EntriesForEnum(const Core::String& enumType) {
+    if (const EnumInfo* info = Find(enumType); info != nullptr) {
+        return info->Entries;
+    }
+    return {};
+}
+
 Core::Vector<EnumOption> OptionsForEnum(const Core::String& enumType) {
     if (const EnumInfo* info = Find(enumType); info != nullptr) {
-        return info->Options;
+        Core::Vector<EnumOption> out;
+        out.reserve(info->Entries.size());
+        for (const auto& entry : info->Entries) {
+            out.push_back(EnumOption{
+                .Name = (entry.DisplayName != nullptr && entry.DisplayName[0] != '\0') ? entry.DisplayName : entry.Name,
+                .Value = entry.Value
+            });
+        }
+        return out;
     }
     return {};
 }
@@ -208,8 +166,8 @@ Core::Variant VariantFromInt(const Core::String& enumType, const int value) {
         if (IsAllowedValue(*info, value)) {
             return Core::Variant::From(value);
         }
-        if (!info->Options.empty()) {
-            return Core::Variant::From(info->Options.front().Value);
+        if (!info->Entries.empty()) {
+            return Core::Variant::From(info->Entries.front().Value);
         }
     }
     return Core::Variant::From(value);
@@ -221,9 +179,9 @@ int IntFromVariant(const Core::Variant& value) {
 
 Core::String NameFromInt(const Core::String& enumType, const int value) {
     if (const EnumInfo* info = Find(enumType); info != nullptr) {
-        for (const auto& opt : info->Options) {
-            if (opt.Value == value) {
-                return Core::String(opt.Name);
+        for (const auto& entry : info->Entries) {
+            if (entry.Value == value) {
+                return Core::String(entry.Name);
             }
         }
     }

@@ -63,6 +63,7 @@ public:
     void SetGizmoIgnoreDiffuseSpecular(bool value);
     void SetGizmoAlignByMagnitude(bool value);
     void SetSnapIncrement(double value);
+    void SetGizmoMoveCollisions(bool value);
     void SetGizmoSizeCollisions(bool value);
 
 private:
@@ -167,6 +168,7 @@ private:
     QRect boxSelectLastRect_{};
     bool boxSelectHasLastRect_{false};
 
+    bool gizmoMoveCollisions_{true};
     bool gizmoSizeCollisions_{true};
     struct GizmoHistorySnapshot {
         struct TransformSnapshot {

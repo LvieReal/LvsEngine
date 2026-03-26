@@ -6,6 +6,7 @@
 #include "Lvs/Engine/Objects/BasePart.hpp"
 #include "Lvs/Engine/Objects/Camera.hpp"
 #include "Lvs/Engine/Utils/InstanceSelection.hpp"
+#include "Lvs/Engine/Utils/BlockCast.hpp"
 #include "Lvs/Engine/Utils/Raycast.hpp"
 
 #include <algorithm>
@@ -209,10 +210,15 @@ bool GizmoSystem::TryBeginDrag(const Utils::Ray& ray) {
 }
 
 void GizmoSystem::UpdateDrag(const Utils::Ray& ray) {
-    UpdateDragWithCollisions(ray, nullptr, false);
+    UpdateDragWithCollisions(ray, nullptr, false, false);
 }
 
-void GizmoSystem::UpdateDragWithCollisions(const Utils::Ray& ray, const Utils::PartBVH* bvh, const bool enableSizeCollisions) {
+void GizmoSystem::UpdateDragWithCollisions(
+    const Utils::Ray& ray,
+    const Utils::PartBVH* bvh,
+    const bool enableMoveCollisions,
+    const bool enableSizeCollisions
+) {
     if (targetPart_ == nullptr || activeAxis_.empty() || !dragStartPoint_.has_value() || !hasDragCenter_) {
         return;
     }
@@ -227,6 +233,57 @@ void GizmoSystem::UpdateDragWithCollisions(const Utils::Ray& ray, const Utils::P
     amount = SnapToStep(amount, snapIncrement_);
 
     if (activeTool_ == Tool::MoveTool) {
+        if (enableMoveCollisions && bvh != nullptr && amount != 0.0) {
+            Math::Vector3 dir = activeAxisDirection_.Unit();
+            double maxAmount = amount;
+            if (maxAmount < 0.0) {
+                maxAmount = -maxAmount;
+                dir = dir * -1.0;
+            }
+
+            std::vector<std::shared_ptr<Objects::BasePart>> exclude;
+            exclude.reserve(selectedParts_.size() * 2);
+            for (const auto& snap : dragSnapshots_) {
+                if (snap.Part == nullptr) {
+                    continue;
+                }
+                exclude.push_back(snap.Part);
+                snap.Part->ForEachDescendant([&exclude](const std::shared_ptr<Instance>& desc) {
+                    if (const auto descPart = std::dynamic_pointer_cast<Objects::BasePart>(desc); descPart != nullptr) {
+                        exclude.push_back(descPart);
+                    }
+                });
+            }
+
+            Math::CFrame blockCFrame = Math::CFrame::New(dragCenter_);
+            Math::Vector3 blockSize = {0.001, 0.001, 0.001};
+            if (dragSnapshots_.size() > 1 && hasDragStartBounds_) {
+                blockCFrame = Math::CFrame::New(dragStartBounds_.Centroid());
+                blockSize = dragStartBounds_.Max - dragStartBounds_.Min;
+            } else if (!dragSnapshots_.empty()) {
+                blockCFrame = dragSnapshots_.front().StartWorldCFrame;
+                blockSize = dragSnapshots_.front().StartSize;
+            }
+
+            constexpr double clearance = 1e-3;
+            const auto [hitPart, hitDistance] = Utils::BlockCastPartBVHWithFilter(
+                blockCFrame,
+                blockSize,
+                dir,
+                maxAmount,
+                *bvh,
+                exclude,
+                Utils::DescendantFilterType::Exclude,
+                1e-3
+            );
+            static_cast<void>(hitPart);
+            if (std::isfinite(hitDistance)) {
+                maxAmount = std::min(maxAmount, std::max(0.0, hitDistance - clearance));
+            }
+
+            amount = (amount < 0.0) ? -maxAmount : maxAmount;
+        }
+
         const Math::Vector3 translation = activeAxisDirection_ * amount;
         for (const auto& snap : dragSnapshots_) {
             if (snap.Part == nullptr || snap.Part->GetParent() == nullptr) {
@@ -300,14 +357,6 @@ void GizmoSystem::UpdateDragWithCollisions(const Utils::Ray& ray, const Utils::P
 
     if (enableSizeCollisions && bvh != nullptr && amount > 0.0) {
         const Math::Vector3 dir = activeAxisDirection_.Unit();
-        const Math::AABB localAabb{Math::Vector3{-0.5, -0.5, -0.5}, Math::Vector3{0.5, 0.5, 0.5}};
-        const Math::Matrix4 startWorld = snap.StartWorldCFrame.ToMatrix4() * Math::Matrix4::Scale(snap.StartSize);
-        const Math::AABB startAabb = Math::TransformAABB(localAabb, startWorld);
-        const Math::Vector3 facePoint{
-            (dir.x >= 0.0) ? startAabb.Max.x : startAabb.Min.x,
-            (dir.y >= 0.0) ? startAabb.Max.y : startAabb.Min.y,
-            (dir.z >= 0.0) ? startAabb.Max.z : startAabb.Min.z
-        };
 
         std::vector<std::shared_ptr<Objects::BasePart>> exclude;
         exclude.reserve(16);
@@ -318,20 +367,41 @@ void GizmoSystem::UpdateDragWithCollisions(const Utils::Ray& ray, const Utils::P
             }
         });
 
-        constexpr double originOffset = 1e-3;
         constexpr double clearance = 1e-3;
-        const Utils::Ray collisionRay{facePoint + dir * originOffset, dir};
+        constexpr double slabThickness = 1e-3;
 
-        const auto [hitPart, hitDistance] = Utils::RaycastPartBVHWithFilter(
-            collisionRay,
+        const bool axisX = activeAxis_.contains("X");
+        const bool axisY = activeAxis_.contains("Y");
+        const bool axisZ = activeAxis_.contains("Z");
+
+        const double extentAlongAxis = axisX ? snap.StartSize.x : (axisY ? snap.StartSize.y : snap.StartSize.z);
+        const Math::Vector3 faceCenter = snap.StartWorldCFrame.Position + dir * (extentAlongAxis * 0.5);
+
+        Math::Vector3 slabSize = snap.StartSize;
+        if (axisX) {
+            slabSize.x = slabThickness;
+        } else if (axisY) {
+            slabSize.y = slabThickness;
+        } else if (axisZ) {
+            slabSize.z = slabThickness;
+        }
+
+        Math::CFrame slab = snap.StartWorldCFrame;
+        slab.Position = faceCenter + dir * (slabThickness * 0.5);
+
+        const auto [hitPart, hitDistance] = Utils::BlockCastPartBVHWithFilter(
+            slab,
+            slabSize,
+            dir,
+            amount,
             *bvh,
             exclude,
-            Utils::DescendantFilterType::Exclude
+            Utils::DescendantFilterType::Exclude,
+            1e-3
         );
 
         if (hitPart != nullptr && std::isfinite(hitDistance)) {
-            const double distanceFromFace = originOffset + hitDistance;
-            const double maxAmount = std::max(0.0, distanceFromFace - clearance);
+            const double maxAmount = std::max(0.0, hitDistance - clearance);
             amount = std::min(amount, maxAmount);
         }
     }

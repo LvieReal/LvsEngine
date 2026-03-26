@@ -61,6 +61,8 @@ void DockManager::Build() {
 
 void DockManager::BindToPlace(const std::shared_ptr<Engine::DataModel::Place>& place) {
     hasOpenPlace_ = true;
+    const bool wasSuppressed = isStateSaveSuppressed_;
+    isStateSaveSuppressed_ = true;
     if (explorer_ != nullptr) {
         explorer_->BindToPlace(place);
     }
@@ -70,10 +72,13 @@ void DockManager::BindToPlace(const std::shared_ptr<Engine::DataModel::Place>& p
     if (output_ != nullptr) {
         output_->BindToPlace(place);
     }
+    isStateSaveSuppressed_ = wasSuppressed;
 }
 
 void DockManager::Unbind() {
     hasOpenPlace_ = false;
+    const bool wasSuppressed = isStateSaveSuppressed_;
+    isStateSaveSuppressed_ = true;
     if (explorer_ != nullptr) {
         explorer_->Unbind();
     }
@@ -83,6 +88,7 @@ void DockManager::Unbind() {
     if (output_ != nullptr) {
         output_->Unbind();
     }
+    isStateSaveSuppressed_ = wasSuppressed;
 }
 
 void DockManager::SaveState() const {

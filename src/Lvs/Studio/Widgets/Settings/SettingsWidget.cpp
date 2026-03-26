@@ -225,17 +225,18 @@ void SettingsWidget::ReloadCategory() {
         if (!searchText.isEmpty() && !label.toLower().contains(searchText)) {
             continue;
         }
-        form_->addRow(label, CreateSettingRow(key, label, meta.Description));
+        auto* labelWidget = new QLabel(label, settingsPanel_);
+        labelWidget->setToolTip(meta.Description.isEmpty() ? label : meta.Description);
+        form_->addRow(labelWidget, CreateSettingRow(key));
     }
 }
 
-QWidget* SettingsWidget::CreateSettingRow(const QString& key, const QString& label, const QString& description) {
+QWidget* SettingsWidget::CreateSettingRow(const QString& key) {
     auto* container = new QWidget(settingsPanel_);
     auto* layout = new QHBoxLayout(container);
     layout->setContentsMargins(0, 0, 0, 0);
 
     QWidget* editor = CreateEditor(key);
-    editor->setToolTip(description.isEmpty() ? label : description);
     layout->addWidget(editor);
 
     auto* resetBtn = new QPushButton("↺", container);

@@ -42,7 +42,6 @@ float ViewSpaceZFromReversedInfiniteDepth(float depth) {
 void main() {
     vec4 sceneSample = texture(sceneColor, fragUv);
     vec3 hdrColor = sceneSample.rgb;
-    float sceneAlpha = sceneSample.a;
     if (pushData.settings.z > 0.5) {
         hdrColor += texture(glowColor, fragUv).rgb;
     }
@@ -50,11 +49,6 @@ void main() {
     hdrColor *= mix(pushData.aoTint.rgb, vec3(1.0), clamp(ao, 0.0, 1.0));
     float shadow = texture(shadowVolumeMask, fragUv).r;
     shadow = clamp(shadow, 0.0, 1.0);
-
-    // Shadow volumes are applied as a screen-space mask. When transparent geometry is blended on top,
-    // applying the mask post-blend makes the shadow appear "over" the transparency. Reduce this artifact
-    // by not applying shadow volumes to pixels whose topmost surface is transparent.
-    shadow *= smoothstep(0.995, 1.0, sceneAlpha);
 
     // Fade shadow volumes out by receiver distance (DirectionalLight.ShadowMaxDistance).
     float shadowMaxDist = camera.lightingSettings.y;

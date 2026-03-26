@@ -17,7 +17,7 @@ private:
     void BuildUi();
     void ClearForm() const;
     void ReloadCategory();
-    QWidget* CreateSettingRow(const QString& key, const QString& label, const QString& description);
+    QWidget* CreateSettingRow(const QString& key);
     QWidget* CreateEditor(const QString& key);
 
     QLineEdit* search_{nullptr};

@@ -128,6 +128,104 @@ public:
         return best;
     }
 
+    template <class AcceptFn>
+        requires(std::is_invocable_r_v<bool, AcceptFn, std::uint32_t>)
+    [[nodiscard]] std::optional<RaycastHit> RaycastClosestInflatedIf(
+        const Vector3& origin,
+        const Vector3& direction,
+        const Vector3& inflation,
+        AcceptFn&& accept,
+        double minT = 0.0,
+        double maxT = 1.0e30
+    ) const {
+        if (Empty()) {
+            return std::nullopt;
+        }
+
+        auto inflate = [&](const AABB& aabb) {
+            return AABB{aabb.Min - inflation, aabb.Max + inflation};
+        };
+        auto containsPoint = [](const AABB& aabb, const Vector3& p) {
+            return p.x >= aabb.Min.x && p.x <= aabb.Max.x &&
+                   p.y >= aabb.Min.y && p.y <= aabb.Max.y &&
+                   p.z >= aabb.Min.z && p.z <= aabb.Max.z;
+        };
+
+        RaycastHit best{};
+        best.Distance = maxT;
+        bool hasBest = false;
+
+        thread_local std::vector<std::uint32_t> stack;
+        stack.clear();
+        if (stack.capacity() < nodes_.size()) {
+            stack.reserve(nodes_.size());
+        }
+        stack.push_back(0);
+
+        while (!stack.empty()) {
+            const std::uint32_t nodeIndex = stack.back();
+            stack.pop_back();
+
+            const Node& node = nodes_[nodeIndex];
+            const auto nodeHit = IntersectRayAABB(origin, direction, inflate(node.Bounds), minT, best.Distance);
+            if (!nodeHit.has_value()) {
+                continue;
+            }
+
+            if (node.IsLeaf != 0U) {
+                for (std::uint32_t i = 0; i < node.Count; ++i) {
+                    const std::uint32_t primIndex = indices_[node.First + i];
+                    const Primitive& prim = primitives_[primIndex];
+                    if (!accept(prim.Payload)) {
+                        continue;
+                    }
+
+                    const AABB inflated = inflate(prim.Bounds);
+                    if (containsPoint(inflated, origin)) {
+                        hasBest = true;
+                        best.Payload = prim.Payload;
+                        best.Distance = 0.0;
+                        continue;
+                    }
+
+                    const auto hit = IntersectRayAABB(origin, direction, inflated, minT, best.Distance);
+                    if (!hit.has_value()) {
+                        continue;
+                    }
+
+                    hasBest = true;
+                    best.Payload = prim.Payload;
+                    best.Distance = hit.value();
+                }
+                continue;
+            }
+
+            const Node& left = nodes_[node.Left];
+            const Node& right = nodes_[node.Right];
+            const auto leftHit = IntersectRayAABB(origin, direction, inflate(left.Bounds), minT, best.Distance);
+            const auto rightHit = IntersectRayAABB(origin, direction, inflate(right.Bounds), minT, best.Distance);
+
+            if (leftHit.has_value() && rightHit.has_value()) {
+                if (leftHit.value() < rightHit.value()) {
+                    stack.push_back(node.Right);
+                    stack.push_back(node.Left);
+                } else {
+                    stack.push_back(node.Left);
+                    stack.push_back(node.Right);
+                }
+            } else if (leftHit.has_value()) {
+                stack.push_back(node.Left);
+            } else if (rightHit.has_value()) {
+                stack.push_back(node.Right);
+            }
+        }
+
+        if (!hasBest) {
+            return std::nullopt;
+        }
+        return best;
+    }
+
 private:
     struct Node {
         AABB Bounds{};

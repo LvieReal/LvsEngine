@@ -4,6 +4,7 @@
 #include "Lvs/Engine/Rendering/RHI/Types.hpp"
 
 #include "Lvs/Engine/Core/EnumTraits.hpp"
+#include "Lvs/Engine/Enums/EnumMetadataTraits.hpp"
 
 #include <memory>
 #include <string>
@@ -51,3 +52,18 @@ template <>
 struct Lvs::Engine::Core::EnumTraits<Lvs::Engine::Rendering::RenderApi> {
     static constexpr std::string_view Name = "RenderApi";
 };
+
+namespace Lvs::Engine::Enums::Metadata {
+inline constexpr std::array<EnumValueMetadata, 3> kRenderApiValues{{
+    {"Auto", static_cast<int>(Lvs::Engine::Rendering::RenderApi::Auto), "Auto", "Select the best available rendering backend."},
+    {"Vulkan", static_cast<int>(Lvs::Engine::Rendering::RenderApi::Vulkan), "Vulkan", "Use the Vulkan renderer."},
+    {"OpenGL", static_cast<int>(Lvs::Engine::Rendering::RenderApi::OpenGL), "OpenGL", "Use the OpenGL renderer."},
+}};
+
+template <>
+struct EnumInfoTraits<Lvs::Engine::Rendering::RenderApi> {
+    static constexpr const char* Description = "Rendering backend.";
+    static constexpr const EnumValueMetadata* Values = kRenderApiValues.data();
+    static constexpr std::size_t ValueCount = kRenderApiValues.size();
+};
+} // namespace Lvs::Engine::Enums::Metadata

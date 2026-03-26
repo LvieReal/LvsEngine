@@ -5,11 +5,19 @@
 
 namespace Lvs::Engine::Enums::Metadata {
 
+struct EnumEntry {
+    const char* Name;
+    int Value;
+    const char* DisplayName;
+    const char* Description;
+};
+
 struct EnumOption {
     const char* Name;
     int Value;
 };
 
+[[nodiscard]] Core::Vector<EnumEntry> EntriesForEnum(const Core::String& enumType);
 [[nodiscard]] Core::Vector<EnumOption> OptionsForEnum(const Core::String& enumType);
 [[nodiscard]] Core::Variant VariantFromInt(const Core::String& enumType, int value);
 [[nodiscard]] int IntFromVariant(const Core::Variant& value);
@@ -20,4 +28,3 @@ struct EnumOption {
 [[nodiscard]] bool IsRegisteredEnum(const Core::String& enumType);
 
 } // namespace Lvs::Engine::Enums::Metadata
-

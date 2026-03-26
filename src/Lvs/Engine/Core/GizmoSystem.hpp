@@ -39,7 +39,7 @@ public:
     void UpdateHover(const Utils::Ray& ray);
     bool TryBeginDrag(const Utils::Ray& ray);
     void UpdateDrag(const Utils::Ray& ray);
-    void UpdateDragWithCollisions(const Utils::Ray& ray, const Utils::PartBVH* bvh, bool enableSizeCollisions);
+    void UpdateDragWithCollisions(const Utils::Ray& ray, const Utils::PartBVH* bvh, bool enableMoveCollisions, bool enableSizeCollisions);
     void EndDrag();
 
     void Configure(bool alwaysOnTop, bool ignoreDiffuseSpecular, bool alignByMagnitude, double snapIncrement);
