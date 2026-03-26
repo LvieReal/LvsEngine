@@ -339,11 +339,43 @@ void VulkanContext::EnsureApiBootstrap() {
     }
 
     if (api_.Device == VK_NULL_HANDLE) {
+        const auto hasDeviceExtension = [this](const char* name) -> bool {
+            std::uint32_t count = 0;
+            if (vkEnumerateDeviceExtensionProperties(api_.PhysicalDevice, nullptr, &count, nullptr) != VK_SUCCESS || count == 0) {
+                return false;
+            }
+            std::vector<VkExtensionProperties> props(count);
+            if (vkEnumerateDeviceExtensionProperties(api_.PhysicalDevice, nullptr, &count, props.data()) != VK_SUCCESS) {
+                return false;
+            }
+            for (const auto& p : props) {
+                if (std::strcmp(p.extensionName, name) == 0) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
         VkPhysicalDeviceFeatures supportedFeatures{};
-        vkGetPhysicalDeviceFeatures(api_.PhysicalDevice, &supportedFeatures);
+        if (api_.NegotiatedApiVersion >= VK_API_VERSION_1_1) {
+            VkPhysicalDeviceFeatures2 supportedFeatures2{
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+                .pNext = nullptr,
+                .features = {}
+            };
+            vkGetPhysicalDeviceFeatures2(api_.PhysicalDevice, &supportedFeatures2);
+            supportedFeatures = supportedFeatures2.features;
+        } else {
+            vkGetPhysicalDeviceFeatures(api_.PhysicalDevice, &supportedFeatures);
+        }
+
         VkPhysicalDeviceFeatures enabledFeatures{};
         enabledFeatures.depthClamp = supportedFeatures.depthClamp;
         depthClampEnabled_ = enabledFeatures.depthClamp == VK_TRUE;
+        enabledFeatures.geometryShader = supportedFeatures.geometryShader;
+        geometryShaderEnabled_ = enabledFeatures.geometryShader == VK_TRUE;
+        enabledFeatures.independentBlend = supportedFeatures.independentBlend;
+        conservativeRasterSupported_ = hasDeviceExtension(VK_EXT_CONSERVATIVE_RASTERIZATION_EXTENSION_NAME);
 
         const float queuePriority = 1.0F;
         std::vector<VkDeviceQueueCreateInfo> queueInfos;
@@ -365,18 +397,27 @@ void VulkanContext::EnsureApiBootstrap() {
                 .pQueuePriorities = &queuePriority
             });
         }
-        const char* deviceExtensions[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+        std::vector<const char*> deviceExtensions;
+        deviceExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+        if (conservativeRasterSupported_) {
+            deviceExtensions.push_back(VK_EXT_CONSERVATIVE_RASTERIZATION_EXTENSION_NAME);
+        }
+        VkPhysicalDeviceFeatures2 enabledFeatures2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = nullptr,
+            .features = enabledFeatures
+        };
         const VkDeviceCreateInfo deviceInfo{
             .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-            .pNext = nullptr,
+            .pNext = (api_.NegotiatedApiVersion >= VK_API_VERSION_1_1) ? static_cast<const void*>(&enabledFeatures2) : nullptr,
             .flags = 0,
             .queueCreateInfoCount = static_cast<std::uint32_t>(queueInfos.size()),
             .pQueueCreateInfos = queueInfos.data(),
             .enabledLayerCount = 0,
             .ppEnabledLayerNames = nullptr,
-            .enabledExtensionCount = static_cast<std::uint32_t>(std::size(deviceExtensions)),
-            .ppEnabledExtensionNames = deviceExtensions,
-            .pEnabledFeatures = &enabledFeatures
+            .enabledExtensionCount = static_cast<std::uint32_t>(deviceExtensions.size()),
+            .ppEnabledExtensionNames = deviceExtensions.data(),
+            .pEnabledFeatures = (api_.NegotiatedApiVersion >= VK_API_VERSION_1_1) ? nullptr : &enabledFeatures
         };
         if (vkCreateDevice(api_.PhysicalDevice, &deviceInfo, nullptr, &api_.Device) == VK_SUCCESS) {
             ownsDevice_ = true;
@@ -753,21 +794,21 @@ void VulkanContext::InitializeBackendObjects() {
             .binding = 0,
             .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
             .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
             .pImmutableSamplers = nullptr
         });
         bindings.push_back(VkDescriptorSetLayoutBinding{
             .binding = 1,
             .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
             .pImmutableSamplers = nullptr
         });
         bindings.push_back(VkDescriptorSetLayoutBinding{
             .binding = 2,
             .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
             .pImmutableSamplers = nullptr
         });
         // Bindless-style directional shadow map array (2 shadowed directionals * 3 cascades).
@@ -775,49 +816,56 @@ void VulkanContext::InitializeBackendObjects() {
             .binding = 3,
             .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .descriptorCount = Common::kMaxDirectionalShadowMapTextures,
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
             .pImmutableSamplers = nullptr
         });
         bindings.push_back(VkDescriptorSetLayoutBinding{
             .binding = 13,
             .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
             .pImmutableSamplers = nullptr
         });
         bindings.push_back(VkDescriptorSetLayoutBinding{
             .binding = 14,
             .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
             .pImmutableSamplers = nullptr
         });
         bindings.push_back(VkDescriptorSetLayoutBinding{
             .binding = 15,
             .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
             .pImmutableSamplers = nullptr
         });
         bindings.push_back(VkDescriptorSetLayoutBinding{
             .binding = 9,
             .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
             .pImmutableSamplers = nullptr
         });
         bindings.push_back(VkDescriptorSetLayoutBinding{
             .binding = 10,
             .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
             .pImmutableSamplers = nullptr
         });
         bindings.push_back(VkDescriptorSetLayoutBinding{
             .binding = 16,
             .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
+            .pImmutableSamplers = nullptr
+        });
+        bindings.push_back(VkDescriptorSetLayoutBinding{
+            .binding = 17,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
             .pImmutableSamplers = nullptr
         });
         const VkDescriptorSetLayoutCreateInfo layoutInfo{
@@ -858,7 +906,7 @@ void VulkanContext::InitializeBackendObjects() {
 
     if (api_.PipelineLayout == VK_NULL_HANDLE && api_.DescriptorSetLayout != VK_NULL_HANDLE) {
         const VkPushConstantRange pushConstantRange{
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
             .offset = 0,
             .size = static_cast<std::uint32_t>(sizeof(Common::DrawPushConstants))
         };
@@ -1362,14 +1410,19 @@ std::unique_ptr<RHI::IPipeline> VulkanContext::CreatePipeline(const RHI::Pipelin
 
     const auto vertSpirv = ShaderLoader::LoadSPIRV(desc.pipelineId, "vert");
     const auto fragSpirv = ShaderLoader::LoadSPIRV(desc.pipelineId, "frag");
+    const auto geomSpirv = geometryShaderEnabled_ ? ShaderLoader::LoadSPIRV(desc.pipelineId, "geom") : std::vector<std::uint32_t>{};
     const VkShaderModule vertModule = CreateShaderModule(vertSpirv);
     const VkShaderModule fragModule = CreateShaderModule(fragSpirv);
+    const VkShaderModule geomModule = geomSpirv.empty() ? VK_NULL_HANDLE : CreateShaderModule(geomSpirv);
     if (vertModule == VK_NULL_HANDLE || fragModule == VK_NULL_HANDLE) {
         if (vertModule != VK_NULL_HANDLE) {
             vkDestroyShaderModule(api_.Device, vertModule, nullptr);
         }
         if (fragModule != VK_NULL_HANDLE) {
             vkDestroyShaderModule(api_.Device, fragModule, nullptr);
+        }
+        if (geomModule != VK_NULL_HANDLE) {
+            vkDestroyShaderModule(api_.Device, geomModule, nullptr);
         }
         return std::make_unique<VulkanPipeline>(desc, nullptr);
     }
@@ -1392,7 +1445,21 @@ std::unique_ptr<RHI::IPipeline> VulkanContext::CreatePipeline(const RHI::Pipelin
         .pName = "main",
         .pSpecializationInfo = nullptr
     };
-    const std::array stages{vertStage, fragStage};
+    std::vector<VkPipelineShaderStageCreateInfo> stages;
+    stages.reserve(3);
+    stages.push_back(vertStage);
+    if (geomModule != VK_NULL_HANDLE) {
+        stages.push_back(VkPipelineShaderStageCreateInfo{
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .stage = VK_SHADER_STAGE_GEOMETRY_BIT,
+            .module = geomModule,
+            .pName = "main",
+            .pSpecializationInfo = nullptr
+        });
+    }
+    stages.push_back(fragStage);
 
     std::array<VkVertexInputBindingDescription, 1> bindingDescriptions{};
     std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
@@ -1436,7 +1503,8 @@ std::unique_ptr<RHI::IPipeline> VulkanContext::CreatePipeline(const RHI::Pipelin
         .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
         .pNext = nullptr,
         .flags = 0,
-        .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+        .topology = desc.topology == RHI::PrimitiveTopology::TriangleListAdjacency ? VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST_WITH_ADJACENCY
+                                                                                   : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
         .primitiveRestartEnable = VK_FALSE
     };
     const VkPipelineViewportStateCreateInfo viewportState{
@@ -1448,11 +1516,21 @@ std::unique_ptr<RHI::IPipeline> VulkanContext::CreatePipeline(const RHI::Pipelin
         .scissorCount = 1,
         .pScissors = nullptr
     };
-    const VkPipelineRasterizationStateCreateInfo rasterizer{
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+
+    VkPipelineRasterizationConservativeStateCreateInfoEXT conservativeState{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_CONSERVATIVE_STATE_CREATE_INFO_EXT,
         .pNext = nullptr,
         .flags = 0,
-        .depthClampEnable = (desc.pipelineId == "shadow" && depthClampEnabled_) ? VK_TRUE : VK_FALSE,
+        .conservativeRasterizationMode = VK_CONSERVATIVE_RASTERIZATION_MODE_OVERESTIMATE_EXT,
+        .extraPrimitiveOverestimationSize = 0.0F
+    };
+    const void* rasterizerNext =
+        (desc.conservativeRaster && conservativeRasterSupported_) ? static_cast<const void*>(&conservativeState) : nullptr;
+    const VkPipelineRasterizationStateCreateInfo rasterizer{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+        .pNext = rasterizerNext,
+        .flags = 0,
+        .depthClampEnable = (desc.depthClamp && depthClampEnabled_) ? VK_TRUE : VK_FALSE,
         .rasterizerDiscardEnable = VK_FALSE,
         .polygonMode = VK_POLYGON_MODE_FILL,
         .cullMode = Utils::ResolveCullMode(desc),
@@ -1477,6 +1555,74 @@ std::unique_ptr<RHI::IPipeline> VulkanContext::CreatePipeline(const RHI::Pipelin
         .alphaToCoverageEnable = VK_FALSE,
         .alphaToOneEnable = VK_FALSE
     };
+    const auto resolveStencilCompare = [](const RHI::StencilCompare op) -> VkCompareOp {
+        switch (op) {
+            case RHI::StencilCompare::Never:
+                return VK_COMPARE_OP_NEVER;
+            case RHI::StencilCompare::Less:
+                return VK_COMPARE_OP_LESS;
+            case RHI::StencilCompare::LessOrEqual:
+                return VK_COMPARE_OP_LESS_OR_EQUAL;
+            case RHI::StencilCompare::Greater:
+                return VK_COMPARE_OP_GREATER;
+            case RHI::StencilCompare::GreaterOrEqual:
+                return VK_COMPARE_OP_GREATER_OR_EQUAL;
+            case RHI::StencilCompare::Equal:
+                return VK_COMPARE_OP_EQUAL;
+            case RHI::StencilCompare::NotEqual:
+                return VK_COMPARE_OP_NOT_EQUAL;
+            case RHI::StencilCompare::Always:
+            default:
+                return VK_COMPARE_OP_ALWAYS;
+        }
+    };
+    const auto resolveStencilOp = [](const RHI::StencilOp op) -> VkStencilOp {
+        switch (op) {
+            case RHI::StencilOp::Zero:
+                return VK_STENCIL_OP_ZERO;
+            case RHI::StencilOp::Replace:
+                return VK_STENCIL_OP_REPLACE;
+            case RHI::StencilOp::IncrementClamp:
+                return VK_STENCIL_OP_INCREMENT_AND_CLAMP;
+            case RHI::StencilOp::DecrementClamp:
+                return VK_STENCIL_OP_DECREMENT_AND_CLAMP;
+            case RHI::StencilOp::Invert:
+                return VK_STENCIL_OP_INVERT;
+            case RHI::StencilOp::IncrementWrap:
+                return VK_STENCIL_OP_INCREMENT_AND_WRAP;
+            case RHI::StencilOp::DecrementWrap:
+                return VK_STENCIL_OP_DECREMENT_AND_WRAP;
+            case RHI::StencilOp::Keep:
+            default:
+                return VK_STENCIL_OP_KEEP;
+        }
+    };
+
+    VkStencilOpState frontStencil{};
+    VkStencilOpState backStencil{};
+    if (desc.stencil.Enabled) {
+        const auto& front = desc.stencil.Front;
+        const auto& back = desc.stencil.Back;
+        frontStencil = VkStencilOpState{
+            .failOp = resolveStencilOp(front.FailOp),
+            .passOp = resolveStencilOp(front.PassOp),
+            .depthFailOp = resolveStencilOp(front.DepthFailOp),
+            .compareOp = resolveStencilCompare(front.CompareOp),
+            .compareMask = front.CompareMask,
+            .writeMask = front.WriteMask,
+            .reference = front.Reference
+        };
+        backStencil = VkStencilOpState{
+            .failOp = resolveStencilOp(back.FailOp),
+            .passOp = resolveStencilOp(back.PassOp),
+            .depthFailOp = resolveStencilOp(back.DepthFailOp),
+            .compareOp = resolveStencilCompare(back.CompareOp),
+            .compareMask = back.CompareMask,
+            .writeMask = back.WriteMask,
+            .reference = back.Reference
+        };
+    }
+
     const VkPipelineDepthStencilStateCreateInfo depthStencil{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
         .pNext = nullptr,
@@ -1485,9 +1631,9 @@ std::unique_ptr<RHI::IPipeline> VulkanContext::CreatePipeline(const RHI::Pipelin
         .depthWriteEnable = desc.depthWrite ? VK_TRUE : VK_FALSE,
         .depthCompareOp = desc.depthTest ? Utils::ResolveDepthCompare(desc.depthCompare) : VK_COMPARE_OP_ALWAYS,
         .depthBoundsTestEnable = VK_FALSE,
-        .stencilTestEnable = VK_FALSE,
-        .front = {},
-        .back = {},
+        .stencilTestEnable = desc.stencil.Enabled ? VK_TRUE : VK_FALSE,
+        .front = frontStencil,
+        .back = backStencil,
         .minDepthBounds = 0.0F,
         .maxDepthBounds = 1.0F
     };
@@ -1496,6 +1642,21 @@ std::unique_ptr<RHI::IPipeline> VulkanContext::CreatePipeline(const RHI::Pipelin
     if (colorAttachmentCount > 0U) {
         blendAttachments.reserve(colorAttachmentCount);
         for (std::uint32_t i = 0; i < colorAttachmentCount; ++i) {
+            const std::uint32_t maskBits = [&desc, i]() -> std::uint32_t {
+                if (!desc.colorWrite) {
+                    return 0u;
+                }
+                if (!desc.useColorWriteMasks) {
+                    return VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+                }
+                const std::uint8_t m = desc.colorWriteMasks[std::min<std::size_t>(i, desc.colorWriteMasks.size() - 1U)] & 0xFU;
+                std::uint32_t out = 0u;
+                if ((m & 0x1U) != 0U) out |= VK_COLOR_COMPONENT_R_BIT;
+                if ((m & 0x2U) != 0U) out |= VK_COLOR_COMPONENT_G_BIT;
+                if ((m & 0x4U) != 0U) out |= VK_COLOR_COMPONENT_B_BIT;
+                if ((m & 0x8U) != 0U) out |= VK_COLOR_COMPONENT_A_BIT;
+                return out;
+            }();
             blendAttachments.push_back(VkPipelineColorBlendAttachmentState{
                 .blendEnable = desc.blending ? VK_TRUE : VK_FALSE,
                 .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
@@ -1504,8 +1665,7 @@ std::unique_ptr<RHI::IPipeline> VulkanContext::CreatePipeline(const RHI::Pipelin
                 .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
                 .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
                 .alphaBlendOp = VK_BLEND_OP_ADD,
-                .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT |
-                                  VK_COLOR_COMPONENT_A_BIT
+                .colorWriteMask = maskBits
             });
         }
     }
@@ -1555,6 +1715,9 @@ std::unique_ptr<RHI::IPipeline> VulkanContext::CreatePipeline(const RHI::Pipelin
     }
 
     vkDestroyShaderModule(api_.Device, vertModule, nullptr);
+    if (geomModule != VK_NULL_HANDLE) {
+        vkDestroyShaderModule(api_.Device, geomModule, nullptr);
+    }
     vkDestroyShaderModule(api_.Device, fragModule, nullptr);
 
     return std::make_unique<VulkanPipeline>(desc, reinterpret_cast<void*>(vkPipeline), [device = api_.Device](void* handle) {
@@ -1761,7 +1924,41 @@ std::unique_ptr<RHI::IRenderTarget> VulkanContext::CreateRenderTarget(const RHI:
     VkImageView depthView = VK_NULL_HANDLE;
     VkSampler depthSampler = VK_NULL_HANDLE;
     VkAttachmentReference depthRef{};
+    VkFormat chosenDepthFormat = api_.DepthFormat;
     if (desc.hasDepth) {
+        const auto supportsDepthStencilAttachment = [&](const VkFormat format) -> bool {
+            if (api_.PhysicalDevice == VK_NULL_HANDLE) {
+                return true;
+            }
+            VkFormatProperties props{};
+            vkGetPhysicalDeviceFormatProperties(api_.PhysicalDevice, format, &props);
+            return (props.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0U;
+        };
+        const auto pickFirstSupportedDepthFormat = [&](const std::initializer_list<VkFormat> candidates) -> VkFormat {
+            for (const VkFormat candidate : candidates) {
+                if (candidate != VK_FORMAT_UNDEFINED && supportsDepthStencilAttachment(candidate)) {
+                    return candidate;
+                }
+            }
+            return VK_FORMAT_UNDEFINED;
+        };
+
+        if (desc.depthFormat == RHI::Format::D24S8) {
+            chosenDepthFormat = pickFirstSupportedDepthFormat(
+                {VK_FORMAT_D24_UNORM_S8_UINT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D16_UNORM_S8_UINT}
+            );
+        } else if (desc.depthFormat == RHI::Format::D32_Float) {
+            chosenDepthFormat = pickFirstSupportedDepthFormat({VK_FORMAT_D32_SFLOAT});
+        } else {
+            chosenDepthFormat = pickFirstSupportedDepthFormat({api_.DepthFormat, VK_FORMAT_D32_SFLOAT});
+        }
+        if (chosenDepthFormat == VK_FORMAT_UNDEFINED) {
+            chosenDepthFormat = api_.DepthFormat;
+        }
+
+        const VkImageAspectFlags depthAspectMask = Utils::DepthAspectMaskForFormat(chosenDepthFormat);
+        const bool depthHasStencil = (depthAspectMask & VK_IMAGE_ASPECT_STENCIL_BIT) != 0U;
+
         const VkImageUsageFlags depthUsage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
                                              (desc.depthTexture ? VkImageUsageFlags{VK_IMAGE_USAGE_SAMPLED_BIT} : VkImageUsageFlags{0});
         const VkImageLayout depthSamplingLayout = desc.depthTexture
@@ -1772,7 +1969,7 @@ std::unique_ptr<RHI::IRenderTarget> VulkanContext::CreateRenderTarget(const RHI:
             .pNext = nullptr,
             .flags = 0,
             .imageType = VK_IMAGE_TYPE_2D,
-            .format = api_.DepthFormat,
+            .format = chosenDepthFormat,
             .extent = {desc.width, desc.height, 1},
             .mipLevels = 1,
             .arrayLayers = 1,
@@ -1807,7 +2004,7 @@ std::unique_ptr<RHI::IRenderTarget> VulkanContext::CreateRenderTarget(const RHI:
             .flags = 0,
             .image = depthImage,
             .viewType = VK_IMAGE_VIEW_TYPE_2D,
-            .format = api_.DepthFormat,
+            .format = chosenDepthFormat,
             .components = {
                 VK_COMPONENT_SWIZZLE_IDENTITY,
                 VK_COMPONENT_SWIZZLE_IDENTITY,
@@ -1815,7 +2012,7 @@ std::unique_ptr<RHI::IRenderTarget> VulkanContext::CreateRenderTarget(const RHI:
                 VK_COMPONENT_SWIZZLE_IDENTITY
             },
             .subresourceRange = {
-                VK_IMAGE_ASPECT_DEPTH_BIT,
+                depthAspectMask,
                 0,
                 1,
                 0,
@@ -1828,12 +2025,12 @@ std::unique_ptr<RHI::IRenderTarget> VulkanContext::CreateRenderTarget(const RHI:
 
         attachments.push_back(VkAttachmentDescription{
             .flags = 0,
-            .format = api_.DepthFormat,
+            .format = chosenDepthFormat,
             .samples = sampleCount,
             .loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
             .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-            .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .stencilLoadOp = depthHasStencil ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            .stencilStoreOp = depthHasStencil ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE,
             .initialLayout = depthSamplingLayout,
             .finalLayout = depthSamplingLayout
         });
@@ -1848,7 +2045,7 @@ std::unique_ptr<RHI::IRenderTarget> VulkanContext::CreateRenderTarget(const RHI:
 
         if (desc.depthTexture) {
             VkFormatProperties depthProps{};
-            vkGetPhysicalDeviceFormatProperties(api_.PhysicalDevice, api_.DepthFormat, &depthProps);
+            vkGetPhysicalDeviceFormatProperties(api_.PhysicalDevice, chosenDepthFormat, &depthProps);
             const bool supportsLinear =
                 (depthProps.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) != 0;
             const VkFilter filter = (!desc.depthCompare || !supportsLinear) ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
@@ -2034,7 +2231,7 @@ std::unique_ptr<RHI::IRenderTarget> VulkanContext::CreateRenderTarget(const RHI:
                 .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                 .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                 .image = depthImage,
-                .subresourceRange = {Utils::DepthAspectMaskForFormat(api_.DepthFormat), 0, 1, 0, 1}
+                .subresourceRange = {Utils::DepthAspectMaskForFormat(chosenDepthFormat), 0, 1, 0, 1}
             };
             vkCmdPipelineBarrier(
                 commandBuffer,
@@ -2067,8 +2264,9 @@ std::unique_ptr<RHI::IRenderTarget> VulkanContext::CreateRenderTarget(const RHI:
         vkFreeCommandBuffers(api_.Device, api_.CommandPool, 1, &commandBuffer);
     }
 
-    const RHI::Format rhiDepthFormat = api_.DepthFormat == VK_FORMAT_D24_UNORM_S8_UINT ? RHI::Format::D24S8
-                                                                                       : RHI::Format::D32_Float;
+    const VkImageAspectFlags chosenAspectMask = Utils::DepthAspectMaskForFormat(chosenDepthFormat);
+    const RHI::Format rhiDepthFormat = (chosenAspectMask & VK_IMAGE_ASPECT_STENCIL_BIT) != 0U ? RHI::Format::D24S8
+                                                                                              : RHI::Format::D32_Float;
     return std::make_unique<Utils::VulkanRenderTarget>(
         api_.Device,
         desc.width,
@@ -3690,11 +3888,18 @@ void VulkanContext::BeginRenderPass(const VkCommandBuffer commandBuffer, const R
                 });
             }
         }
-        if (info.clearDepth) {
+        if (info.clearDepth || info.clearStencil) {
+            VkImageAspectFlags aspect = 0;
+            if (info.clearDepth) {
+                aspect |= VK_IMAGE_ASPECT_DEPTH_BIT;
+            }
+            if (info.clearStencil) {
+                aspect |= VK_IMAGE_ASPECT_STENCIL_BIT;
+            }
             clearAttachments.push_back(VkClearAttachment{
-                .aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
+                .aspectMask = aspect,
                 .colorAttachment = 0,
-                .clearValue = {.depthStencil = {.depth = info.clearDepthValue, .stencil = 0}}
+                .clearValue = {.depthStencil = {.depth = info.clearDepthValue, .stencil = info.clearStencilValue}}
             });
         }
         if (clearAttachments.empty()) {
@@ -3794,7 +3999,7 @@ void VulkanContext::PushConstants(
     vkCmdPushConstants(
         commandBuffer,
         api_.PipelineLayout,
-        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
         0,
         clampedSize,
         info.data

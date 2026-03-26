@@ -66,6 +66,8 @@ private:
     void* deviceContext_{nullptr};
     RHI::IndexType currentIndexType_{RHI::IndexType::UInt32};
     RHI::VertexLayout currentVertexLayout_{RHI::VertexLayout::None};
+    RHI::PrimitiveTopology currentTopology_{RHI::PrimitiveTopology::TriangleList};
+    RHI::u32 currentColorAttachmentCount_{1U};
     MsaaResolveInfo* currentMsaaResolve_{nullptr};
     std::unordered_map<RHI::u32, RHI::Texture> textureSlots_;
     std::unordered_map<RHI::u32, std::vector<RHI::ResourceBinding>> resourceSetTextures_;

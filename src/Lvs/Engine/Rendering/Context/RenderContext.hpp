@@ -61,6 +61,10 @@ private:
         std::unique_ptr<RHI::IBuffer> IndexBuffer{};
         RHI::u32 IndexCount{0};
         RHI::IndexType IndexType{RHI::IndexType::UInt32};
+
+        std::unique_ptr<RHI::IBuffer> AdjacencyIndexBuffer{};
+        RHI::u32 AdjacencyIndexCount{0};
+        RHI::IndexType AdjacencyIndexType{RHI::IndexType::UInt32};
     };
 
     struct WatchedNode {
@@ -239,6 +243,8 @@ private:
     std::array<Common::ShadowCascadeComputation, Common::kMaxDirectionalShadowMaps> directionalShadowCascadeComputations_{};
     std::array<std::array<RHI::u32, Common::kMaxShadowCascades>, Common::kMaxDirectionalShadowMaps>
         directionalShadowCascadeResolutions_{};
+
+    std::unordered_map<const Core::Instance*, int> directionalShadowTypeCache_{};
 
     std::optional<std::size_t> skyboxSettingsKey_{};
     Math::Color3 skyboxTint_{1.0, 1.0, 1.0};

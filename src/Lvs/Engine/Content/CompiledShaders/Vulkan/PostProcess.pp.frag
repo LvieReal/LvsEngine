@@ -2,9 +2,21 @@
 
 layout(location = 0) in vec2 fragUv;
 
+layout(set = 0, binding = 0) uniform CameraUBO {
+    mat4 view;
+    mat4 projection;
+    vec4 cameraPosition;
+    vec4 ambient; // rgb: ambient color, a: ambient strength
+    vec4 skyTint;
+    vec4 renderSettings;
+    vec4 lightingSettings;
+    vec4 cameraForward;
+} camera;
+
 layout(set = 0, binding = 1) uniform sampler2D sceneColor;
 layout(set = 0, binding = 2) uniform sampler2D glowColor;
 layout(set = 0, binding = 16) uniform sampler2D aoTexture;
+layout(set = 0, binding = 17) uniform sampler2D shadowVolumeMask;
 
 layout(push_constant) uniform PostSettings {
     vec4 settings; // x: gammaEnabled, y: ditheringEnabled, z: neonEnabled, w: frameSeed
@@ -24,6 +36,15 @@ void main() {
     }
     float ao = texture(aoTexture, fragUv).r;
     hdrColor *= mix(pushData.aoTint.rgb, vec3(1.0), clamp(ao, 0.0, 1.0));
+    float shadow = texture(shadowVolumeMask, fragUv).r;
+    shadow = clamp(shadow, 0.0, 1.0);
+    // Shadow volumes only provide an occlusion mask. Instead of forcing full black,
+    // keep a global ambient floor/tint based on Lighting.Ambient/AmbientStrength.
+    vec3 ambientColor = max(camera.ambient.rgb, vec3(0.0));
+    float ambientStrength = clamp(camera.ambient.a, 0.0, 1.0);
+    float shadowScale = mix(1.0, ambientStrength, shadow);
+    vec3 shadowTint = mix(vec3(1.0), ambientColor, shadow);
+    hdrColor *= shadowScale * shadowTint;
     vec3 color = max(hdrColor, vec3(0.0));
 
     if (pushData.settings.x > 0.5) {

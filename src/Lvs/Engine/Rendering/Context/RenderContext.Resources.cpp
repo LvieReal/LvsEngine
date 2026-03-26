@@ -13,12 +13,14 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <exception>
 #include <iomanip>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <utility>
 
 namespace Lvs::Engine::Rendering {
@@ -83,6 +85,7 @@ void RenderContext::ReleaseGpuResources() {
     retiredFrameResourceSets_.clear();
     retiredFrameUniformBuffers_.clear();
     primitiveMeshCache_.clear();
+    beveledCubeMeshCache_.clear();
     meshPartCache_.clear();
     meshRefCache_.clear();
     meshRefStorage_.clear();
@@ -203,17 +206,18 @@ void RenderContext::EnsurePostProcessTargets() {
         WaitForBackendIdle();
         waitedForIdle = true;
     };
-    if (needsRecreate(geometryTarget_, surfaceWidth_, surfaceHeight_, 3U, effectiveMsaaSampleCount_)) {
+    if (needsRecreate(geometryTarget_, surfaceWidth_, surfaceHeight_, 4U, effectiveMsaaSampleCount_)) {
         waitForIdleOnce();
         geometryTarget_ = GetRhiContext().CreateRenderTarget(
             RHI::RenderTargetDesc{
                 .width = surfaceWidth_,
                 .height = surfaceHeight_,
-                .colorAttachmentCount = 3,
+                .colorAttachmentCount = 4,
                 .sampleCount = requestedMsaaSampleCount_,
                 .hasDepth = true,
                 .depthTexture = false,
-                .depthCompare = false
+                .depthCompare = false,
+                .depthFormat = RHI::Format::D24S8
             }
         );
         if (geometryTarget_ != nullptr) {
@@ -374,6 +378,149 @@ std::optional<RenderContext::GpuMesh> RenderContext::CreateGpuMeshFromData(const
         return std::nullopt;
     }
     EnsureBackend();
+
+    const auto buildAdjacency = [](const std::vector<RHI::u32>& indices,
+                                   const std::vector<Common::VertexP3N3>& vertices) -> std::vector<RHI::u32> {
+        if (indices.size() < 3 || (indices.size() % 3) != 0) {
+            return {};
+        }
+        if (vertices.empty()) {
+            return {};
+        }
+
+        // Weld vertices by position so hard edges / duplicated verts still produce valid adjacency.
+        struct PositionKey {
+            std::int64_t x{0};
+            std::int64_t y{0};
+            std::int64_t z{0};
+        };
+        struct PositionKeyHash {
+            std::size_t operator()(const PositionKey& k) const noexcept {
+                // 64-bit mix, then truncate.
+                std::uint64_t h = 1469598103934665603ULL;
+                const auto mix = [&h](std::uint64_t v) {
+                    h ^= v;
+                    h *= 1099511628211ULL;
+                };
+                mix(static_cast<std::uint64_t>(k.x));
+                mix(static_cast<std::uint64_t>(k.y));
+                mix(static_cast<std::uint64_t>(k.z));
+                return static_cast<std::size_t>(h);
+            }
+        };
+        struct PositionKeyEq {
+            bool operator()(const PositionKey& a, const PositionKey& b) const noexcept {
+                return a.x == b.x && a.y == b.y && a.z == b.z;
+            }
+        };
+
+        constexpr double kQuantize = 100000.0; // 1e-5 world units
+        const auto quantize = [kQuantize](const float v) -> std::int64_t {
+            return static_cast<std::int64_t>(std::llround(static_cast<double>(v) * kQuantize));
+        };
+
+        std::unordered_map<PositionKey, RHI::u32, PositionKeyHash, PositionKeyEq> positionToWelded{};
+        positionToWelded.reserve(vertices.size());
+        std::vector<RHI::u32> welded(vertices.size(), 0U);
+        RHI::u32 nextWelded = 0U;
+        for (std::size_t i = 0; i < vertices.size(); ++i) {
+            const auto& v = vertices[i];
+            const PositionKey key{quantize(v.Position[0]), quantize(v.Position[1]), quantize(v.Position[2])};
+            const auto [it, inserted] = positionToWelded.emplace(key, nextWelded);
+            if (inserted) {
+                ++nextWelded;
+            }
+            welded[i] = it->second;
+        }
+
+        struct EdgeInfo {
+            RHI::u32 Opp0{0};
+            RHI::u32 Opp1{0};
+            bool HasFirst{false};
+            bool HasSecond{false};
+        };
+        std::unordered_map<std::uint64_t, EdgeInfo> edges;
+        edges.reserve(indices.size());
+
+        const auto keyOf = [](const RHI::u32 a, const RHI::u32 b) -> std::uint64_t {
+            const RHI::u32 lo = std::min(a, b);
+            const RHI::u32 hi = std::max(a, b);
+            return (static_cast<std::uint64_t>(lo) << 32ULL) | static_cast<std::uint64_t>(hi);
+        };
+
+        for (std::size_t i = 0; i + 2 < indices.size(); i += 3) {
+            const RHI::u32 v0 = indices[i + 0];
+            const RHI::u32 v1 = indices[i + 1];
+            const RHI::u32 v2 = indices[i + 2];
+            if (v0 >= welded.size() || v1 >= welded.size() || v2 >= welded.size()) {
+                continue;
+            }
+            const RHI::u32 w0 = welded[v0];
+            const RHI::u32 w1 = welded[v1];
+            const RHI::u32 w2 = welded[v2];
+
+            const auto addEdge = [&edges, &keyOf](const RHI::u32 a, const RHI::u32 b, const RHI::u32 opp) {
+                const std::uint64_t k = keyOf(a, b);
+                auto& info = edges[k];
+                if (!info.HasFirst) {
+                    info.Opp0 = opp;
+                    info.HasFirst = true;
+                } else if (!info.HasSecond) {
+                    info.Opp1 = opp;
+                    info.HasSecond = true;
+                }
+            };
+
+            addEdge(w0, w1, v2);
+            addEdge(w1, w2, v0);
+            addEdge(w2, w0, v1);
+        }
+
+        std::vector<RHI::u32> out;
+        out.reserve((indices.size() / 3) * 6);
+
+        for (std::size_t i = 0; i + 2 < indices.size(); i += 3) {
+            const RHI::u32 v0 = indices[i + 0];
+            const RHI::u32 v1 = indices[i + 1];
+            const RHI::u32 v2 = indices[i + 2];
+            if (v0 >= welded.size() || v1 >= welded.size() || v2 >= welded.size()) {
+                continue;
+            }
+            const RHI::u32 w0 = welded[v0];
+            const RHI::u32 w1 = welded[v1];
+            const RHI::u32 w2 = welded[v2];
+
+            const auto resolveAdj = [&edges, &keyOf](const RHI::u32 wa,
+                                                     const RHI::u32 wb,
+                                                     const RHI::u32 a,
+                                                     const RHI::u32 b,
+                                                     const RHI::u32 currentOpp) -> RHI::u32 {
+                const auto it = edges.find(keyOf(wa, wb));
+                if (it == edges.end() || !it->second.HasSecond) {
+                    return a; // boundary marker (adjacent vertex == edge endpoint)
+                }
+                const EdgeInfo& info = it->second;
+                const RHI::u32 other = (info.Opp0 == currentOpp) ? info.Opp1 : info.Opp0;
+                if (other == a || other == b) {
+                    return a;
+                }
+                return other;
+            };
+
+            const RHI::u32 adj0 = resolveAdj(w0, w1, v0, v1, v2);
+            const RHI::u32 adj1 = resolveAdj(w1, w2, v1, v2, v0);
+            const RHI::u32 adj2 = resolveAdj(w2, w0, v2, v0, v1);
+
+            out.push_back(v0);
+            out.push_back(adj0);
+            out.push_back(v1);
+            out.push_back(adj1);
+            out.push_back(v2);
+            out.push_back(adj2);
+        }
+        return out;
+    };
+
     auto vertexBuffer = GetRhiContext().CreateBuffer(RHI::BufferDesc{
         .type = RHI::BufferType::Vertex,
         .usage = RHI::BufferUsage::Static,
@@ -386,6 +533,16 @@ std::optional<RenderContext::GpuMesh> RenderContext::CreateGpuMeshFromData(const
         .size = mesh.Indices.size() * sizeof(RHI::u32),
         .initialData = mesh.Indices.data()
     });
+    const std::vector<RHI::u32> adjacency = buildAdjacency(mesh.Indices, mesh.Vertices);
+    std::unique_ptr<RHI::IBuffer> adjacencyIndexBuffer{};
+    if (!adjacency.empty()) {
+        adjacencyIndexBuffer = GetRhiContext().CreateBuffer(RHI::BufferDesc{
+            .type = RHI::BufferType::Index,
+            .usage = RHI::BufferUsage::Static,
+            .size = adjacency.size() * sizeof(RHI::u32),
+            .initialData = adjacency.data()
+        });
+    }
     if (vertexBuffer == nullptr || indexBuffer == nullptr) {
         return std::nullopt;
     }
@@ -393,7 +550,10 @@ std::optional<RenderContext::GpuMesh> RenderContext::CreateGpuMeshFromData(const
         .VertexBuffer = std::move(vertexBuffer),
         .IndexBuffer = std::move(indexBuffer),
         .IndexCount = static_cast<RHI::u32>(mesh.Indices.size()),
-        .IndexType = RHI::IndexType::UInt32
+        .IndexType = RHI::IndexType::UInt32,
+        .AdjacencyIndexBuffer = std::move(adjacencyIndexBuffer),
+        .AdjacencyIndexCount = static_cast<RHI::u32>(adjacency.size()),
+        .AdjacencyIndexType = RHI::IndexType::UInt32
     };
 }
 
@@ -526,8 +686,11 @@ const SceneData::MeshRef* RenderContext::GetOrCreateMeshRef(const std::string& k
     meshRefStorage_.push_back(SceneData::MeshRef{
         .VertexBuffer = mesh.VertexBuffer.get(),
         .IndexBuffer = mesh.IndexBuffer.get(),
+        .AdjacencyIndexBuffer = mesh.AdjacencyIndexBuffer.get(),
         .IndexBufferType = mesh.IndexType,
         .IndexCount = mesh.IndexCount,
+        .AdjacencyIndexBufferType = mesh.AdjacencyIndexType,
+        .AdjacencyIndexCount = mesh.AdjacencyIndexCount,
         .VertexOffset = 0,
         .IndexOffset = 0
     });

@@ -13,6 +13,7 @@ file(MAKE_DIRECTORY "${LVS_VULKAN_COMPILED_DIR}")
 file(GLOB_RECURSE LVS_VULKAN_GLSL_SOURCES CONFIGURE_DEPENDS
     "${LVS_SHADER_SOURCE_DIR}/*.vert"
     "${LVS_SHADER_SOURCE_DIR}/*.frag"
+    "${LVS_SHADER_SOURCE_DIR}/*.geom"
 )
 
 add_executable(lvs_glsl_preprocess "${CMAKE_CURRENT_SOURCE_DIR}/src/Tools/LvsGlslPreprocess.cpp")

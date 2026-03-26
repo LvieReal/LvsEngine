@@ -225,18 +225,26 @@ std::unique_ptr<RHI::IPipeline> GLContext::CreatePipeline(const RHI::PipelineDes
     }
 
     const std::string vertSrc = ShaderLoader::LoadGLSL(desc.pipelineId, "vert");
+    const std::string geomSrc = ShaderLoader::LoadGLSL(desc.pipelineId, "geom");
     const std::string fragSrc = ShaderLoader::LoadGLSL(desc.pipelineId, "frag");
     const unsigned int vertShader = Utils::CompileShader(GL_VERTEX_SHADER, vertSrc, "vertex");
+    const unsigned int geomShader = geomSrc.empty() ? 0U : Utils::CompileShader(GL_GEOMETRY_SHADER, geomSrc, "geometry");
     const unsigned int fragShader = Utils::CompileShader(GL_FRAGMENT_SHADER, fragSrc, "fragment");
 
     const unsigned int program = glCreateProgram();
     glAttachShader(program, vertShader);
+    if (geomShader != 0U) {
+        glAttachShader(program, geomShader);
+    }
     glAttachShader(program, fragShader);
     glLinkProgram(program);
 
     int linkStatus = 0;
     glGetProgramiv(program, GL_LINK_STATUS, &linkStatus);
     glDeleteShader(vertShader);
+    if (geomShader != 0U) {
+        glDeleteShader(geomShader);
+    }
     glDeleteShader(fragShader);
     if (linkStatus == 0) {
         int logLen = 0;
@@ -913,12 +921,14 @@ void GLContext::BeginRenderPass(const RHI::RenderPassInfo& info) {
     }
     if (useDefaultFramebuffer) {
         glDrawBuffer(GL_BACK);
+        currentColorAttachmentCount_ = 1U;
     } else {
         std::vector<GLenum> drawBuffers;
         drawBuffers.reserve(info.colorAttachmentCount);
         for (RHI::u32 colorIndex = 0; colorIndex < info.colorAttachmentCount; ++colorIndex) {
             drawBuffers.push_back(GL_COLOR_ATTACHMENT0 + colorIndex);
         }
+        currentColorAttachmentCount_ = std::max<RHI::u32>(1U, info.colorAttachmentCount);
         if (drawBuffers.empty()) {
             glDrawBuffer(GL_NONE);
             glReadBuffer(GL_NONE);
@@ -940,11 +950,25 @@ void GLContext::BeginRenderPass(const RHI::RenderPassInfo& info) {
         glClearDepthf(info.clearDepthValue);
         clearMask |= GL_DEPTH_BUFFER_BIT;
     }
+    if (info.clearStencil) {
+        clearMask |= GL_STENCIL_BUFFER_BIT;
+        glClearStencil(static_cast<GLint>(info.clearStencilValue));
+    }
     if (clearMask != 0U) {
         // Previous passes may leave write-masks disabled (e.g. sky depth write off).
         // Force full clear write access before issuing glClear.
-        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        if (glColorMaski != nullptr) {
+            const RHI::u32 count = std::max<RHI::u32>(1U, currentColorAttachmentCount_);
+            for (RHI::u32 i = 0; i < count; ++i) {
+                glColorMaski(static_cast<GLuint>(i), GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+            }
+        } else {
+            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        }
         glDepthMask(GL_TRUE);
+        if (info.clearStencil) {
+            glStencilMask(0xFF);
+        }
         glClear(clearMask);
         if (info.clearColor && info.colorAttachmentCount > 1U) {
             const float black[4]{0.0F, 0.0F, 0.0F, 0.0F};
@@ -982,6 +1006,7 @@ void GLContext::BindPipeline(const RHI::IPipeline& pipeline) {
     }
     if (const auto* glPipeline = dynamic_cast<const GLPipeline*>(&pipeline); glPipeline != nullptr) {
         currentVertexLayout_ = glPipeline->GetDesc().vertexLayout;
+        currentTopology_ = glPipeline->GetDesc().topology;
         if (glPipeline->GetDesc().sampleCount > 1U) {
             glEnable(GL_MULTISAMPLE);
         } else {
@@ -989,18 +1014,109 @@ void GLContext::BindPipeline(const RHI::IPipeline& pipeline) {
         }
         Utils::ApplyCullMode(glPipeline->GetDesc().cullMode);
 #ifdef GL_DEPTH_CLAMP
-        if (glPipeline->GetDesc().pipelineId == "shadow") {
+        if (glPipeline->GetDesc().depthClamp) {
             glEnable(GL_DEPTH_CLAMP);
         } else {
             glDisable(GL_DEPTH_CLAMP);
         }
 #endif
+#ifdef GL_CONSERVATIVE_RASTERIZATION_NV
+        if (glPipeline->GetDesc().conservativeRaster) {
+            glEnable(GL_CONSERVATIVE_RASTERIZATION_NV);
+        } else {
+            glDisable(GL_CONSERVATIVE_RASTERIZATION_NV);
+        }
+#endif
+        const auto applyMaskBits = [](const std::uint8_t mask, GLboolean* out) {
+            out[0] = (mask & 0x1U) != 0U ? GL_TRUE : GL_FALSE;
+            out[1] = (mask & 0x2U) != 0U ? GL_TRUE : GL_FALSE;
+            out[2] = (mask & 0x4U) != 0U ? GL_TRUE : GL_FALSE;
+            out[3] = (mask & 0x8U) != 0U ? GL_TRUE : GL_FALSE;
+        };
+        if (glPipeline->GetDesc().useColorWriteMasks && glColorMaski != nullptr) {
+            const RHI::u32 count = std::max<RHI::u32>(1U, currentColorAttachmentCount_);
+            for (RHI::u32 i = 0; i < count && i < glPipeline->GetDesc().colorWriteMasks.size(); ++i) {
+                GLboolean m[4]{GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE};
+                applyMaskBits(glPipeline->GetDesc().colorWriteMasks[i], m);
+                glColorMaski(static_cast<GLuint>(i), m[0], m[1], m[2], m[3]);
+            }
+        } else {
+            const GLboolean enable = glPipeline->GetDesc().colorWrite ? GL_TRUE : GL_FALSE;
+            if (glColorMaski != nullptr) {
+                const RHI::u32 count = std::max<RHI::u32>(1U, currentColorAttachmentCount_);
+                for (RHI::u32 i = 0; i < count; ++i) {
+                    glColorMaski(static_cast<GLuint>(i), enable, enable, enable, enable);
+                }
+            } else {
+                glColorMask(enable, enable, enable, enable);
+            }
+        }
         if (glPipeline->GetDesc().blending) {
             glEnable(GL_BLEND);
             glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
             glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
         } else {
             glDisable(GL_BLEND);
+        }
+        if (glPipeline->GetDesc().stencil.Enabled) {
+            const auto resolveCompare = [](const RHI::StencilCompare op) -> GLenum {
+                switch (op) {
+                    case RHI::StencilCompare::Never:
+                        return GL_NEVER;
+                    case RHI::StencilCompare::Less:
+                        return GL_LESS;
+                    case RHI::StencilCompare::LessOrEqual:
+                        return GL_LEQUAL;
+                    case RHI::StencilCompare::Greater:
+                        return GL_GREATER;
+                    case RHI::StencilCompare::GreaterOrEqual:
+                        return GL_GEQUAL;
+                    case RHI::StencilCompare::Equal:
+                        return GL_EQUAL;
+                    case RHI::StencilCompare::NotEqual:
+                        return GL_NOTEQUAL;
+                    case RHI::StencilCompare::Always:
+                    default:
+                        return GL_ALWAYS;
+                }
+            };
+            const auto resolveOp = [](const RHI::StencilOp op) -> GLenum {
+                switch (op) {
+                    case RHI::StencilOp::Zero:
+                        return GL_ZERO;
+                    case RHI::StencilOp::Replace:
+                        return GL_REPLACE;
+                    case RHI::StencilOp::IncrementClamp:
+                        return GL_INCR;
+                    case RHI::StencilOp::DecrementClamp:
+                        return GL_DECR;
+                    case RHI::StencilOp::Invert:
+                        return GL_INVERT;
+                    case RHI::StencilOp::IncrementWrap:
+                        return GL_INCR_WRAP;
+                    case RHI::StencilOp::DecrementWrap:
+                        return GL_DECR_WRAP;
+                    case RHI::StencilOp::Keep:
+                    default:
+                        return GL_KEEP;
+                }
+            };
+
+            glEnable(GL_STENCIL_TEST);
+            const auto& front = glPipeline->GetDesc().stencil.Front;
+            const auto& back = glPipeline->GetDesc().stencil.Back;
+            glStencilFuncSeparate(GL_FRONT, resolveCompare(front.CompareOp), static_cast<GLint>(front.Reference),
+                                  static_cast<GLuint>(front.CompareMask));
+            glStencilOpSeparate(GL_FRONT, resolveOp(front.FailOp), resolveOp(front.DepthFailOp), resolveOp(front.PassOp));
+            glStencilMaskSeparate(GL_FRONT, static_cast<GLuint>(front.WriteMask));
+
+            glStencilFuncSeparate(GL_BACK, resolveCompare(back.CompareOp), static_cast<GLint>(back.Reference),
+                                  static_cast<GLuint>(back.CompareMask));
+            glStencilOpSeparate(GL_BACK, resolveOp(back.FailOp), resolveOp(back.DepthFailOp), resolveOp(back.PassOp));
+            glStencilMaskSeparate(GL_BACK, static_cast<GLuint>(back.WriteMask));
+        } else {
+            glDisable(GL_STENCIL_TEST);
+            glStencilMask(0xFF);
         }
         if (glPipeline->GetDesc().depthTest) {
             glEnable(GL_DEPTH_TEST);
@@ -1011,12 +1127,18 @@ void GLContext::BindPipeline(const RHI::IPipeline& pipeline) {
         glDepthMask(glPipeline->GetDesc().depthWrite ? GL_TRUE : GL_FALSE);
     } else {
         currentVertexLayout_ = RHI::VertexLayout::None;
+        currentTopology_ = RHI::PrimitiveTopology::TriangleList;
         Utils::ApplyCullMode(RHI::CullMode::Back);
         glDisable(GL_MULTISAMPLE);
 #ifdef GL_DEPTH_CLAMP
         glDisable(GL_DEPTH_CLAMP);
 #endif
+#ifdef GL_CONSERVATIVE_RASTERIZATION_NV
+        glDisable(GL_CONSERVATIVE_RASTERIZATION_NV);
+#endif
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         glDisable(GL_BLEND);
+        glDisable(GL_STENCIL_TEST);
         glEnable(GL_DEPTH_TEST);
         glDepthFunc(GL_GEQUAL);
         glDepthMask(GL_TRUE);
@@ -1125,9 +1247,11 @@ void GLContext::Draw(const RHI::ICommandBuffer::DrawInfo& info) {
     const auto instanceCount = static_cast<GLsizei>(std::max<RHI::u32>(1U, info.instanceCount));
     if (info.indexCount > 0U) {
         const GLenum type = currentIndexType_ == RHI::IndexType::UInt16 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT;
-        glDrawElementsInstanced(GL_TRIANGLES, static_cast<int>(info.indexCount), type, nullptr, instanceCount);
+        const GLenum mode = currentTopology_ == RHI::PrimitiveTopology::TriangleListAdjacency ? GL_TRIANGLES_ADJACENCY : GL_TRIANGLES;
+        glDrawElementsInstanced(mode, static_cast<int>(info.indexCount), type, nullptr, instanceCount);
     } else if (info.vertexCount > 0U) {
-        glDrawArraysInstanced(GL_TRIANGLES, 0, static_cast<GLsizei>(info.vertexCount), instanceCount);
+        const GLenum mode = currentTopology_ == RHI::PrimitiveTopology::TriangleListAdjacency ? GL_TRIANGLES_ADJACENCY : GL_TRIANGLES;
+        glDrawArraysInstanced(mode, 0, static_cast<GLsizei>(info.vertexCount), instanceCount);
     }
 }
 

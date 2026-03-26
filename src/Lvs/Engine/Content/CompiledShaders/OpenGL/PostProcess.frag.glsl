@@ -1,5 +1,17 @@
 #version 450
 
+layout(binding = 0, std140) uniform CameraUBO
+{
+    mat4 view;
+    mat4 projection;
+    vec4 cameraPosition;
+    vec4 ambient;
+    vec4 skyTint;
+    vec4 renderSettings;
+    vec4 lightingSettings;
+    vec4 cameraForward;
+} camera;
+
 struct PostSettings
 {
     vec4 settings;
@@ -11,6 +23,7 @@ uniform PostSettings pushData;
 layout(binding = 1) uniform sampler2D sceneColor;
 layout(binding = 2) uniform sampler2D glowColor;
 layout(binding = 16) uniform sampler2D aoTexture;
+layout(binding = 17) uniform sampler2D shadowVolumeMask;
 
 layout(location = 0) in vec2 fragUv;
 layout(location = 0) out vec4 outColor;
@@ -29,6 +42,13 @@ void main()
     }
     float ao = texture(aoTexture, fragUv).x;
     hdrColor *= mix(pushData.aoTint.xyz, vec3(1.0), vec3(clamp(ao, 0.0, 1.0)));
+    float shadow = texture(shadowVolumeMask, fragUv).x;
+    shadow = clamp(shadow, 0.0, 1.0);
+    vec3 ambientColor = max(camera.ambient.xyz, vec3(0.0));
+    float ambientStrength = clamp(camera.ambient.w, 0.0, 1.0);
+    float shadowScale = mix(1.0, ambientStrength, shadow);
+    vec3 shadowTint = mix(vec3(1.0), ambientColor, vec3(shadow));
+    hdrColor *= (shadowTint * shadowScale);
     vec3 color = max(hdrColor, vec3(0.0));
     if (pushData.settings.x > 0.5)
     {

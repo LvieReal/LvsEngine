@@ -7,6 +7,11 @@
 #include "Lvs/Engine/DataModel/Services/QualitySettings.hpp"
 #include "Lvs/Engine/DataModel/Services/Workspace.hpp"
 #include "Lvs/Engine/Enums/MSAA.hpp"
+#include "Lvs/Engine/Enums/RenderCullMode.hpp"
+#include "Lvs/Engine/Enums/RenderDepthCompare.hpp"
+#include "Lvs/Engine/Enums/ShadowVolumeCapMode.hpp"
+#include "Lvs/Engine/Enums/ShadowVolumeStencilMode.hpp"
+#include "Lvs/Engine/Enums/ShadowType.hpp"
 #include "Lvs/Engine/Enums/SurfaceMipmapping.hpp"
 #include "Lvs/Engine/Enums/SpecularHighlightType.hpp"
 #include "Lvs/Engine/Objects/Camera.hpp"
@@ -109,7 +114,39 @@ void RenderContext::Render() {
     std::unordered_map<const Objects::DirectionalLight*, RHI::u32> directionalShadowIndex{};
     std::array<std::shared_ptr<Objects::DirectionalLight>, Common::kMaxDirectionalShadowMaps> shadowDirectionalLights{};
     std::array<Common::ShadowSettings, Common::kMaxDirectionalShadowMaps> requestedShadowSettings{};
+    std::shared_ptr<Objects::DirectionalLight> shadowVolumeDirectionalLight{};
     float fresnelAmount = 1.0F;
+
+    const auto resolveCull = [](const Enums::RenderCullMode mode) -> RHI::CullMode {
+        switch (mode) {
+            case Enums::RenderCullMode::Front:
+                return RHI::CullMode::Front;
+            case Enums::RenderCullMode::Back:
+                return RHI::CullMode::Back;
+            case Enums::RenderCullMode::None:
+            default:
+                return RHI::CullMode::None;
+        }
+    };
+    const auto resolveDepthCompare = [](const Enums::RenderDepthCompare cmp) -> RHI::DepthCompare {
+        switch (cmp) {
+            case Enums::RenderDepthCompare::Always:
+                return RHI::DepthCompare::Always;
+            case Enums::RenderDepthCompare::Equal:
+                return RHI::DepthCompare::Equal;
+            case Enums::RenderDepthCompare::NotEqual:
+                return RHI::DepthCompare::NotEqual;
+            case Enums::RenderDepthCompare::Less:
+                return RHI::DepthCompare::Less;
+            case Enums::RenderDepthCompare::LessOrEqual:
+                return RHI::DepthCompare::LessOrEqual;
+            case Enums::RenderDepthCompare::Greater:
+                return RHI::DepthCompare::Greater;
+            case Enums::RenderDepthCompare::GreaterOrEqual:
+            default:
+                return RHI::DepthCompare::GreaterOrEqual;
+        }
+    };
 
     if (place_ != nullptr) {
         lightingService = std::dynamic_pointer_cast<DataModel::Lighting>(place_->FindService("Lighting"));
@@ -119,6 +156,17 @@ void RenderContext::Render() {
             scene.DirectionalShadowCount = 0U;
             scene.DirectionalShadowCascadeCounts.fill(0U);
             shadowDirectionalLights.fill(nullptr);
+            scene.EnableShadowVolumes = false;
+            scene.ShadowVolumeLightDirExtrude = {};
+            scene.ShadowVolumeBias = 0.0F;
+            scene.ShadowVolumeDepthCompare = RHI::DepthCompare::GreaterOrEqual;
+            scene.ShadowVolumeCullMode = RHI::CullMode::None;
+            scene.ShadowVolumeMaskDepthCompare = RHI::DepthCompare::NotEqual;
+            scene.ShadowVolumeMaskCullMode = RHI::CullMode::None;
+            scene.ShadowVolumeCapMode = 0;
+            scene.ShadowVolumeStencilMode = 0;
+            scene.ShadowVolumeSwapStencilOps = false;
+            bool clearedShadowTargets = false;
             for (const auto& child : lightingService->GetChildren()) {
                 if (postEffects == nullptr) {
                     postEffects = std::dynamic_pointer_cast<Objects::PostEffects>(child);
@@ -133,7 +181,29 @@ void RenderContext::Render() {
                 enabledDirectionalLights.push_back(directional);
 
                 const bool wantsShadows = directional->GetProperty("ShadowEnabled").toBool();
-                if (!wantsShadows || scene.DirectionalShadowCount >= Common::kMaxDirectionalShadowMaps) {
+                const Enums::ShadowType shadowType = directional->GetProperty("ShadowType").IsValid()
+                                                         ? directional->GetProperty("ShadowType").value<Enums::ShadowType>()
+                                                         : Enums::ShadowType::Cascaded;
+                const int shadowTypeInt = static_cast<int>(shadowType);
+                const auto itPrev = directionalShadowTypeCache_.find(directional.get());
+                const bool shadowTypeChanged = itPrev != directionalShadowTypeCache_.end() && itPrev->second != shadowTypeInt;
+                directionalShadowTypeCache_[directional.get()] = shadowTypeInt;
+                if (shadowTypeChanged && !clearedShadowTargets) {
+                    WaitForBackendIdle();
+                    for (auto& perLightTargets : directionalShadowTargets_) {
+                        for (auto& target : perLightTargets) {
+                            target.reset();
+                        }
+                    }
+                    clearedShadowTargets = true;
+                }
+
+                if (wantsShadows && shadowType == Enums::ShadowType::Volumes && shadowVolumeDirectionalLight == nullptr) {
+                    shadowVolumeDirectionalLight = directional;
+                }
+
+                if (!wantsShadows || shadowType != Enums::ShadowType::Cascaded ||
+                    scene.DirectionalShadowCount >= Common::kMaxDirectionalShadowMaps) {
                     continue;
                 }
 
@@ -166,14 +236,42 @@ void RenderContext::Render() {
                     std::clamp(normalized.CascadeCount, 0, Common::kMaxShadowCascades)
                 );
             }
+
+            if (shadowVolumeDirectionalLight != nullptr) {
+                const Math::Vector3 dir = shadowVolumeDirectionalLight->GetProperty("Direction").value<Math::Vector3>().Unit();
+                const float maxDist =
+                    static_cast<float>(std::max(1.0, shadowVolumeDirectionalLight->GetProperty("ShadowMaxDistance").toDouble()));
+                scene.ShadowVolumeBias =
+                    static_cast<float>(shadowVolumeDirectionalLight->GetProperty("ShadowVolumeBias").toDouble());
+                scene.EnableShadowVolumes = true;
+                scene.ShadowVolumeLightDirExtrude = Context::ToVec4(dir, std::max(100.0F, maxDist * 2.0F));
+
+                // Lighting-service debug overrides.
+                scene.ShadowVolumeDepthCompare = resolveDepthCompare(
+                    lightingService->GetProperty("ShadowVolumeDepthCompare").value<Enums::RenderDepthCompare>()
+                );
+                scene.ShadowVolumeCullMode = resolveCull(
+                    lightingService->GetProperty("ShadowVolumeCullMode").value<Enums::RenderCullMode>()
+                );
+                scene.ShadowVolumeMaskDepthCompare = resolveDepthCompare(
+                    lightingService->GetProperty("ShadowVolumeMaskDepthCompare").value<Enums::RenderDepthCompare>()
+                );
+                scene.ShadowVolumeMaskCullMode = resolveCull(
+                    lightingService->GetProperty("ShadowVolumeMaskCullMode").value<Enums::RenderCullMode>()
+                );
+                scene.ShadowVolumeCapMode = static_cast<int>(
+                    lightingService->GetProperty("ShadowVolumeCapMode").value<Enums::ShadowVolumeCapMode>()
+                );
+                scene.ShadowVolumeStencilMode = static_cast<int>(
+                    lightingService->GetProperty("ShadowVolumeStencilMode").value<Enums::ShadowVolumeStencilMode>()
+                );
+                scene.ShadowVolumeSwapStencilOps = lightingService->GetProperty("ShadowVolumeSwapStencilOps").toBool();
+            }
         }
     }
 
     if (postEffects != nullptr) {
         scene.NeonBlur = static_cast<float>(std::max(0.0, postEffects->GetProperty("NeonBlur").toDouble()));
-    } else if (lightingService != nullptr) {
-        // Back-compat: moved to Lighting/PostEffects, but old places may still have it on Lighting.
-        scene.NeonBlur = static_cast<float>(std::max(0.0, lightingService->GetProperty("NeonBlur").toDouble()));
     }
     scene.EnableShadows = scene.DirectionalShadowCount > 0U;
     scene.ShadowTarget = SceneData::PassTarget{
@@ -390,11 +488,15 @@ void RenderContext::Render() {
     }
 
     scene.ShadowCasters.clear();
-    bool hasAnyShadowCascades = false;
-    for (RHI::u32 i = 0; i < std::min(scene.DirectionalShadowCount, SceneData::MaxDirectionalShadowMaps); ++i) {
-        hasAnyShadowCascades = hasAnyShadowCascades || scene.DirectionalShadowCascadeCounts[i] > 0U;
+    bool needsShadowCasters = scene.EnableShadowVolumes;
+    if (!needsShadowCasters) {
+        bool hasAnyShadowCascades = false;
+        for (RHI::u32 i = 0; i < std::min(scene.DirectionalShadowCount, SceneData::MaxDirectionalShadowMaps); ++i) {
+            hasAnyShadowCascades = hasAnyShadowCascades || scene.DirectionalShadowCascadeCounts[i] > 0U;
+        }
+        needsShadowCasters = scene.EnableShadows && hasAnyShadowCascades;
     }
-    if (scene.EnableShadows && hasAnyShadowCascades) {
+    if (needsShadowCasters) {
         scene.ShadowCasters.reserve(scene.GeometryDraws.size());
         for (const auto& draw : scene.GeometryDraws) {
             if (draw.Mesh == nullptr) {
@@ -915,7 +1017,16 @@ void RenderContext::Render() {
         const RHI::Texture aoTexture = scene.EnableHbao && hbaoBlurFinalTarget_ != nullptr
                                            ? hbaoBlurFinalTarget_->GetColorTexture(0)
                                            : fallbackWhiteTexture_;
-        const std::array<RHI::ResourceBinding, 3> compositeBindings{
+        const RHI::Texture shadowVolumeMask =
+            (geometryTarget_ != nullptr && geometryTarget_->GetColorAttachmentCount() > 3U) ? geometryTarget_->GetColorTexture(3)
+                                                                                            : fallbackBlackTexture_;
+        const std::array<RHI::ResourceBinding, 5> compositeBindings{
+            RHI::ResourceBinding{
+                .slot = 0,
+                .kind = RHI::ResourceBindingKind::UniformBuffer,
+                .texture = {},
+                .buffer = frameUniformBuffer_.get()
+            },
             RHI::ResourceBinding{
                 .slot = 1,
                 .kind = RHI::ResourceBindingKind::Texture2D,
@@ -933,10 +1044,16 @@ void RenderContext::Render() {
                 .kind = RHI::ResourceBindingKind::Texture2D,
                 .texture = aoTexture,
                 .buffer = nullptr
+            },
+            RHI::ResourceBinding{
+                .slot = 17,
+                .kind = RHI::ResourceBindingKind::Texture2D,
+                .texture = shadowVolumeMask,
+                .buffer = nullptr
             }
         };
         postCompositeResourceSet_ = GetRhiContext().CreateResourceSet(
-            RHI::ResourceSetDesc{.bindings = compositeBindings.data(), .bindingCount = 3}
+            RHI::ResourceSetDesc{.bindings = compositeBindings.data(), .bindingCount = static_cast<RHI::u32>(compositeBindings.size())}
         );
         scene.PostBlurDownResources = scene.PostBlurDownLevelResources[0];
         scene.PostBlurUpResources = scene.PostBlurUpLevelResources[0];

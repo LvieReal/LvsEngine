@@ -84,6 +84,8 @@ private:
     std::optional<std::uint32_t> graphicsQueueFamily_;
     std::optional<std::uint32_t> presentQueueFamily_;
     bool depthClampEnabled_{false};
+    bool geometryShaderEnabled_{false};
+    bool conservativeRasterSupported_{false};
     bool ownsInstance_{false};
     bool ownsDevice_{false};
     bool ownsCommandPool_{false};

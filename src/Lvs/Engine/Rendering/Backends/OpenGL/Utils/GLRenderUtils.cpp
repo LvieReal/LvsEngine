@@ -53,6 +53,12 @@ GLenum ResolveDepthCompare(const RHI::DepthCompare compare) {
             return GL_ALWAYS;
         case RHI::DepthCompare::Equal:
             return GL_EQUAL;
+        case RHI::DepthCompare::NotEqual:
+            return GL_NOTEQUAL;
+        case RHI::DepthCompare::Less:
+            return GL_LESS;
+        case RHI::DepthCompare::Greater:
+            return GL_GREATER;
         case RHI::DepthCompare::LessOrEqual:
             return GL_LEQUAL;
         case RHI::DepthCompare::GreaterOrEqual:

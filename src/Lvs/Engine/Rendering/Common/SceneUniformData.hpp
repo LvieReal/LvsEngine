@@ -44,6 +44,12 @@ struct ShadowDrawCallPushConstants {
     std::array<std::uint32_t, 4> Data{}; // x: base instance, y: cascade index
 };
 
+struct ShadowVolumePushConstants {
+    std::array<std::uint32_t, 4> Data{};         // x: base instance
+    std::array<float, 4> LightDirExtrude{}; // xyz: light ray direction (world), w: extrude distance
+    std::array<float, 4> Params{};         // x: bias (world units)
+};
+
 struct ShadowPushConstants {
     std::array<float, 16> Model{};
     std::array<float, 4> Cascade{}; // x: cascade index

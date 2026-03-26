@@ -19,6 +19,8 @@ struct RenderPassInfo {
     float clearColorValue[4]{0.0F, 0.0F, 0.0F, 1.0F};
     bool clearDepth{false};
     float clearDepthValue{0.0F};
+    bool clearStencil{false};
+    u32 clearStencilValue{0U};
 };
 
 class ICommandBuffer {

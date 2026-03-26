@@ -8,6 +8,11 @@
 #include "Lvs/Engine/Enums/PartSurface.hpp"
 #include "Lvs/Engine/Enums/PartSurfaceType.hpp"
 #include "Lvs/Engine/Enums/SkyboxTextureLayout.hpp"
+#include "Lvs/Engine/Enums/ShadowType.hpp"
+#include "Lvs/Engine/Enums/RenderCullMode.hpp"
+#include "Lvs/Engine/Enums/RenderDepthCompare.hpp"
+#include "Lvs/Engine/Enums/ShadowVolumeCapMode.hpp"
+#include "Lvs/Engine/Enums/ShadowVolumeStencilMode.hpp"
 #include "Lvs/Engine/Enums/SpecularHighlightType.hpp"
 #include "Lvs/Engine/Enums/SurfaceMipmapping.hpp"
 #include "Lvs/Engine/Enums/TextureFiltering.hpp"
@@ -141,6 +146,33 @@ struct EnumInfo {
             {"Light", static_cast<int>(Theme::Light)},
             {"Dark", static_cast<int>(Theme::Dark)},
             {"Auto", static_cast<int>(Theme::Auto)},
+        });
+        add(Core::String(Core::EnumTraits<ShadowType>::Name), {
+            {"Volumes", static_cast<int>(ShadowType::Volumes)},
+            {"Cascaded", static_cast<int>(ShadowType::Cascaded)},
+        });
+        add(Core::String(Core::EnumTraits<RenderCullMode>::Name), {
+            {"None", static_cast<int>(RenderCullMode::None)},
+            {"Front", static_cast<int>(RenderCullMode::Front)},
+            {"Back", static_cast<int>(RenderCullMode::Back)},
+        });
+        add(Core::String(Core::EnumTraits<RenderDepthCompare>::Name), {
+            {"Always", static_cast<int>(RenderDepthCompare::Always)},
+            {"Equal", static_cast<int>(RenderDepthCompare::Equal)},
+            {"NotEqual", static_cast<int>(RenderDepthCompare::NotEqual)},
+            {"Less", static_cast<int>(RenderDepthCompare::Less)},
+            {"LessOrEqual", static_cast<int>(RenderDepthCompare::LessOrEqual)},
+            {"Greater", static_cast<int>(RenderDepthCompare::Greater)},
+            {"GreaterOrEqual", static_cast<int>(RenderDepthCompare::GreaterOrEqual)},
+        });
+        add(Core::String(Core::EnumTraits<ShadowVolumeCapMode>::Name), {
+            {"FrontNear_BackFar", static_cast<int>(ShadowVolumeCapMode::FrontNear_BackFar)},
+            {"BackNear_FrontFar", static_cast<int>(ShadowVolumeCapMode::BackNear_FrontFar)},
+            {"None", static_cast<int>(ShadowVolumeCapMode::None)},
+        });
+        add(Core::String(Core::EnumTraits<ShadowVolumeStencilMode>::Name), {
+            {"ZFail", static_cast<int>(ShadowVolumeStencilMode::ZFail)},
+            {"ZPass", static_cast<int>(ShadowVolumeStencilMode::ZPass)},
         });
 
         // Non-Engine-Enums enum types.

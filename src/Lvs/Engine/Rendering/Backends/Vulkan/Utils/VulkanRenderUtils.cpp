@@ -46,6 +46,12 @@ VkCompareOp ResolveDepthCompare(const RHI::DepthCompare compare) {
             return VK_COMPARE_OP_ALWAYS;
         case RHI::DepthCompare::Equal:
             return VK_COMPARE_OP_EQUAL;
+        case RHI::DepthCompare::NotEqual:
+            return VK_COMPARE_OP_NOT_EQUAL;
+        case RHI::DepthCompare::Less:
+            return VK_COMPARE_OP_LESS;
+        case RHI::DepthCompare::Greater:
+            return VK_COMPARE_OP_GREATER;
         case RHI::DepthCompare::LessOrEqual:
             return VK_COMPARE_OP_LESS_OR_EQUAL;
         case RHI::DepthCompare::GreaterOrEqual:
