@@ -611,6 +611,9 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
             entry.HasWorldAabb = true;
             alwaysOnTopItems.push_back(&entry);
         } else if (alpha < 1.0F) {
+            // Use world bounds for more accurate transparency sorting than object origin.
+            entry.WorldAabb = Utils::BuildPartWorldAABB(part);
+            entry.HasWorldAabb = true;
             transparentItems.push_back(&entry);
         } else {
             opaqueBatches[BatchKey{meshRef, entry.CullMode, false}].push_back(&entry);
@@ -759,7 +762,7 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
         const RHI::u32 baseInstance = static_cast<RHI::u32>(cachedInstanceData_.size());
         item->PackedInstanceIndex = cachedInstanceData_.size();
         cachedInstanceData_.push_back(item->InstanceData);
-        cachedTransparentDraws_.push_back(SceneData::DrawPacket{
+        SceneData::DrawPacket draw{
             .Mesh = item->Mesh,
             .BaseInstance = baseInstance,
             .InstanceCount = 1U,
@@ -768,7 +771,11 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
             .AlwaysOnTop = false,
             .IgnoreLighting = false,
             .SortDepth = 0.0F
-        });
+        };
+        if (item->HasWorldAabb) {
+            WriteDrawPacketSortBounds(draw, item->WorldAabb);
+        }
+        cachedTransparentDraws_.push_back(draw);
     }
 
     for (auto* item : alwaysOnTopItems) {
@@ -810,7 +817,7 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
     for (const auto& item : overlayTransparent) {
         const RHI::u32 baseInstance = static_cast<RHI::u32>(cachedInstanceData_.size());
         cachedInstanceData_.push_back(item.Data);
-        cachedTransparentDraws_.push_back(SceneData::DrawPacket{
+        SceneData::DrawPacket draw{
             .Mesh = item.Mesh,
             .BaseInstance = baseInstance,
             .InstanceCount = 1U,
@@ -819,7 +826,11 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
             .AlwaysOnTop = false,
             .IgnoreLighting = item.IgnoreLighting,
             .SortDepth = 0.0F
-        });
+        };
+        if (item.HasBounds) {
+            WriteDrawPacketSortBounds(draw, item.Bounds);
+        }
+        cachedTransparentDraws_.push_back(draw);
     }
 
     for (const auto& item : overlayOnTop) {
@@ -875,6 +886,27 @@ void RenderContext::UpdateTransparentSortDepths() {
     }
 
     for (auto& draw : cachedTransparentDraws_) {
+        if (draw.HasSortBounds) {
+            const double minX = static_cast<double>(draw.SortBoundsMin[0]);
+            const double minY = static_cast<double>(draw.SortBoundsMin[1]);
+            const double minZ = static_cast<double>(draw.SortBoundsMin[2]);
+            const double maxX = static_cast<double>(draw.SortBoundsMax[0]);
+            const double maxY = static_cast<double>(draw.SortBoundsMax[1]);
+            const double maxZ = static_cast<double>(draw.SortBoundsMax[2]);
+
+            double dx = 0.0;
+            double dy = 0.0;
+            double dz = 0.0;
+            if (cameraPosition.x < minX) dx = minX - cameraPosition.x;
+            else if (cameraPosition.x > maxX) dx = cameraPosition.x - maxX;
+            if (cameraPosition.y < minY) dy = minY - cameraPosition.y;
+            else if (cameraPosition.y > maxY) dy = cameraPosition.y - maxY;
+            if (cameraPosition.z < minZ) dz = minZ - cameraPosition.z;
+            else if (cameraPosition.z > maxZ) dz = cameraPosition.z - maxZ;
+
+            draw.SortDepth = static_cast<float>(dx * dx + dy * dy + dz * dz);
+            continue;
+        }
         if (draw.BaseInstance >= cachedInstanceData_.size()) {
             draw.SortDepth = 0.0F;
             continue;

@@ -5,10 +5,6 @@
 #include "Lvs/Engine/DataModel/Services/ServiceRegistry.hpp"
 #include "Lvs/Engine/Enums/LightingComputationMode.hpp"
 #include "Lvs/Engine/Enums/LightingTechnology.hpp"
-#include "Lvs/Engine/Enums/RenderCullMode.hpp"
-#include "Lvs/Engine/Enums/RenderDepthCompare.hpp"
-#include "Lvs/Engine/Enums/ShadowVolumeCapMode.hpp"
-#include "Lvs/Engine/Enums/ShadowVolumeStencilMode.hpp"
 #include "Lvs/Engine/Math/Color3.hpp"
 #include "Lvs/Engine/Objects/DirectionalLight.hpp"
 #include "Lvs/Engine/Objects/PostEffects.hpp"
@@ -41,57 +37,6 @@ Core::ClassDescriptor& Lighting::Descriptor() {
             true,
             "Rendering",
             "Scales Fresnel term contribution (0 disables angle-dependent Fresnel, 1 is default)."
-        ));
-
-        // Temporary shadow-volume tuning knobs (for debugging Z-fail vs Z-pass behavior).
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Enums::RenderDepthCompare>(
-            "ShadowVolumeDepthCompare",
-            Enums::RenderDepthCompare::GreaterOrEqual,
-            true,
-            "ShadowVolumes (Temp)",
-            "Depth compare used for the shadow-volume stencil pass (Z-fail uses DepthFail stencil ops)."
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Enums::RenderCullMode>(
-            "ShadowVolumeCullMode",
-            Enums::RenderCullMode::None,
-            true,
-            "ShadowVolumes (Temp)",
-            "Cull mode used for the shadow-volume stencil pass (two-sided stencil typically needs None)."
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Enums::RenderDepthCompare>(
-            "ShadowVolumeMaskDepthCompare",
-            Enums::RenderDepthCompare::NotEqual,
-            true,
-            "ShadowVolumes (Temp)",
-            "Depth compare used for the shadow-volume mask pass (default NotEqual avoids shadowing the sky/background)."
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Enums::RenderCullMode>(
-            "ShadowVolumeMaskCullMode",
-            Enums::RenderCullMode::None,
-            true,
-            "ShadowVolumes (Temp)",
-            "Cull mode used for the shadow-volume mask pass."
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Enums::ShadowVolumeCapMode>(
-            "ShadowVolumeCapMode",
-            Enums::ShadowVolumeCapMode::BackNear_FrontFar,
-            true,
-            "ShadowVolumes (Temp)",
-            "Cap construction mode for shadow volumes (near/far caps vs light-facing classification)."
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Enums::ShadowVolumeStencilMode>(
-            "ShadowVolumeStencilMode",
-            Enums::ShadowVolumeStencilMode::ZFail,
-            true,
-            "ShadowVolumes (Temp)",
-            "Stencil counting mode used by shadow volumes."
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
-            "ShadowVolumeSwapStencilOps",
-            false,
-            true,
-            "ShadowVolumes (Temp)",
-            "Swaps front/back stencil increment/decrement ops (useful when face classification differs)."
         ));
 
         Core::ClassDescriptor::RegisterClassDescriptor(&descriptor);

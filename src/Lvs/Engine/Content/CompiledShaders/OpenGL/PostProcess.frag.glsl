@@ -24,9 +24,20 @@ layout(binding = 1) uniform sampler2D sceneColor;
 layout(binding = 2) uniform sampler2D glowColor;
 layout(binding = 16) uniform sampler2D aoTexture;
 layout(binding = 17) uniform sampler2D shadowVolumeMask;
+layout(binding = 18) uniform sampler2D depthColor;
 
 layout(location = 0) in vec2 fragUv;
 layout(location = 0) out vec4 outColor;
+
+float ViewSpaceZFromReversedInfiniteDepth(float depth)
+{
+    float nearPlane = camera.projection[3].z;
+    if (camera.projection[2].z > 0.5)
+    {
+        nearPlane *= 0.5;
+    }
+    return (-nearPlane) / max(depth, 9.9999999747524270787835121154785e-07);
+}
 
 float InterleavedGradientNoise(vec2 pixel, float frameSeed)
 {
@@ -35,7 +46,9 @@ float InterleavedGradientNoise(vec2 pixel, float frameSeed)
 
 void main()
 {
-    vec3 hdrColor = texture(sceneColor, fragUv).xyz;
+    vec4 sceneSample = texture(sceneColor, fragUv);
+    vec3 hdrColor = sceneSample.xyz;
+    float sceneAlpha = sceneSample.w;
     if (pushData.settings.z > 0.5)
     {
         hdrColor += texture(glowColor, fragUv).xyz;
@@ -44,6 +57,18 @@ void main()
     hdrColor *= mix(pushData.aoTint.xyz, vec3(1.0), vec3(clamp(ao, 0.0, 1.0)));
     float shadow = texture(shadowVolumeMask, fragUv).x;
     shadow = clamp(shadow, 0.0, 1.0);
+    shadow *= smoothstep(0.99500000476837158203125, 1.0, sceneAlpha);
+    float shadowMaxDist = camera.lightingSettings.y;
+    float shadowFadeStart = camera.lightingSettings.z;
+    if ((shadowMaxDist > 9.9999997473787516355514526367188e-05) && (shadowFadeStart > 0.0))
+    {
+        float depth = texture(depthColor, fragUv).x;
+        float param = depth;
+        float dist = -ViewSpaceZFromReversedInfiniteDepth(param);
+        float start = min(shadowFadeStart, shadowMaxDist);
+        float fade = 1.0 - smoothstep(start, shadowMaxDist, dist);
+        shadow *= clamp(fade, 0.0, 1.0);
+    }
     vec3 ambientColor = max(camera.ambient.xyz, vec3(0.0));
     float ambientStrength = clamp(camera.ambient.w, 0.0, 1.0);
     float shadowScale = mix(1.0, ambientStrength, shadow);
@@ -56,9 +81,9 @@ void main()
     }
     if (pushData.settings.y > 0.5)
     {
-        vec2 param = gl_FragCoord.xy;
-        float param_1 = pushData.settings.w;
-        float n = InterleavedGradientNoise(param, param_1);
+        vec2 param_1 = gl_FragCoord.xy;
+        float param_2 = pushData.settings.w;
+        float n = InterleavedGradientNoise(param_1, param_2);
         color += vec3((n - 0.5) / 255.0);
         color = clamp(color, vec3(0.0), vec3(1.0));
     }

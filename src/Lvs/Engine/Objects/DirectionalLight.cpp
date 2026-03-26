@@ -107,7 +107,7 @@ Core::ClassDescriptor& DirectionalLight::Descriptor() {
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
             "ShadowVolumeBias",
-            0.0,
+            0.01,
             true,
             "Shadow",
             "Shadow volume bias (world units). Offsets the near cap/volume along the light direction to reduce acne/self-shadowing.",

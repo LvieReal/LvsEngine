@@ -61,7 +61,6 @@ struct SceneData {
 
     bool EnableShadows{true};
     bool EnableShadowVolumes{false};
-    // Debug/tuning knobs (typically driven by Lighting service when shadow volumes are enabled).
     RHI::DepthCompare ShadowVolumeDepthCompare{RHI::DepthCompare::GreaterOrEqual};
     RHI::CullMode ShadowVolumeCullMode{RHI::CullMode::None};
     RHI::DepthCompare ShadowVolumeMaskDepthCompare{RHI::DepthCompare::NotEqual};

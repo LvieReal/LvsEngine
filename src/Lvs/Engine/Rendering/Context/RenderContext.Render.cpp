@@ -7,8 +7,6 @@
 #include "Lvs/Engine/DataModel/Services/QualitySettings.hpp"
 #include "Lvs/Engine/DataModel/Services/Workspace.hpp"
 #include "Lvs/Engine/Enums/MSAA.hpp"
-#include "Lvs/Engine/Enums/RenderCullMode.hpp"
-#include "Lvs/Engine/Enums/RenderDepthCompare.hpp"
 #include "Lvs/Engine/Enums/ShadowVolumeCapMode.hpp"
 #include "Lvs/Engine/Enums/ShadowVolumeStencilMode.hpp"
 #include "Lvs/Engine/Enums/ShadowType.hpp"
@@ -115,38 +113,8 @@ void RenderContext::Render() {
     std::array<std::shared_ptr<Objects::DirectionalLight>, Common::kMaxDirectionalShadowMaps> shadowDirectionalLights{};
     std::array<Common::ShadowSettings, Common::kMaxDirectionalShadowMaps> requestedShadowSettings{};
     std::shared_ptr<Objects::DirectionalLight> shadowVolumeDirectionalLight{};
+    float shadowVolumeMaxDistance = 0.0F;
     float fresnelAmount = 1.0F;
-
-    const auto resolveCull = [](const Enums::RenderCullMode mode) -> RHI::CullMode {
-        switch (mode) {
-            case Enums::RenderCullMode::Front:
-                return RHI::CullMode::Front;
-            case Enums::RenderCullMode::Back:
-                return RHI::CullMode::Back;
-            case Enums::RenderCullMode::None:
-            default:
-                return RHI::CullMode::None;
-        }
-    };
-    const auto resolveDepthCompare = [](const Enums::RenderDepthCompare cmp) -> RHI::DepthCompare {
-        switch (cmp) {
-            case Enums::RenderDepthCompare::Always:
-                return RHI::DepthCompare::Always;
-            case Enums::RenderDepthCompare::Equal:
-                return RHI::DepthCompare::Equal;
-            case Enums::RenderDepthCompare::NotEqual:
-                return RHI::DepthCompare::NotEqual;
-            case Enums::RenderDepthCompare::Less:
-                return RHI::DepthCompare::Less;
-            case Enums::RenderDepthCompare::LessOrEqual:
-                return RHI::DepthCompare::LessOrEqual;
-            case Enums::RenderDepthCompare::Greater:
-                return RHI::DepthCompare::Greater;
-            case Enums::RenderDepthCompare::GreaterOrEqual:
-            default:
-                return RHI::DepthCompare::GreaterOrEqual;
-        }
-    };
 
     if (place_ != nullptr) {
         lightingService = std::dynamic_pointer_cast<DataModel::Lighting>(place_->FindService("Lighting"));
@@ -163,8 +131,8 @@ void RenderContext::Render() {
             scene.ShadowVolumeCullMode = RHI::CullMode::None;
             scene.ShadowVolumeMaskDepthCompare = RHI::DepthCompare::NotEqual;
             scene.ShadowVolumeMaskCullMode = RHI::CullMode::None;
-            scene.ShadowVolumeCapMode = 0;
-            scene.ShadowVolumeStencilMode = 0;
+            scene.ShadowVolumeCapMode = static_cast<int>(Enums::ShadowVolumeCapMode::BackNear_FrontFar);
+            scene.ShadowVolumeStencilMode = static_cast<int>(Enums::ShadowVolumeStencilMode::ZFail);
             scene.ShadowVolumeSwapStencilOps = false;
             bool clearedShadowTargets = false;
             for (const auto& child : lightingService->GetChildren()) {
@@ -241,31 +209,11 @@ void RenderContext::Render() {
                 const Math::Vector3 dir = shadowVolumeDirectionalLight->GetProperty("Direction").value<Math::Vector3>().Unit();
                 const float maxDist =
                     static_cast<float>(std::max(1.0, shadowVolumeDirectionalLight->GetProperty("ShadowMaxDistance").toDouble()));
+                shadowVolumeMaxDistance = maxDist;
                 scene.ShadowVolumeBias =
                     static_cast<float>(shadowVolumeDirectionalLight->GetProperty("ShadowVolumeBias").toDouble());
                 scene.EnableShadowVolumes = true;
                 scene.ShadowVolumeLightDirExtrude = Context::ToVec4(dir, std::max(100.0F, maxDist * 2.0F));
-
-                // Lighting-service debug overrides.
-                scene.ShadowVolumeDepthCompare = resolveDepthCompare(
-                    lightingService->GetProperty("ShadowVolumeDepthCompare").value<Enums::RenderDepthCompare>()
-                );
-                scene.ShadowVolumeCullMode = resolveCull(
-                    lightingService->GetProperty("ShadowVolumeCullMode").value<Enums::RenderCullMode>()
-                );
-                scene.ShadowVolumeMaskDepthCompare = resolveDepthCompare(
-                    lightingService->GetProperty("ShadowVolumeMaskDepthCompare").value<Enums::RenderDepthCompare>()
-                );
-                scene.ShadowVolumeMaskCullMode = resolveCull(
-                    lightingService->GetProperty("ShadowVolumeMaskCullMode").value<Enums::RenderCullMode>()
-                );
-                scene.ShadowVolumeCapMode = static_cast<int>(
-                    lightingService->GetProperty("ShadowVolumeCapMode").value<Enums::ShadowVolumeCapMode>()
-                );
-                scene.ShadowVolumeStencilMode = static_cast<int>(
-                    lightingService->GetProperty("ShadowVolumeStencilMode").value<Enums::ShadowVolumeStencilMode>()
-                );
-                scene.ShadowVolumeSwapStencilOps = lightingService->GetProperty("ShadowVolumeSwapStencilOps").toBool();
             }
         }
     }
@@ -517,6 +465,70 @@ void RenderContext::Render() {
     {
         LVS_BENCH_SCOPE("RenderContext::BuildCameraUniforms");
         cameraUniforms = BuildCameraUniforms();
+    }
+    // Shadow-volume range config (stored in unused CameraUBO.lightingSettings components).
+    // x is already used for per-vertex shading toggle.
+    if (scene.EnableShadowVolumes && shadowVolumeMaxDistance > 0.0F) {
+        cameraUniforms.LightingSettings[1] = shadowVolumeMaxDistance;         // y: max distance
+        cameraUniforms.LightingSettings[2] = shadowVolumeMaxDistance * 0.85F; // z: fade start
+        cameraUniforms.LightingSettings[3] = 1.0F;                            // w: enabled
+    } else {
+        cameraUniforms.LightingSettings[1] = 0.0F;
+        cameraUniforms.LightingSettings[2] = 0.0F;
+        cameraUniforms.LightingSettings[3] = 0.0F;
+    }
+
+    // Cull shadow-volume casters that cannot affect the camera's shadow-receive range.
+    if (scene.EnableShadowVolumes && shadowVolumeMaxDistance > 0.0F && !scene.ShadowCasters.empty()) {
+        const Math::Vector3 camPos{
+            static_cast<double>(cameraUniforms.CameraPosition[0]),
+            static_cast<double>(cameraUniforms.CameraPosition[1]),
+            static_cast<double>(cameraUniforms.CameraPosition[2])
+        };
+        const Math::Vector3 lightDir{
+            static_cast<double>(scene.ShadowVolumeLightDirExtrude[0]),
+            static_cast<double>(scene.ShadowVolumeLightDirExtrude[1]),
+            static_cast<double>(scene.ShadowVolumeLightDirExtrude[2])
+        };
+        const double maxDist = static_cast<double>(shadowVolumeMaxDistance);
+        const double lightDirLen2 = lightDir.x * lightDir.x + lightDir.y * lightDir.y + lightDir.z * lightDir.z;
+        if (lightDirLen2 > 1e-12) {
+            const Math::Vector3 L = lightDir * (1.0 / std::sqrt(lightDirLen2));
+            auto& casters = scene.ShadowCasters;
+            casters.erase(
+                std::remove_if(
+                    casters.begin(),
+                    casters.end(),
+                    [&](const SceneData::DrawPacket& draw) {
+                        if (!draw.HasSortBounds) {
+                            return false;
+                        }
+                        const Math::Vector3 bmin{
+                            static_cast<double>(draw.SortBoundsMin[0]),
+                            static_cast<double>(draw.SortBoundsMin[1]),
+                            static_cast<double>(draw.SortBoundsMin[2])
+                        };
+                        const Math::Vector3 bmax{
+                            static_cast<double>(draw.SortBoundsMax[0]),
+                            static_cast<double>(draw.SortBoundsMax[1]),
+                            static_cast<double>(draw.SortBoundsMax[2])
+                        };
+                        const Math::Vector3 center = (bmin + bmax) * 0.5;
+                        const Math::Vector3 extents = (bmax - bmin) * 0.5;
+                        const double radius =
+                            std::sqrt(extents.x * extents.x + extents.y * extents.y + extents.z * extents.z);
+
+                        const Math::Vector3 d = center - camPos;
+                        const double along = d.x * L.x + d.y * L.y + d.z * L.z;
+                        const Math::Vector3 perp = d - (L * along);
+                        const double perpDist = std::sqrt(perp.x * perp.x + perp.y * perp.y + perp.z * perp.z);
+
+                        return perpDist > (maxDist + radius);
+                    }
+                ),
+                casters.end()
+            );
+        }
     }
     scene.SkyboxPush = BuildSkyboxPushConstants();
     if (frameResourceSet_ != nullptr) {
@@ -1020,7 +1032,10 @@ void RenderContext::Render() {
         const RHI::Texture shadowVolumeMask =
             (geometryTarget_ != nullptr && geometryTarget_->GetColorAttachmentCount() > 3U) ? geometryTarget_->GetColorTexture(3)
                                                                                             : fallbackBlackTexture_;
-        const std::array<RHI::ResourceBinding, 5> compositeBindings{
+        const RHI::Texture depthColor =
+            (geometryTarget_ != nullptr && geometryTarget_->GetColorAttachmentCount() > 2U) ? geometryTarget_->GetColorTexture(2)
+                                                                                            : fallbackBlackTexture_;
+        const std::array<RHI::ResourceBinding, 6> compositeBindings{
             RHI::ResourceBinding{
                 .slot = 0,
                 .kind = RHI::ResourceBindingKind::UniformBuffer,
@@ -1049,6 +1064,12 @@ void RenderContext::Render() {
                 .slot = 17,
                 .kind = RHI::ResourceBindingKind::Texture2D,
                 .texture = shadowVolumeMask,
+                .buffer = nullptr
+            },
+            RHI::ResourceBinding{
+                .slot = 18,
+                .kind = RHI::ResourceBindingKind::Texture2D,
+                .texture = depthColor,
                 .buffer = nullptr
             }
         };
