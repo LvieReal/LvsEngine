@@ -1051,12 +1051,22 @@ void GLContext::BindPipeline(const RHI::IPipeline& pipeline) {
                 glColorMask(enable, enable, enable, enable);
             }
         }
-        if (glPipeline->GetDesc().blending) {
-            glEnable(GL_BLEND);
-            glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-            glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
-        } else {
-            glDisable(GL_BLEND);
+        switch (glPipeline->GetDesc().blendMode) {
+            case RHI::BlendMode::Alpha:
+                glEnable(GL_BLEND);
+                glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+                glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+                break;
+            case RHI::BlendMode::Multiply:
+                glEnable(GL_BLEND);
+                // out.rgb = dst.rgb * src.rgb, preserve dst alpha
+                glBlendFuncSeparate(GL_ZERO, GL_SRC_COLOR, GL_ZERO, GL_ONE);
+                glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+                break;
+            case RHI::BlendMode::None:
+            default:
+                glDisable(GL_BLEND);
+                break;
         }
         if (glPipeline->GetDesc().stencil.Enabled) {
             const auto resolveCompare = [](const RHI::StencilCompare op) -> GLenum {

@@ -40,32 +40,12 @@ float ViewSpaceZFromReversedInfiniteDepth(float depth) {
 }
 
 void main() {
-    vec4 sceneSample = texture(sceneColor, fragUv);
-    vec3 hdrColor = sceneSample.rgb;
+    vec3 hdrColor = texture(sceneColor, fragUv).rgb;
     if (pushData.settings.z > 0.5) {
         hdrColor += texture(glowColor, fragUv).rgb;
     }
     float ao = texture(aoTexture, fragUv).r;
     hdrColor *= mix(pushData.aoTint.rgb, vec3(1.0), clamp(ao, 0.0, 1.0));
-    float shadow = texture(shadowVolumeMask, fragUv).r;
-    shadow = clamp(shadow, 0.0, 1.0);
-
-    // Fade shadow volumes out by receiver distance (DirectionalLight.ShadowMaxDistance).
-    float shadowMaxDist = camera.lightingSettings.y;
-    float shadowFadeStart = camera.lightingSettings.z;
-    if (shadowMaxDist > 1e-4 && shadowFadeStart > 0.0) {
-        float depth = texture(depthColor, fragUv).r;
-        float dist = -ViewSpaceZFromReversedInfiniteDepth(depth);
-        float start = min(shadowFadeStart, shadowMaxDist);
-        float fade = 1.0 - smoothstep(start, shadowMaxDist, dist);
-        shadow *= clamp(fade, 0.0, 1.0);
-    }
-
-    vec3 ambientColor = max(camera.ambient.rgb, vec3(0.0));
-    float ambientStrength = clamp(camera.ambient.a, 0.0, 1.0);
-    float shadowScale = mix(1.0, ambientStrength, shadow);
-    vec3 shadowTint = mix(vec3(1.0), ambientColor, shadow);
-    hdrColor *= shadowScale * shadowTint;
     vec3 color = max(hdrColor, vec3(0.0));
 
     if (pushData.settings.x > 0.5) {

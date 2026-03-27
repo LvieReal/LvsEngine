@@ -101,14 +101,18 @@ void GeometryPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBuffe
         return lhs->SortDepth > rhs->SortDepth;
     });
 
-    for (const auto* draw : opaqueDraws) {
-        recordDraw(*draw);
+    if (phase_ == Phase::All || phase_ == Phase::OpaqueOnly) {
+        for (const auto* draw : opaqueDraws) {
+            recordDraw(*draw);
+        }
     }
-    for (const auto* draw : transparentDraws) {
-        recordDraw(*draw);
-    }
-    for (const auto* draw : alwaysOnTopDraws) {
-        recordDraw(*draw);
+    if (phase_ == Phase::All || phase_ == Phase::TransparentOnly) {
+        for (const auto* draw : transparentDraws) {
+            recordDraw(*draw);
+        }
+        for (const auto* draw : alwaysOnTopDraws) {
+            recordDraw(*draw);
+        }
     }
     cmd.EndRenderPass();
 }

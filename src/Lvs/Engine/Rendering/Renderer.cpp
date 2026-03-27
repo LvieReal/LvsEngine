@@ -139,26 +139,16 @@ void Renderer::RecordFrameCommands(
                                                scene.GeometryTarget.SampleCount
                                            )
                                          : nullptr;
-    Pipeline* shadowVolumeMaskPipeline = scene.EnableShadowVolumes
+    Pipeline* shadowVolumeApplyPipeline = scene.EnableShadowVolumes
                                              ? GetOrCreatePipeline(
                                                    ctx,
-                                                   PassKey::ShadowVolumeMask,
+                                                   PassKey::ShadowVolumeApply,
                                                    RHI::CullMode::None,
                                                    scene.GeometryTarget.RenderPass,
                                                    scene.GeometryTarget.ColorAttachmentCount,
                                                    scene.GeometryTarget.SampleCount
                                                )
                                              : nullptr;
-    Pipeline* shadowVolumeMaskClearPipeline = scene.EnableShadowVolumes
-                                                  ? GetOrCreatePipeline(
-                                                        ctx,
-                                                        PassKey::ShadowVolumeMaskClear,
-                                                        RHI::CullMode::None,
-                                                        scene.GeometryTarget.RenderPass,
-                                                        scene.GeometryTarget.ColorAttachmentCount,
-                                                        scene.GeometryTarget.SampleCount
-                                                    )
-                                                  : nullptr;
     const RHI::IResourceSet* globalResources = GetOrCreateGlobalResources(ctx, scene);
 
     geometryPass_.SetInputs(&surface_, &scene, this, geometryPipeline, globalResources);
@@ -168,8 +158,7 @@ void Renderer::RecordFrameCommands(
         &scene,
         this,
         shadowVolumePipeline,
-        shadowVolumeMaskClearPipeline,
-        shadowVolumeMaskPipeline,
+        shadowVolumeApplyPipeline,
         globalResources
     );
     skyboxPass_.SetInputs(&surface_, &scene, skyboxPipeline, globalResources);
@@ -184,8 +173,17 @@ void Renderer::RecordFrameCommands(
 
     shadowPass_.RecordCommands(ctx, cmd);
     skyboxPass_.RecordCommands(ctx, cmd);
-    geometryPass_.RecordCommands(ctx, cmd);
-    shadowVolumePass_.RecordCommands(ctx, cmd);
+    if (scene.EnableShadowVolumes) {
+        geometryPass_.SetPhase(GeometryPassRenderer::Phase::OpaqueOnly);
+        geometryPass_.RecordCommands(ctx, cmd);
+        shadowVolumePass_.RecordCommands(ctx, cmd);
+        geometryPass_.SetPhase(GeometryPassRenderer::Phase::TransparentOnly);
+        geometryPass_.RecordCommands(ctx, cmd);
+        geometryPass_.SetPhase(GeometryPassRenderer::Phase::All);
+    } else {
+        geometryPass_.SetPhase(GeometryPassRenderer::Phase::All);
+        geometryPass_.RecordCommands(ctx, cmd);
+    }
     hbaoPass_.RecordCommands(ctx, cmd);
     postProcessPass_.RecordCommands(ctx, cmd);
 }
@@ -214,7 +212,7 @@ Pipeline* Renderer::GetOrCreatePipeline(
             desc.depthTest = true;
             desc.depthWrite = true;
             desc.depthCompare = RHI::DepthCompare::GreaterOrEqual;
-            desc.blending = false;
+            desc.blendMode = RHI::BlendMode::None;
             desc.cullMode = cullMode;
             desc.colorWrite = true;
             break;
@@ -225,7 +223,7 @@ Pipeline* Renderer::GetOrCreatePipeline(
             desc.depthTest = true;
             desc.depthWrite = true;
             desc.depthCompare = RHI::DepthCompare::LessOrEqual;
-            desc.blending = false;
+            desc.blendMode = RHI::BlendMode::None;
             desc.cullMode = cullMode;
             desc.depthClamp = true;
             break;
@@ -236,7 +234,7 @@ Pipeline* Renderer::GetOrCreatePipeline(
             desc.depthTest = true;
             desc.depthWrite = false;
             desc.depthCompare = shadowVolumeDepthCompare_;
-            desc.blending = false;
+            desc.blendMode = RHI::BlendMode::None;
             desc.cullMode = shadowVolumeCullMode_;
             desc.colorWrite = false;
             desc.useColorWriteMasks = false;
@@ -278,7 +276,7 @@ Pipeline* Renderer::GetOrCreatePipeline(
             desc.depthTest = false;
             desc.depthWrite = false;
             desc.depthCompare = RHI::DepthCompare::Always;
-            desc.blending = false;
+            desc.blendMode = RHI::BlendMode::None;
             desc.cullMode = RHI::CullMode::None;
             desc.colorWrite = true;
             desc.stencil.Enabled = false;
@@ -290,10 +288,36 @@ Pipeline* Renderer::GetOrCreatePipeline(
             desc.depthTest = true;
             desc.depthWrite = false;
             desc.depthCompare = shadowVolumeMaskDepthCompare_;
-            desc.blending = false;
+            desc.blendMode = RHI::BlendMode::None;
             desc.cullMode = shadowVolumeMaskCullMode_;
             desc.colorWrite = true;
             // Apply shadow mask where stencil != 0.
+            desc.stencil.Enabled = true;
+            desc.stencil.Front.WriteMask = 0x00u;
+            desc.stencil.Back.WriteMask = 0x00u;
+            desc.stencil.Front.CompareOp = RHI::StencilCompare::NotEqual;
+            desc.stencil.Back.CompareOp = RHI::StencilCompare::NotEqual;
+            desc.stencil.Front.Reference = 0;
+            desc.stencil.Back.Reference = 0;
+            desc.stencil.Front.FailOp = RHI::StencilOp::Keep;
+            desc.stencil.Back.FailOp = RHI::StencilOp::Keep;
+            desc.stencil.Front.PassOp = RHI::StencilOp::Keep;
+            desc.stencil.Back.PassOp = RHI::StencilOp::Keep;
+            desc.stencil.Front.DepthFailOp = RHI::StencilOp::Keep;
+            desc.stencil.Back.DepthFailOp = RHI::StencilOp::Keep;
+            break;
+        case PassKey::ShadowVolumeApply:
+            desc.pipelineId = "shadow_volume_apply";
+            desc.vertexLayout = RHI::VertexLayout::None;
+            desc.topology = RHI::PrimitiveTopology::TriangleList;
+            desc.depthTest = true;
+            desc.depthWrite = false;
+            // Fullscreen triangle uses NDC depth 0; with reverse-Z, this should only pass where scene depth > 0.
+            desc.depthCompare = RHI::DepthCompare::Less;
+            desc.blendMode = RHI::BlendMode::Multiply;
+            desc.cullMode = RHI::CullMode::None;
+            desc.colorWrite = true;
+            // Apply attenuation where stencil != 0 (do not modify stencil).
             desc.stencil.Enabled = true;
             desc.stencil.Front.WriteMask = 0x00u;
             desc.stencil.Back.WriteMask = 0x00u;
@@ -315,7 +339,7 @@ Pipeline* Renderer::GetOrCreatePipeline(
             desc.depthTest = true;
             desc.depthWrite = false;
             desc.depthCompare = RHI::DepthCompare::GreaterOrEqual;
-            desc.blending = false;
+            desc.blendMode = RHI::BlendMode::None;
             desc.cullMode = cullMode;
             desc.colorWrite = true;
             break;
@@ -326,7 +350,7 @@ Pipeline* Renderer::GetOrCreatePipeline(
             desc.depthTest = false;
             desc.depthWrite = false;
             desc.depthCompare = RHI::DepthCompare::Always;
-            desc.blending = true;
+            desc.blendMode = RHI::BlendMode::Alpha;
             desc.cullMode = cullMode;
             break;
         case PassKey::PostBlurDown:
@@ -336,7 +360,7 @@ Pipeline* Renderer::GetOrCreatePipeline(
             desc.depthTest = false;
             desc.depthWrite = false;
             desc.depthCompare = RHI::DepthCompare::Always;
-            desc.blending = false;
+            desc.blendMode = RHI::BlendMode::None;
             desc.cullMode = cullMode;
             break;
         case PassKey::PostBlurUp:
@@ -346,7 +370,7 @@ Pipeline* Renderer::GetOrCreatePipeline(
             desc.depthTest = false;
             desc.depthWrite = false;
             desc.depthCompare = RHI::DepthCompare::Always;
-            desc.blending = false;
+            desc.blendMode = RHI::BlendMode::None;
             desc.cullMode = cullMode;
             break;
         case PassKey::Hbao:
@@ -356,7 +380,7 @@ Pipeline* Renderer::GetOrCreatePipeline(
             desc.depthTest = false;
             desc.depthWrite = false;
             desc.depthCompare = RHI::DepthCompare::Always;
-            desc.blending = false;
+            desc.blendMode = RHI::BlendMode::None;
             desc.cullMode = cullMode;
             break;
         default:
@@ -386,7 +410,7 @@ Pipeline* Renderer::GetOrCreatePipeline(
     const std::size_t cacheKey =
         (static_cast<std::size_t>(key) << 8U) ^ static_cast<std::size_t>(desc.cullMode) ^
         (static_cast<std::size_t>(desc.depthCompare) << 12U) ^ (static_cast<std::size_t>(desc.depthTest) << 20U) ^
-        (static_cast<std::size_t>(desc.depthWrite) << 21U) ^ (static_cast<std::size_t>(desc.blending) << 22U) ^
+        (static_cast<std::size_t>(desc.depthWrite) << 21U) ^ (static_cast<std::size_t>(desc.blendMode) << 22U) ^
         (static_cast<std::size_t>(desc.colorWrite) << 23U) ^ (static_cast<std::size_t>(desc.useColorWriteMasks) << 24U) ^
         (renderPassBits << 26U) ^ (static_cast<std::size_t>(colorAttachmentCount) << 4U) ^
         (static_cast<std::size_t>(sampleCount) << 16U) ^ (static_cast<std::size_t>(maskPack) * 1099511628211ULL) ^
@@ -432,17 +456,24 @@ Pipeline* Renderer::GetOrCreateGeometryPipeline(
         desc.depthTest = false;
         desc.depthWrite = false;
         desc.depthCompare = RHI::DepthCompare::Always;
-        desc.blending = true;
+        desc.blendMode = RHI::BlendMode::Alpha;
     } else if (transparent) {
         desc.depthTest = true;
         desc.depthWrite = false;
         desc.depthCompare = RHI::DepthCompare::GreaterOrEqual;
-        desc.blending = true;
+        desc.blendMode = RHI::BlendMode::Alpha;
     } else {
         desc.depthTest = true;
         desc.depthWrite = true;
         desc.depthCompare = RHI::DepthCompare::GreaterOrEqual;
-        desc.blending = false;
+        desc.blendMode = RHI::BlendMode::None;
+    }
+
+    // Transparent geometry is rendered after shadow-volume application; prevent it from overwriting
+    // non-color MRT attachments (e.g. depthColor used for AO/fades, shadow-mask, etc).
+    if (transparent || alwaysOnTop) {
+        desc.useColorWriteMasks = true;
+        desc.colorWriteMasks = {{0xFU, 0xFU, 0x0U, 0x0U, 0x0U, 0x0U, 0x0U, 0x0U}};
     }
 
     auto pipeline = ctx.CreatePipeline(desc);

@@ -14,7 +14,7 @@ Core::ClassDescriptor& Part::Descriptor() {
         const Core::String beveledVisibleTag = Core::PropertyTags::BuildVisibleIfTag("Beveled", "true");
 
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Enums::PartShape>(
-            "Shape", Enums::PartShape::Cube, true, "Appearance"s
+            "Shape", Enums::PartShape::Cube, true, "Appearance"
         ));
 
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(

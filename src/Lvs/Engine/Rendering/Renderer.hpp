@@ -155,8 +155,7 @@ private:
         const SceneData* scene,
         Renderer* renderer,
         const Pipeline* volumePipeline,
-        const Pipeline* maskClearPipeline,
-        const Pipeline* maskPipeline,
+        const Pipeline* applyPipeline,
         const RHI::IResourceSet* globalResources
     );
 
@@ -164,8 +163,7 @@ private:
     const SceneData* scene_{nullptr};
     Renderer* renderer_{nullptr};
     const Pipeline* volumePipeline_{nullptr};
-    const Pipeline* maskClearPipeline_{nullptr};
-    const Pipeline* maskPipeline_{nullptr};
+    const Pipeline* applyPipeline_{nullptr};
     const RHI::IResourceSet* globalResources_{nullptr};
 };
 
@@ -233,6 +231,12 @@ private:
 class GeometryPassRenderer {
 public:
     void RecordCommands(RHI::IContext& ctx, RHI::ICommandBuffer& cmd);
+    enum class Phase {
+        All,
+        OpaqueOnly,
+        TransparentOnly
+    };
+    void SetPhase(Phase phase) { phase_ = phase; }
 
 private:
     friend class Renderer;
@@ -249,6 +253,7 @@ private:
     Renderer* renderer_{nullptr};
     const Pipeline* pipeline_{nullptr};
     const RHI::IResourceSet* resources_{nullptr};
+    Phase phase_{Phase::All};
 };
 
 class Renderer {
@@ -271,6 +276,7 @@ private:
         ShadowVolume = 8,
         ShadowVolumeMaskClear = 10,
         ShadowVolumeMask = 9,
+        ShadowVolumeApply = 11,
         Skybox = 2,
         PostProcess = 3,
         Geometry = 4,

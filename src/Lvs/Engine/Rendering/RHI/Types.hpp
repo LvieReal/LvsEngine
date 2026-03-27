@@ -23,6 +23,12 @@ enum class CullMode {
     Front
 };
 
+enum class BlendMode {
+    None,
+    Alpha,
+    Multiply
+};
+
 enum class DepthCompare {
     Always,
     Equal,

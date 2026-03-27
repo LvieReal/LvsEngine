@@ -11,16 +11,14 @@ void ShadowVolumePassRenderer::SetInputs(
     const SceneData* scene,
     Renderer* renderer,
     const Pipeline* volumePipeline,
-    const Pipeline* maskClearPipeline,
-    const Pipeline* maskPipeline,
+    const Pipeline* applyPipeline,
     const RHI::IResourceSet* globalResources
 ) {
     surface_ = surface;
     scene_ = scene;
     renderer_ = renderer;
     volumePipeline_ = volumePipeline;
-    maskClearPipeline_ = maskClearPipeline;
-    maskPipeline_ = maskPipeline;
+    applyPipeline_ = applyPipeline;
     globalResources_ = globalResources;
 }
 
@@ -29,7 +27,7 @@ void ShadowVolumePassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandB
     if (surface_ == nullptr || scene_ == nullptr || renderer_ == nullptr || !scene_->EnableShadowVolumes) {
         return;
     }
-    if (volumePipeline_ == nullptr || maskClearPipeline_ == nullptr || maskPipeline_ == nullptr || globalResources_ == nullptr) {
+    if (volumePipeline_ == nullptr || applyPipeline_ == nullptr || globalResources_ == nullptr) {
         return;
     }
     if (scene_->ShadowCasters.empty() || scene_->GeometryTarget.Framebuffer == nullptr) {
@@ -101,7 +99,7 @@ void ShadowVolumePassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandB
 
     cmd.EndRenderPass();
 
-    const RHI::RenderPassInfo maskPass{
+    const RHI::RenderPassInfo applyPass{
         .width = scene_->GeometryTarget.Width,
         .height = scene_->GeometryTarget.Height,
         .colorAttachmentCount = scene_->GeometryTarget.ColorAttachmentCount,
@@ -110,11 +108,9 @@ void ShadowVolumePassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandB
         .clearColor = false,
         .clearDepth = false
     };
-    cmd.BeginRenderPass(maskPass);
-    cmd.BindPipeline(*maskClearPipeline_);
+    cmd.BeginRenderPass(applyPass);
+    cmd.BindPipeline(*applyPipeline_);
     cmd.BindResourceSet(0, *globalResources_);
-    cmd.Draw(RHI::ICommandBuffer::DrawInfo{.vertexCount = 3, .indexCount = 0, .instanceCount = 1});
-    cmd.BindPipeline(*maskPipeline_);
     cmd.Draw(RHI::ICommandBuffer::DrawInfo{.vertexCount = 3, .indexCount = 0, .instanceCount = 1});
     cmd.EndRenderPass();
 }

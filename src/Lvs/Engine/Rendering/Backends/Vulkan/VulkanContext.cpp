@@ -1664,13 +1664,38 @@ std::unique_ptr<RHI::IPipeline> VulkanContext::CreatePipeline(const RHI::Pipelin
                 if ((m & 0x8U) != 0U) out |= VK_COLOR_COMPONENT_A_BIT;
                 return out;
             }();
+            const bool blendEnabled = desc.blendMode != RHI::BlendMode::None;
+            VkBlendFactor srcColor = VK_BLEND_FACTOR_ONE;
+            VkBlendFactor dstColor = VK_BLEND_FACTOR_ZERO;
+            VkBlendFactor srcAlpha = VK_BLEND_FACTOR_ONE;
+            VkBlendFactor dstAlpha = VK_BLEND_FACTOR_ZERO;
+            switch (desc.blendMode) {
+                case RHI::BlendMode::Alpha:
+                    srcColor = VK_BLEND_FACTOR_SRC_ALPHA;
+                    dstColor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+                    // Keep legacy behavior for alpha channel (store src alpha).
+                    srcAlpha = VK_BLEND_FACTOR_ONE;
+                    dstAlpha = VK_BLEND_FACTOR_ZERO;
+                    break;
+                case RHI::BlendMode::Multiply:
+                    // out.rgb = dst.rgb * src.rgb
+                    srcColor = VK_BLEND_FACTOR_ZERO;
+                    dstColor = VK_BLEND_FACTOR_SRC_COLOR;
+                    // Preserve destination alpha.
+                    srcAlpha = VK_BLEND_FACTOR_ZERO;
+                    dstAlpha = VK_BLEND_FACTOR_ONE;
+                    break;
+                case RHI::BlendMode::None:
+                default:
+                    break;
+            }
             blendAttachments.push_back(VkPipelineColorBlendAttachmentState{
-                .blendEnable = desc.blending ? VK_TRUE : VK_FALSE,
-                .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
-                .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+                .blendEnable = blendEnabled ? VK_TRUE : VK_FALSE,
+                .srcColorBlendFactor = srcColor,
+                .dstColorBlendFactor = dstColor,
                 .colorBlendOp = VK_BLEND_OP_ADD,
-                .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
-                .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+                .srcAlphaBlendFactor = srcAlpha,
+                .dstAlphaBlendFactor = dstAlpha,
                 .alphaBlendOp = VK_BLEND_OP_ADD,
                 .colorWriteMask = maskBits
             });

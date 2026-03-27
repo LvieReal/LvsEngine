@@ -18,7 +18,7 @@ struct PipelineDesc {
     bool depthTest{true};
     bool depthWrite{true};
     DepthCompare depthCompare{DepthCompare::GreaterOrEqual};
-    bool blending{false};
+    BlendMode blendMode{BlendMode::None};
     CullMode cullMode{CullMode::Back};
     bool colorWrite{true};
     bool useColorWriteMasks{false};
