@@ -61,8 +61,6 @@ void main() {
         shadow *= clamp(fade, 0.0, 1.0);
     }
 
-    // Shadow volumes only provide an occlusion mask. Instead of forcing full black,
-    // keep a global ambient floor/tint based on Lighting.Ambient/AmbientStrength.
     vec3 ambientColor = max(camera.ambient.rgb, vec3(0.0));
     float ambientStrength = clamp(camera.ambient.a, 0.0, 1.0);
     float shadowScale = mix(1.0, ambientStrength, shadow);

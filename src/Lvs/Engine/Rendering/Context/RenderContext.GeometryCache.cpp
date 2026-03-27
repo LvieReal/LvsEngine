@@ -256,7 +256,7 @@ void RenderContext::TrackRenderable(const std::shared_ptr<Core::Instance>& insta
 
         bool layoutChanged =
             name == "Renders" || name == "Transparency" || name == "AlwaysOnTop" || name == "ZIndex" || name == "CullMode" ||
-            name == "Shape" || name == "IsBeveled" || name == "BevelWidth" || name == "IsBevelSmooth" ||
+            name == "Shape" || name == "Beveled" || name == "BevelWidth" || name == "BevelSmooth" ||
             name == "ContentId" || name == "SmoothNormals";
         bool dataChanged =
             name == "CFrame" || name == "Position" || name == "Rotation" || name == "Size" || name == "Color" ||
@@ -269,7 +269,7 @@ void RenderContext::TrackRenderable(const std::shared_ptr<Core::Instance>& insta
             const auto inst = it->second.Instance.lock();
             if (const auto partInstance = std::dynamic_pointer_cast<Objects::Part>(inst); partInstance != nullptr) {
                 const auto shape = partInstance->GetProperty("Shape").value<Enums::PartShape>();
-                if (shape == Enums::PartShape::Cube && partInstance->GetProperty("IsBeveled").toBool()) {
+                if (shape == Enums::PartShape::Cube && partInstance->GetProperty("Beveled").toBool()) {
                     layoutChanged = true;
                     dataChanged = true;
                 }
@@ -453,12 +453,12 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
         Enums::PartShape shape = Enums::PartShape::Cube;
         if (const auto partInstance = std::dynamic_pointer_cast<Objects::Part>(inst); partInstance != nullptr) {
             shape = partInstance->GetProperty("Shape").value<Enums::PartShape>();
-            if (shape == Enums::PartShape::Cube && partInstance->GetProperty("IsBeveled").toBool()) {
+            if (shape == Enums::PartShape::Cube && partInstance->GetProperty("Beveled").toBool()) {
                 const auto basePart = std::dynamic_pointer_cast<Objects::BasePart>(inst);
                 if (basePart != nullptr) {
                     const Math::Vector3 size = basePart->GetProperty("Size").value<Math::Vector3>();
                     const float bevelWidth = static_cast<float>(std::max(0.0, partInstance->GetProperty("BevelWidth").toDouble()));
-                    const bool smoothBevel = partInstance->GetProperty("IsBevelSmooth").toBool();
+                    const bool smoothBevel = partInstance->GetProperty("BevelSmooth").toBool();
                     if (bevelWidth > 0.0F) {
                         std::ostringstream oss;
                         oss.setf(std::ios::fixed);
