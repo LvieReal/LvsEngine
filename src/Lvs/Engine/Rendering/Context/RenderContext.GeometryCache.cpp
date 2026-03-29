@@ -5,10 +5,10 @@
 #include "Lvs/Engine/Enums/MeshCullMode.hpp"
 #include "Lvs/Engine/Enums/PartSurfaceType.hpp"
 #include "Lvs/Engine/Math/CFrame.hpp"
-#include "Lvs/Engine/Objects/BasePart.hpp"
-#include "Lvs/Engine/Objects/Camera.hpp"
-#include "Lvs/Engine/Objects/MeshPart.hpp"
-#include "Lvs/Engine/Objects/Part.hpp"
+#include "Lvs/Engine/DataModel/Objects/BasePart.hpp"
+#include "Lvs/Engine/DataModel/Objects/Camera.hpp"
+#include "Lvs/Engine/DataModel/Objects/MeshPart.hpp"
+#include "Lvs/Engine/DataModel/Objects/Part.hpp"
 #include "Lvs/Engine/Rendering/Context/RenderContextUtils.hpp"
 #include "Lvs/Engine/Utils/Benchmark.hpp"
 #include "Lvs/Engine/Utils/Raycast.hpp"
@@ -236,7 +236,7 @@ void RenderContext::TrackRenderable(const std::shared_ptr<Core::Instance>& insta
     if (Utils::Benchmark::Enabled()) {
         LVS_BENCH_SCOPE("RenderContext::TrackRenderable");
     }
-    const auto part = std::dynamic_pointer_cast<Objects::BasePart>(instance);
+    const auto part = std::dynamic_pointer_cast<DataModel::Objects::BasePart>(instance);
     if (part == nullptr) {
         return;
     }
@@ -267,7 +267,7 @@ void RenderContext::TrackRenderable(const std::shared_ptr<Core::Instance>& insta
         // Beveled cubes bake their bevel proportions based on Size, so Size changes must rebuild the mesh.
         if (name == "Size") {
             const auto inst = it->second.Instance.lock();
-            if (const auto partInstance = std::dynamic_pointer_cast<Objects::Part>(inst); partInstance != nullptr) {
+            if (const auto partInstance = std::dynamic_pointer_cast<DataModel::Objects::Part>(inst); partInstance != nullptr) {
                 const auto shape = partInstance->GetProperty("Shape").value<Enums::PartShape>();
                 if (shape == Enums::PartShape::Cube && partInstance->GetProperty("Beveled").toBool()) {
                     layoutChanged = true;
@@ -341,7 +341,7 @@ void RenderContext::UpdateDirtyInstanceData() {
         }
 
         const auto inst = entry.Instance.lock();
-        const auto part = std::dynamic_pointer_cast<Objects::BasePart>(inst);
+        const auto part = std::dynamic_pointer_cast<DataModel::Objects::BasePart>(inst);
         if (part == nullptr) {
             entry.DataDirty = false;
             continue;
@@ -386,7 +386,7 @@ void RenderContext::UpdateDirtyInstanceData() {
             hasSurfaceAtlas_ ? 1.0F : 0.0F,
             hasSurfaceNormalAtlas_ ? 1.0F : 0.0F
         };
-        if (const auto partInstance = std::dynamic_pointer_cast<Objects::Part>(inst); partInstance != nullptr) {
+        if (const auto partInstance = std::dynamic_pointer_cast<DataModel::Objects::Part>(inst); partInstance != nullptr) {
             drawInstance.SurfaceData0 = {
                 static_cast<float>(partInstance->GetProperty("TopSurface").value<Enums::PartSurfaceType>()),
                 static_cast<float>(partInstance->GetProperty("BottomSurface").value<Enums::PartSurfaceType>()),
@@ -435,7 +435,7 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
     std::vector<CachedRenderable*> alwaysOnTopItems;
 
     const auto getMeshRefForInstance = [this](const std::shared_ptr<Core::Instance>& inst) -> const SceneData::MeshRef* {
-        if (const auto meshPart = std::dynamic_pointer_cast<Objects::MeshPart>(inst); meshPart != nullptr) {
+        if (const auto meshPart = std::dynamic_pointer_cast<DataModel::Objects::MeshPart>(inst); meshPart != nullptr) {
             const std::string contentId = meshPart->GetProperty("ContentId").toString();
             const bool smoothNormals = meshPart->GetProperty("SmoothNormals").toBool();
             GpuMesh* gpuMesh = GetOrCreateMeshPartMesh(contentId, smoothNormals);
@@ -451,10 +451,10 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
         }
 
         Enums::PartShape shape = Enums::PartShape::Cube;
-        if (const auto partInstance = std::dynamic_pointer_cast<Objects::Part>(inst); partInstance != nullptr) {
+        if (const auto partInstance = std::dynamic_pointer_cast<DataModel::Objects::Part>(inst); partInstance != nullptr) {
             shape = partInstance->GetProperty("Shape").value<Enums::PartShape>();
             if (shape == Enums::PartShape::Cube && partInstance->GetProperty("Beveled").toBool()) {
-                const auto basePart = std::dynamic_pointer_cast<Objects::BasePart>(inst);
+                const auto basePart = std::dynamic_pointer_cast<DataModel::Objects::BasePart>(inst);
                 if (basePart != nullptr) {
                     const Math::Vector3 size = basePart->GetProperty("Size").value<Math::Vector3>();
                     const float bevelWidth = static_cast<float>(std::max(0.0, partInstance->GetProperty("BevelWidth").toDouble()));
@@ -502,7 +502,7 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
             continue;
         }
 
-        const auto part = std::dynamic_pointer_cast<Objects::BasePart>(inst);
+        const auto part = std::dynamic_pointer_cast<DataModel::Objects::BasePart>(inst);
         if (part == nullptr) {
             entry.Visible = false;
             entry.Mesh = nullptr;
@@ -594,7 +594,7 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
             hasSurfaceAtlas_ ? 1.0F : 0.0F,
             hasSurfaceNormalAtlas_ ? 1.0F : 0.0F
         };
-        if (const auto partInstance = std::dynamic_pointer_cast<Objects::Part>(inst); partInstance != nullptr) {
+        if (const auto partInstance = std::dynamic_pointer_cast<DataModel::Objects::Part>(inst); partInstance != nullptr) {
             drawInstance.SurfaceData0 = {
                 static_cast<float>(partInstance->GetProperty("TopSurface").value<Enums::PartSurfaceType>()),
                 static_cast<float>(partInstance->GetProperty("BottomSurface").value<Enums::PartSurfaceType>()),
@@ -869,7 +869,7 @@ void RenderContext::UpdateTransparentSortDepths() {
             const auto cameraVar = workspaceService->GetProperty("CurrentCamera");
             if (cameraVar.Is<Core::Variant::InstanceRef>()) {
                 if (const auto locked = cameraVar.Get<Core::Variant::InstanceRef>().lock()) {
-                    if (const auto camera = std::dynamic_pointer_cast<Objects::Camera>(locked); camera != nullptr) {
+                    if (const auto camera = std::dynamic_pointer_cast<DataModel::Objects::Camera>(locked); camera != nullptr) {
                         cameraPosition = camera->GetProperty("CFrame").value<Math::CFrame>().Position;
                         hasCameraPosition = true;
                     }
@@ -932,7 +932,7 @@ void RenderContext::UpdateAlwaysOnTopSortDepths() {
             const auto cameraVar = workspaceService->GetProperty("CurrentCamera");
             if (cameraVar.Is<Core::Variant::InstanceRef>()) {
                 if (const auto locked = cameraVar.Get<Core::Variant::InstanceRef>().lock()) {
-                    if (const auto camera = std::dynamic_pointer_cast<Objects::Camera>(locked); camera != nullptr) {
+                    if (const auto camera = std::dynamic_pointer_cast<DataModel::Objects::Camera>(locked); camera != nullptr) {
                         cameraPosition = camera->GetProperty("CFrame").value<Math::CFrame>().Position;
                         hasCameraPosition = true;
                     }

@@ -1,8 +1,8 @@
 #pragma once
 
-#include "Lvs/Engine/Objects/BasePart.hpp"
+#include "Lvs/Engine/DataModel/Objects/BasePart.hpp"
 
-namespace Lvs::Engine::Objects {
+namespace Lvs::Engine::DataModel::Objects {
 
 class Part : public BasePart {
 public:
@@ -15,4 +15,4 @@ protected:
     explicit Part(const Core::ClassDescriptor& descriptor);
 };
 
-} // namespace Lvs::Engine::Objects
+} // namespace Lvs::Engine::DataModel::Objects

@@ -3,8 +3,8 @@
 #include "Lvs/Engine/Core/CameraController.hpp"
 #include "Lvs/Engine/DataModel/Services/Workspace.hpp"
 #include "Lvs/Engine/Math/CFrame.hpp"
-#include "Lvs/Engine/Objects/BasePart.hpp"
-#include "Lvs/Engine/Objects/Camera.hpp"
+#include "Lvs/Engine/DataModel/Objects/BasePart.hpp"
+#include "Lvs/Engine/DataModel/Objects/Camera.hpp"
 
 #include <Qt>
 
@@ -79,7 +79,7 @@ bool Viewport::HasScanCode(const std::uint32_t sc) const {
     return pressedScanCodes_.find(sc) != pressedScanCodes_.end();
 }
 
-std::shared_ptr<Objects::Camera> Viewport::GetCurrentCamera() const {
+std::shared_ptr<DataModel::Objects::Camera> Viewport::GetCurrentCamera() const {
     if (workspace_ == nullptr) {
         return nullptr;
     }
@@ -88,7 +88,7 @@ std::shared_ptr<Objects::Camera> Viewport::GetCurrentCamera() const {
         return nullptr;
     }
     const auto locked = cameraVar.Get<Core::Variant::InstanceRef>().lock();
-    return std::dynamic_pointer_cast<Objects::Camera>(locked);
+    return std::dynamic_pointer_cast<DataModel::Objects::Camera>(locked);
 }
 
 std::optional<Utils::Ray> Viewport::BuildRay(const double x, const double y) const {
@@ -100,7 +100,7 @@ std::optional<Utils::Ray> Viewport::BuildRay(const double x, const double y) con
     return Utils::ScreenPointToRay(x, y, width(), height(), camera);
 }
 
-void Viewport::FocusOnPart(const std::shared_ptr<Objects::BasePart>& part) {
+void Viewport::FocusOnPart(const std::shared_ptr<DataModel::Objects::BasePart>& part) {
     if (part == nullptr || cameraController_ == nullptr || workspace_ == nullptr) {
         return;
     }

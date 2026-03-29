@@ -32,6 +32,21 @@ void ClassDescriptor::RegisterProperty(const PropertyDefinition& propertyDefinit
         definition.RegistrationOrder = nextPropertyOrder_++;
     }
     propertyDefinitions_[definition.Name] = definition;
+    if (definition.RegistrationOrder >= 0) {
+        nextPropertyOrder_ = std::max(nextPropertyOrder_, definition.RegistrationOrder + 1);
+    }
+}
+
+void ClassDescriptor::ResetPropertiesToBase() {
+    propertyDefinitions_.clear();
+    nextPropertyOrder_ = 0;
+    if (baseDescriptor_ == nullptr) {
+        return;
+    }
+    propertyDefinitions_ = baseDescriptor_->PropertyDefinitions();
+    for (const auto& [_, def] : propertyDefinitions_) {
+        nextPropertyOrder_ = std::max(nextPropertyOrder_, def.RegistrationOrder + 1);
+    }
 }
 
 const String& ClassDescriptor::ClassName() const {
@@ -56,6 +71,15 @@ const ClassDescriptor* ClassDescriptor::Get(const String& className) {
         return nullptr;
     }
     return it->second;
+}
+
+Vector<const ClassDescriptor*> ClassDescriptor::GetAll() {
+    Vector<const ClassDescriptor*> out;
+    out.reserve(Registry().size());
+    for (const auto& [_, descriptor] : Registry()) {
+        out.push_back(descriptor);
+    }
+    return out;
 }
 
 } // namespace Lvs::Engine::Core

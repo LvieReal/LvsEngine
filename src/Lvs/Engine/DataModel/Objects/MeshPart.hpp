@@ -1,8 +1,8 @@
 #pragma once
 
-#include "Lvs/Engine/Objects/BasePart.hpp"
+#include "Lvs/Engine/DataModel/Objects/BasePart.hpp"
 
-namespace Lvs::Engine::Objects {
+namespace Lvs::Engine::DataModel::Objects {
 
 class MeshPart : public BasePart {
 public:
@@ -12,4 +12,4 @@ public:
     static Core::ClassDescriptor& Descriptor();
 };
 
-} // namespace Lvs::Engine::Objects
+} // namespace Lvs::Engine::DataModel::Objects

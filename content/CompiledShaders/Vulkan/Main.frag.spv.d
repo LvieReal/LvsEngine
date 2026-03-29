@@ -1,0 +1,1 @@
+D:/VSCode/PROJECTS/LvsEngine/content/CompiledShaders/Vulkan/Main.frag.spv: D:/VSCode/PROJECTS/LvsEngine/content/Shaders/Main.frag D:/VSCode/PROJECTS/LvsEngine/content/Shaders/Utils/DirectionalShadows.glsl D:/VSCode/PROJECTS/LvsEngine/content/Shaders/Utils/LightingBRDF.glsl D:/VSCode/PROJECTS/LvsEngine/content/Shaders/Utils/LightingTypes.glsl

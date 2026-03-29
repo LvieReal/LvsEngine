@@ -1,19 +1,27 @@
 function(lvs_attach_content_packaging target)
-    set(content_src "${CMAKE_CURRENT_SOURCE_DIR}/src/Lvs/Engine/Content")
+    set(content_src "${CMAKE_CURRENT_SOURCE_DIR}/content")
     if(NOT EXISTS "${content_src}")
         message(FATAL_ERROR "Engine content folder not found: ${content_src}")
+    endif()
+    set(config_src "${CMAKE_CURRENT_SOURCE_DIR}/config")
+    if(NOT EXISTS "${config_src}")
+        message(FATAL_ERROR "Engine config folder not found: ${config_src}")
     endif()
 
     get_property(content_pack_target GLOBAL PROPERTY LVS_CONTENT_PACKAGE_TARGET)
     if(NOT content_pack_target)
         set(content_pack_target lvs_package_content)
         add_custom_target(${content_pack_target}
-            COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/Lvs/Engine"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}"
             COMMAND ${CMAKE_COMMAND}
                 -DSOURCE_DIR=${content_src}
-                -DDEST_DIR=${CMAKE_BINARY_DIR}/Lvs/Engine/Content
+                -DDEST_DIR=${CMAKE_BINARY_DIR}/content
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CopyContentAssets.cmake"
-            COMMENT "Packaging Engine/Content assets"
+            COMMAND ${CMAKE_COMMAND}
+                -DSOURCE_DIR=${config_src}
+                -DDEST_DIR=${CMAKE_BINARY_DIR}/config
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CopyConfigAssets.cmake"
+            COMMENT "Packaging content assets"
             VERBATIM
         )
         if(TARGET lvs_compile_shaders)

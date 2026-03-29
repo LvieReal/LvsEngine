@@ -2,7 +2,7 @@
 #include "Lvs/Engine/Utils/EngineDataPaths.hpp"
 #include "Lvs/Engine/Utils/SourcePath.hpp"
 
-#include "Lvs/Engine/Core/QtBridge.hpp"
+#include "Lvs/Qt/QtBridge.hpp"
 #include "Lvs/Engine/Enums/EnumMetadata.hpp"
 #include "Lvs/Engine/Enums/MSAA.hpp"
 #include "Lvs/Engine/Enums/SurfaceMipmapping.hpp"
@@ -29,6 +29,7 @@ QMap<QString, SettingMeta> g_settings = {
     {"Theme", {"Theme", "Main studio theme", static_cast<int>(Engine::Enums::Theme::Auto), {}, "Theme"}},
     {"StudioIconPack", {"Studio Icon Pack", "Studio icon pack folder name", "famfamfam-silk"}},
     {"ExplorerShowHiddenServices", {"Show Hidden Services", "Show hidden services in Explorer", false}},
+    {"AskMigrateXmlPlaceToToml", {"Ask to Migrate XML Places", "Prompt to migrate legacy XML place files to TOML", true}},
     {"RenderingApi", {"Rendering API", "Preferred rendering backend", static_cast<int>(Engine::Rendering::RenderApi::Auto), {}, "RenderApi"}},
     {"MSAA", {"MSAA", "Multisample anti-aliasing sample count", static_cast<int>(Engine::Enums::MSAA::Off), {}, "MSAA"}},
     {"SurfaceMipmapping", {"Surface Mipmapping", "Mipmapped filtering for surface textures", static_cast<int>(Engine::Enums::SurfaceMipmapping::On), {}, "SurfaceMipmapping"}},
@@ -54,6 +55,8 @@ QMap<QString, QStringList> g_categories = {
 	     "StudioIconPack",
          "@Explorer",
 	     "ExplorerShowHiddenServices",
+         "@Place",
+         "AskMigrateXmlPlaceToToml",
          "@Camera",
          "BaseCameraSpeed",
          "ShiftCameraSpeed",

@@ -34,7 +34,7 @@ class Place;
 class Selection;
 }
 
-namespace Lvs::Engine::Objects {
+namespace Lvs::Engine::DataModel::Objects {
 class BasePart;
 }
 
@@ -78,7 +78,7 @@ private:
         const std::shared_ptr<Engine::DataModel::Place>& place
     ) const;
     [[nodiscard]] std::shared_ptr<Engine::Core::Instance> GetSelectedInstance() const;
-    [[nodiscard]] std::shared_ptr<Engine::Objects::BasePart> GetSelectedBasePart() const;
+    [[nodiscard]] std::shared_ptr<Engine::DataModel::Objects::BasePart> GetSelectedBasePart() const;
 
     [[nodiscard]] bool IsTextInputFocused() const;
     [[nodiscard]] bool IsViewportShortcutContext() const;

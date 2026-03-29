@@ -3,7 +3,7 @@
 #include "Lvs/Engine/Core/Instance.hpp"
 #include "Lvs/Engine/Math/CFrame.hpp"
 
-namespace Lvs::Engine::Objects {
+namespace Lvs::Engine::DataModel::Objects {
 
 class BasePart : public Core::Instance {
 public:
@@ -33,4 +33,4 @@ protected:
     explicit BasePart(const Core::ClassDescriptor& descriptor);
 };
 
-} // namespace Lvs::Engine::Objects
+} // namespace Lvs::Engine::DataModel::Objects

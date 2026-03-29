@@ -1,0 +1,1 @@
+D:/VSCode/PROJECTS/LvsEngine/content/CompiledShaders/Vulkan/Main.vert.spv: D:/VSCode/PROJECTS/LvsEngine/content/Shaders/Main.vert D:/VSCode/PROJECTS/LvsEngine/content/Shaders/Utils/LightingBRDF.glsl D:/VSCode/PROJECTS/LvsEngine/content/Shaders/Utils/LightingTypes.glsl

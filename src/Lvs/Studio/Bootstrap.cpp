@@ -1,7 +1,7 @@
 #include "Lvs/Studio/Bootstrap.hpp"
 
 #include "Lvs/Studio/Core/Window.hpp"
-#include "Lvs/Engine/Core/QtBridge.hpp"
+#include "Lvs/Qt/QtBridge.hpp"
 #include "Lvs/Studio/Controllers/ToolbarController.hpp"
 #include "Lvs/Studio/Controllers/TopBarController.hpp"
 #include "Lvs/Studio/Core/DockManager.hpp"

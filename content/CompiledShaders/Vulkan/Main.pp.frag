@@ -28,7 +28,7 @@ layout(set = 0, binding = 14) uniform sampler3D directionalShadowJitter;
 layout(set = 0, binding = 15) uniform sampler2D surfaceNormalAtlas;
 
 
-// --- include begin: D:\VSCode\PROJECTS\LvsEngine\src\Lvs\Engine\Content\Shaders\Utils\LightingTypes.glsl
+// --- include begin: D:\VSCode\PROJECTS\LvsEngine\content\Shaders\Utils\LightingTypes.glsl
 
 #ifndef LVS_UTIL_LIGHTING_TYPES_GLSL
 #define LVS_UTIL_LIGHTING_TYPES_GLSL
@@ -62,7 +62,7 @@ layout(set = 0, binding = 10, std430) readonly buffer LightsSSBO {
 
 
 
-// --- include end: D:\VSCode\PROJECTS\LvsEngine\src\Lvs\Engine\Content\Shaders\Utils\LightingTypes.glsl
+// --- include end: D:\VSCode\PROJECTS\LvsEngine\content\Shaders\Utils\LightingTypes.glsl
 
 struct InstanceData {
     mat4 model;
@@ -83,7 +83,7 @@ layout(location = 1) out vec4 outGlowColor;
 layout(location = 2) out vec4 outDepthColor;
 
 
-// --- include begin: D:\VSCode\PROJECTS\LvsEngine\src\Lvs\Engine\Content\Shaders\Utils\LightingBRDF.glsl
+// --- include begin: D:\VSCode\PROJECTS\LvsEngine\content\Shaders\Utils\LightingBRDF.glsl
 
 #ifndef LVS_UTIL_LIGHTING_BRDF_GLSL
 #define LVS_UTIL_LIGHTING_BRDF_GLSL
@@ -155,7 +155,7 @@ vec3 SpecularCookTorrance(vec3 N, vec3 V, vec3 L, vec3 H, vec3 F, float effectiv
 
 
 
-// --- include end: D:\VSCode\PROJECTS\LvsEngine\src\Lvs\Engine\Content\Shaders\Utils\LightingBRDF.glsl
+// --- include end: D:\VSCode\PROJECTS\LvsEngine\content\Shaders\Utils\LightingBRDF.glsl
 
 const float EMISSIVE_SCENE_BOOST = 4.0;
 const float EMISSIVE_GLOW_BOOST = 8.0;
@@ -281,7 +281,7 @@ vec3 GetSurfaceMappedNormal(vec3 localNormal, int surfaceType, vec2 uv) {
 }
 
 
-// --- include begin: D:\VSCode\PROJECTS\LvsEngine\src\Lvs\Engine\Content\Shaders\Utils\DirectionalShadows.glsl
+// --- include begin: D:\VSCode\PROJECTS\LvsEngine\content\Shaders\Utils\DirectionalShadows.glsl
 
 #ifndef LVS_UTIL_DIRECTIONAL_SHADOWS_GLSL
 #define LVS_UTIL_DIRECTIONAL_SHADOWS_GLSL
@@ -515,7 +515,7 @@ float ComputeDirectionalShadowFactor(
 #endif
 
 
-// --- include end: D:\VSCode\PROJECTS\LvsEngine\src\Lvs\Engine\Content\Shaders\Utils\DirectionalShadows.glsl
+// --- include end: D:\VSCode\PROJECTS\LvsEngine\content\Shaders\Utils\DirectionalShadows.glsl
 
 void main() {
     inst = instanceData.instances[fragInstanceIndex];

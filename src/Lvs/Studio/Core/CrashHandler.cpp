@@ -1,7 +1,7 @@
 #include "Lvs/Studio/Core/CrashHandler.hpp"
 
 #include "Lvs/Studio/Core/SessionLog.hpp"
-#include "Lvs/Engine/Core/QtBridge.hpp"
+#include "Lvs/Qt/QtBridge.hpp"
 #include "Lvs/Engine/Utils/EngineDataPaths.hpp"
 
 #include <QCoreApplication>

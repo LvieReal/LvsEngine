@@ -59,6 +59,10 @@ if(EXISTS "${SOURCE_DIR}/Lvs")
     file(COPY "${SOURCE_DIR}/Lvs" DESTINATION "${DIST_DIR}")
 endif()
 
+if(EXISTS "${SOURCE_DIR}/content")
+    file(COPY "${SOURCE_DIR}/content" DESTINATION "${DIST_DIR}")
+endif()
+
 if(EXISTS "${SOURCE_DIR}/config")
     file(COPY "${SOURCE_DIR}/config" DESTINATION "${DIST_DIR}")
 endif()

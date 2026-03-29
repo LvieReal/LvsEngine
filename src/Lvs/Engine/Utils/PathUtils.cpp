@@ -29,6 +29,9 @@ std::filesystem::path FindAnchorDir() {
 
     for (auto root : roots) {
         for (int i = 0; i < 6; ++i) {
+            if (std::filesystem::exists(root / "content")) {
+                return Normalize(root);
+            }
             if (std::filesystem::exists(root / "src/Lvs/Engine/Content") || std::filesystem::exists(root / "Lvs/Engine/Content")) {
                 return Normalize(root);
             }
@@ -49,6 +52,10 @@ std::filesystem::path FindAnchorDir() {
 std::filesystem::path ResourceRoot() {
     static const std::filesystem::path root = []() {
         const auto anchor = FindAnchorDir();
+        const auto rootContent = anchor / "content";
+        if (std::filesystem::exists(rootContent)) {
+            return Normalize(rootContent);
+        }
         const auto devPath = anchor / "src/Lvs/Engine/Content";
         if (std::filesystem::exists(devPath)) {
             return Normalize(devPath);

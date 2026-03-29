@@ -1,17 +1,18 @@
-#include "Lvs/Engine/Objects/Folder.hpp"
+#include "Lvs/Engine/DataModel/Objects/Folder.hpp"
 
 #include "Lvs/Engine/DataModel/ClassRegistry.hpp"
 
-namespace Lvs::Engine::Objects {
+#include <mutex>
+
+namespace Lvs::Engine::DataModel::Objects {
 
 Core::ClassDescriptor& Folder::Descriptor() {
     static Core::ClassDescriptor descriptor("Folder", &Core::Instance::Descriptor());
-    static const bool initialized = []() {
+    static std::once_flag registered;
+    std::call_once(registered, [&]() {
         Core::ClassDescriptor::RegisterClassDescriptor(&descriptor);
-        DataModel::ClassRegistry::RegisterClass<Folder>("Folder", "Containers", "Instance");
-        return true;
-    }();
-    static_cast<void>(initialized);
+        ClassRegistry::RegisterClass<Folder>("Folder", "Containers", "Instance");
+    });
     return descriptor;
 }
 
@@ -20,5 +21,4 @@ Folder::Folder()
     SetInsertable(true);
 }
 
-} // namespace Lvs::Engine::Objects
-
+} // namespace Lvs::Engine::DataModel::Objects

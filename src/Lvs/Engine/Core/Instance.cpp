@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <mutex>
 #include <random>
 #include <sstream>
 #include <stdexcept>
@@ -46,7 +47,8 @@ String GenerateUuidString() {
 
 ClassDescriptor& BaseDescriptor() {
     static ClassDescriptor descriptor("Instance", nullptr);
-    static const bool initialized = []() {
+    static std::once_flag registered;
+    std::call_once(registered, [&]() {
         descriptor.RegisterProperty(
             ObjectBase::MakePropertyDefinition<String>("Name", String{})
         );
@@ -61,9 +63,7 @@ ClassDescriptor& BaseDescriptor() {
             )
         );
         ClassDescriptor::RegisterClassDescriptor(&descriptor);
-        return true;
-    }();
-    static_cast<void>(initialized);
+    });
     return descriptor;
 }
 } // namespace

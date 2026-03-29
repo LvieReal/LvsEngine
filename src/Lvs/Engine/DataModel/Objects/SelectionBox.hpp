@@ -2,7 +2,7 @@
 
 #include "Lvs/Engine/Core/Instance.hpp"
 
-namespace Lvs::Engine::Objects {
+namespace Lvs::Engine::DataModel::Objects {
 
 class SelectionBox : public Core::Instance {
 public:
@@ -12,4 +12,4 @@ public:
     static Core::ClassDescriptor& Descriptor();
 };
 
-} // namespace Lvs::Engine::Objects
+} // namespace Lvs::Engine::DataModel::Objects

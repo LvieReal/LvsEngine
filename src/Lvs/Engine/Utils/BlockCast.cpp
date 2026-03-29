@@ -21,13 +21,13 @@ Math::AABB BuildWorldAABBForBlock(const Math::CFrame& cframe, const Math::Vector
 
 } // namespace
 
-std::pair<std::shared_ptr<Objects::BasePart>, double> BlockCastPartBVHWithFilter(
+std::pair<std::shared_ptr<DataModel::Objects::BasePart>, double> BlockCastPartBVHWithFilter(
     const Math::CFrame& cframe,
     const Math::Vector3& size,
     const Math::Vector3& direction,
     const double maxDistance,
     const PartBVH& bvh,
-    const std::vector<std::shared_ptr<Objects::BasePart>>& descendantFilterList,
+    const std::vector<std::shared_ptr<DataModel::Objects::BasePart>>& descendantFilterList,
     const DescendantFilterType filterType,
     const double originOffset
 ) {
@@ -44,7 +44,7 @@ std::pair<std::shared_ptr<Objects::BasePart>, double> BlockCastPartBVHWithFilter
     const Math::AABB blockAabb = BuildWorldAABBForBlock(cframe, size);
     const Math::Vector3 inflation = (blockAabb.Max - blockAabb.Min) * 0.5;
 
-    std::unordered_set<const Objects::BasePart*> filterSet;
+    std::unordered_set<const DataModel::Objects::BasePart*> filterSet;
     filterSet.reserve(descendantFilterList.size());
     for (const auto& entry : descendantFilterList) {
         if (entry != nullptr) {
@@ -80,4 +80,3 @@ std::pair<std::shared_ptr<Objects::BasePart>, double> BlockCastPartBVHWithFilter
 }
 
 } // namespace Lvs::Engine::Utils
-

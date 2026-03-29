@@ -1,7 +1,7 @@
 #include "Lvs/Studio/Widgets/Explorer/ExplorerWidget.hpp"
 
 #include "Lvs/Engine/Core/Instance.hpp"
-#include "Lvs/Engine/Core/QtBridge.hpp"
+#include "Lvs/Qt/QtBridge.hpp"
 #include "Lvs/Studio/Core/RegularError.hpp"
 #include "Lvs/Engine/DataModel/Services/ChangeHistoryService.hpp"
 #include "Lvs/Engine/DataModel/ClassRegistry.hpp"

@@ -3,8 +3,8 @@
 #include "Lvs/Engine/DataModel/Services/Selection.hpp"
 #include "Lvs/Engine/Math/AABB.hpp"
 #include "Lvs/Engine/Math/CFrame.hpp"
-#include "Lvs/Engine/Objects/BasePart.hpp"
-#include "Lvs/Engine/Objects/Camera.hpp"
+#include "Lvs/Engine/DataModel/Objects/BasePart.hpp"
+#include "Lvs/Engine/DataModel/Objects/Camera.hpp"
 #include "Lvs/Engine/Utils/InstanceSelection.hpp"
 #include "Lvs/Engine/Utils/BlockCast.hpp"
 #include "Lvs/Engine/Utils/Raycast.hpp"
@@ -43,7 +43,7 @@ double DistanceToAabb(const Math::Vector3& point, const Math::AABB& aabb) {
 
 } // namespace
 
-void GizmoSystem::Bind(const std::shared_ptr<Objects::Camera>& camera) {
+void GizmoSystem::Bind(const std::shared_ptr<DataModel::Objects::Camera>& camera) {
     camera_ = camera;
     axes_.clear();
     axisByName_.clear();
@@ -241,7 +241,7 @@ void GizmoSystem::UpdateDragWithCollisions(
                 dir = dir * -1.0;
             }
 
-            std::vector<std::shared_ptr<Objects::BasePart>> exclude;
+            std::vector<std::shared_ptr<DataModel::Objects::BasePart>> exclude;
             exclude.reserve(selectedParts_.size() * 2);
             for (const auto& snap : dragSnapshots_) {
                 if (snap.Part == nullptr) {
@@ -249,7 +249,7 @@ void GizmoSystem::UpdateDragWithCollisions(
                 }
                 exclude.push_back(snap.Part);
                 snap.Part->ForEachDescendant([&exclude](const std::shared_ptr<Instance>& desc) {
-                    if (const auto descPart = std::dynamic_pointer_cast<Objects::BasePart>(desc); descPart != nullptr) {
+                    if (const auto descPart = std::dynamic_pointer_cast<DataModel::Objects::BasePart>(desc); descPart != nullptr) {
                         exclude.push_back(descPart);
                     }
                 });
@@ -293,7 +293,7 @@ void GizmoSystem::UpdateDragWithCollisions(
             next.Position = next.Position + translation;
 
             const auto parent = snap.Part->GetParent();
-            if (const auto parentPart = std::dynamic_pointer_cast<Objects::BasePart>(parent); parentPart != nullptr) {
+            if (const auto parentPart = std::dynamic_pointer_cast<DataModel::Objects::BasePart>(parent); parentPart != nullptr) {
                 const auto local = parentPart->GetWorldCFrame().Inverse() * next;
                 snap.Part->SetProperty("CFrame", Variant::From(local));
             } else {
@@ -335,7 +335,7 @@ void GizmoSystem::UpdateDragWithCollisions(
             next.Position = dragCenter_ + offset * factor;
 
             const auto parent = snap.Part->GetParent();
-            if (const auto parentPart = std::dynamic_pointer_cast<Objects::BasePart>(parent); parentPart != nullptr) {
+            if (const auto parentPart = std::dynamic_pointer_cast<DataModel::Objects::BasePart>(parent); parentPart != nullptr) {
                 const auto local = parentPart->GetWorldCFrame().Inverse() * next;
                 snap.Part->SetProperty("CFrame", Variant::From(local));
             } else {
@@ -358,11 +358,11 @@ void GizmoSystem::UpdateDragWithCollisions(
     if (enableSizeCollisions && bvh != nullptr && amount > 0.0) {
         const Math::Vector3 dir = activeAxisDirection_.Unit();
 
-        std::vector<std::shared_ptr<Objects::BasePart>> exclude;
+        std::vector<std::shared_ptr<DataModel::Objects::BasePart>> exclude;
         exclude.reserve(16);
         exclude.push_back(snap.Part);
         snap.Part->ForEachDescendant([&exclude](const std::shared_ptr<Instance>& desc) {
-            if (const auto descPart = std::dynamic_pointer_cast<Objects::BasePart>(desc); descPart != nullptr) {
+            if (const auto descPart = std::dynamic_pointer_cast<DataModel::Objects::BasePart>(desc); descPart != nullptr) {
                 exclude.push_back(descPart);
             }
         });
@@ -440,7 +440,7 @@ void GizmoSystem::UpdateDragWithCollisions(
     next.Position = next.Position + activeAxisDirection_.Unit() * (appliedAmount * 0.5);
 
     const auto parent = snap.Part->GetParent();
-    if (const auto parentPart = std::dynamic_pointer_cast<Objects::BasePart>(parent); parentPart != nullptr) {
+    if (const auto parentPart = std::dynamic_pointer_cast<DataModel::Objects::BasePart>(parent); parentPart != nullptr) {
         const auto local = parentPart->GetWorldCFrame().Inverse() * next;
         snap.Part->SetProperty("CFrame", Variant::From(local));
     } else {
@@ -483,7 +483,7 @@ bool GizmoSystem::GetLocalSpace() const {
     return localSpace_;
 }
 
-std::shared_ptr<Objects::BasePart> GizmoSystem::GetTargetPart() const {
+std::shared_ptr<DataModel::Objects::BasePart> GizmoSystem::GetTargetPart() const {
     return targetPart_;
 }
 

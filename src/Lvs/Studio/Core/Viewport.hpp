@@ -25,7 +25,7 @@ class Place;
 class Workspace;
 }
 
-namespace Lvs::Engine::Objects {
+namespace Lvs::Engine::DataModel::Objects {
 class BasePart;
 class Camera;
 }
@@ -53,7 +53,7 @@ public:
     void RefreshShaders();
     void SetToolLayer(std::unique_ptr<ViewportToolLayer> layer);
     [[nodiscard]] ViewportToolLayer* GetToolLayer() const;
-    void FocusOnPart(const std::shared_ptr<Objects::BasePart>& part);
+    void FocusOnPart(const std::shared_ptr<DataModel::Objects::BasePart>& part);
     void FocusOnBounds(const Math::AABB& bounds);
 
     [[nodiscard]] bool WasRightMousePanned() const;
@@ -83,7 +83,7 @@ private:
     bool HasKey(int key) const;
     bool HasScanCode(std::uint32_t sc) const;
     void RecreateRenderContext(Rendering::RenderApi api);
-    [[nodiscard]] std::shared_ptr<Objects::Camera> GetCurrentCamera() const;
+    [[nodiscard]] std::shared_ptr<DataModel::Objects::Camera> GetCurrentCamera() const;
     [[nodiscard]] std::optional<Utils::Ray> BuildRay(double x, double y) const;
 
     EngineContextPtr context_;

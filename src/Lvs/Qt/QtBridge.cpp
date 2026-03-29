@@ -1,6 +1,6 @@
-#include "Lvs/Engine/Core/QtBridge.hpp"
+#include "Lvs/Qt/QtBridge.hpp"
 
-#include "Lvs/Studio/Core/QtMetaTypes.hpp"
+#include "Lvs/Qt/QtMetaTypes.hpp"
 
 #include "Lvs/Engine/Core/Instance.hpp"
 #include "Lvs/Engine/Math/CFrame.hpp"
@@ -11,7 +11,6 @@
 #include <QString>
 #include <QVariant>
 
-#include <cstddef>
 #include <cstdint>
 #include <memory>
 
@@ -108,3 +107,4 @@ QVariant ToQVariant(const Variant& v) {
 }
 
 } // namespace Lvs::Engine::Core::QtBridge
+

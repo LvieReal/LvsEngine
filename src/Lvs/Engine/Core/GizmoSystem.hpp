@@ -18,7 +18,7 @@ namespace Lvs::Engine::DataModel {
 class Selection;
 }
 
-namespace Lvs::Engine::Objects {
+namespace Lvs::Engine::DataModel::Objects {
 class BasePart;
 class Camera;
 }
@@ -32,7 +32,7 @@ public:
     GizmoSystem() = default;
     ~GizmoSystem() = default;
 
-    void Bind(const std::shared_ptr<Objects::Camera>& camera);
+    void Bind(const std::shared_ptr<DataModel::Objects::Camera>& camera);
     void Unbind();
 
     void Update(const std::shared_ptr<DataModel::Selection>& selection, Tool activeTool);
@@ -45,7 +45,7 @@ public:
     void Configure(bool alwaysOnTop, bool ignoreDiffuseSpecular, bool alignByMagnitude, double snapIncrement);
     void SetLocalSpace(bool enabled);
     [[nodiscard]] bool GetLocalSpace() const;
-    [[nodiscard]] std::shared_ptr<Objects::BasePart> GetTargetPart() const;
+    [[nodiscard]] std::shared_ptr<DataModel::Objects::BasePart> GetTargetPart() const;
     [[nodiscard]] const std::vector<RenderPrimitive>& GetRenderPrimitives() const;
 
 private:
@@ -78,13 +78,13 @@ private:
     [[nodiscard]] std::optional<String> FindClosestAxis(const Utils::Ray& ray, bool includeMoveShaft) const;
     [[nodiscard]] Math::Color3 AxisColor(const String& axisName) const;
 
-    std::shared_ptr<Objects::Camera> camera_;
+    std::shared_ptr<DataModel::Objects::Camera> camera_;
     std::vector<AxisState> axes_;
     HashMap<String, AxisDef> axisByName_;
     std::vector<RenderPrimitive> renderPrimitives_;
 
     struct DragSnapshot {
-        std::shared_ptr<Objects::BasePart> Part;
+        std::shared_ptr<DataModel::Objects::BasePart> Part;
         Math::CFrame StartWorldCFrame;
         Math::Vector3 StartSize;
     };
@@ -96,8 +96,8 @@ private:
     bool alignByMagnitude_{true};
     bool localSpace_{false};
     double snapIncrement_{1.0};
-    std::shared_ptr<Objects::BasePart> targetPart_;
-    std::vector<std::shared_ptr<Objects::BasePart>> selectedParts_;
+    std::shared_ptr<DataModel::Objects::BasePart> targetPart_;
+    std::vector<std::shared_ptr<DataModel::Objects::BasePart>> selectedParts_;
     std::vector<const Instance*> lastSelectionRaw_;
     const Instance* lastSelectionPrimaryRaw_{nullptr};
     bool selectionDirty_{true};

@@ -1,7 +1,7 @@
 #include "Lvs/Studio/Widgets/Properties/PropertyValueUtils.hpp"
 
 #include "Lvs/Engine/Enums/EnumMetadata.hpp"
-#include "Lvs/Engine/Core/QtBridge.hpp"
+#include "Lvs/Qt/QtBridge.hpp"
 
 #include <QRegularExpression>
 

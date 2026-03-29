@@ -1,37 +1,18 @@
-#include "Lvs/Engine/Objects/Model.hpp"
+#include "Lvs/Engine/DataModel/Objects/Model.hpp"
 
 #include "Lvs/Engine/DataModel/ClassRegistry.hpp"
 
-namespace Lvs::Engine::Objects {
+#include <mutex>
+
+namespace Lvs::Engine::DataModel::Objects {
 
 Core::ClassDescriptor& Model::Descriptor() {
     static Core::ClassDescriptor descriptor("Model", &Core::Instance::Descriptor());
-    static const bool initialized = []() {
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
-            "Renders",
-            true,
-            true,
-            "Appearance",
-            "When disabled, geometry within this model will not be rendered."
-        ));
-
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Core::Variant::InstanceRef>(
-            "PrimaryPart",
-            {},
-            true,
-            "Data",
-            {},
-            false,
-            {},
-            {},
-            true
-        ));
-
+    static std::once_flag registered;
+    std::call_once(registered, [&]() {
         Core::ClassDescriptor::RegisterClassDescriptor(&descriptor);
-        DataModel::ClassRegistry::RegisterClass<Model>("Model", "Containers", "Instance");
-        return true;
-    }();
-    static_cast<void>(initialized);
+        ClassRegistry::RegisterClass<Model>("Model", "Containers", "Instance");
+    });
     return descriptor;
 }
 
@@ -40,4 +21,4 @@ Model::Model()
     SetInsertable(true);
 }
 
-} // namespace Lvs::Engine::Objects
+} // namespace Lvs::Engine::DataModel::Objects

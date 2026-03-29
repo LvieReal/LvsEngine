@@ -5,7 +5,7 @@
 #include "Lvs/Studio/Core/CriticalError.hpp"
 #include "Lvs/Studio/Core/SessionLog.hpp"
 #include "Lvs/Studio/Core/Window.hpp"
-#include "Lvs/Engine/Core/QtBridge.hpp"
+#include "Lvs/Qt/QtBridge.hpp"
 #include "Lvs/Engine/Rendering/IRenderContext.hpp"
 #include "Lvs/Engine/Utils/SourcePath.hpp"
 #include "Lvs/Engine/Utils/Benchmark.hpp"

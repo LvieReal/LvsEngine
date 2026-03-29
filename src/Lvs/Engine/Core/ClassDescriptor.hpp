@@ -10,6 +10,7 @@ public:
     ClassDescriptor(String className, const ClassDescriptor* baseDescriptor = nullptr);
 
     void RegisterProperty(const PropertyDefinition& propertyDefinition);
+    void ResetPropertiesToBase();
 
     [[nodiscard]] const String& ClassName() const;
     [[nodiscard]] const ClassDescriptor* BaseDescriptor() const;
@@ -17,6 +18,7 @@ public:
 
     static void RegisterClassDescriptor(const ClassDescriptor* descriptor);
     static const ClassDescriptor* Get(const String& className);
+    static Vector<const ClassDescriptor*> GetAll();
 
 private:
     String className_;

@@ -55,6 +55,7 @@ public:
     void SetProperty(const String& name, const Variant& value);
     Property& GetPropertyObject(const String& name);
     const Property& GetPropertyObject(const String& name) const;
+    void SyncPropertiesFromDescriptor(bool preserveValues = true);
 
 private:
     const ClassDescriptor* classDescriptor_{nullptr};

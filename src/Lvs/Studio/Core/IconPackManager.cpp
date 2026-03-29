@@ -1,7 +1,7 @@
 #include "Lvs/Studio/Core/IconPackManager.hpp"
 
 #include "Lvs/Engine/Core/Instance.hpp"
-#include "Lvs/Engine/Core/QtBridge.hpp"
+#include "Lvs/Qt/QtBridge.hpp"
 #include "Lvs/Engine/Utils/SourcePath.hpp"
 #include "Lvs/Studio/Core/Settings.hpp"
 
@@ -117,7 +117,7 @@ QIcon IconPackManager::GetIcon(const QString& iconName) {
 QStringList IconPackManager::GetPackRoots() const {
     return {
         Engine::Core::QtBridge::ToQString(Engine::Utils::SourcePath::GetResourcePath("IconPacks")),
-        Engine::Core::QtBridge::ToQString(Engine::Utils::SourcePath::GetSourcePath("Lvs/Engine/Content/IconPacks"))
+        Engine::Core::QtBridge::ToQString(Engine::Utils::SourcePath::GetSourcePath("content/IconPacks"))
     };
 }
 
@@ -144,7 +144,7 @@ QString IconPackManager::ResolvePackPath(const QString& packName) const {
 QPixmap IconPackManager::LoadPixmap(const QString& iconName) {
     if (packPath_.isEmpty()) {
         if (!missingPackWarned_) {
-            qWarning("No icon pack found under Engine/Content/IconPacks.");
+            qWarning("No icon pack found under content/IconPacks.");
             missingPackWarned_ = true;
         }
         return {};

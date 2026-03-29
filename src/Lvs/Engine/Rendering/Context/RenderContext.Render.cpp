@@ -12,11 +12,12 @@
 #include "Lvs/Engine/Enums/ShadowType.hpp"
 #include "Lvs/Engine/Enums/SurfaceMipmapping.hpp"
 #include "Lvs/Engine/Enums/SpecularHighlightType.hpp"
-#include "Lvs/Engine/Objects/Camera.hpp"
-#include "Lvs/Engine/Objects/DirectionalLight.hpp"
-#include "Lvs/Engine/Objects/PostEffects.hpp"
+#include "Lvs/Engine/DataModel/Objects/Camera.hpp"
+#include "Lvs/Engine/DataModel/Objects/DirectionalLight.hpp"
+#include "Lvs/Engine/DataModel/Objects/PostEffects.hpp"
 #include "Lvs/Engine/Rendering/Context/RenderContextUtils.hpp"
 #include "Lvs/Engine/Utils/Benchmark.hpp"
+#include "Lvs/Engine/Core/ExternalMetadata.hpp"
 
 #include <algorithm>
 #include <array>
@@ -28,6 +29,7 @@ namespace Lvs::Engine::Rendering {
 
 void RenderContext::Render() {
     LVS_BENCH_SCOPE("RenderContext::Render");
+    Core::ExternalMetadata::Get().PollHotReload();
     if (nativeWindowHandle_ == nullptr) {
         return;
     }
@@ -106,13 +108,13 @@ void RenderContext::Render() {
     scene.NeonBlur = 2.0F;
 
     std::shared_ptr<DataModel::Lighting> lightingService{};
-    std::shared_ptr<Objects::PostEffects> postEffects{};
-    std::vector<std::shared_ptr<Objects::DirectionalLight>> enabledDirectionalLights{};
+    std::shared_ptr<DataModel::Objects::PostEffects> postEffects{};
+    std::vector<std::shared_ptr<DataModel::Objects::DirectionalLight>> enabledDirectionalLights{};
     enabledDirectionalLights.reserve(8);
-    std::unordered_map<const Objects::DirectionalLight*, RHI::u32> directionalShadowIndex{};
-    std::array<std::shared_ptr<Objects::DirectionalLight>, Common::kMaxDirectionalShadowMaps> shadowDirectionalLights{};
+    std::unordered_map<const DataModel::Objects::DirectionalLight*, RHI::u32> directionalShadowIndex{};
+    std::array<std::shared_ptr<DataModel::Objects::DirectionalLight>, Common::kMaxDirectionalShadowMaps> shadowDirectionalLights{};
     std::array<Common::ShadowSettings, Common::kMaxDirectionalShadowMaps> requestedShadowSettings{};
-    std::shared_ptr<Objects::DirectionalLight> shadowVolumeDirectionalLight{};
+    std::shared_ptr<DataModel::Objects::DirectionalLight> shadowVolumeDirectionalLight{};
     float shadowVolumeMaxDistance = 0.0F;
     float fresnelAmount = 1.0F;
 
@@ -137,12 +139,12 @@ void RenderContext::Render() {
             bool clearedShadowTargets = false;
             for (const auto& child : lightingService->GetChildren()) {
                 if (postEffects == nullptr) {
-                    postEffects = std::dynamic_pointer_cast<Objects::PostEffects>(child);
+                    postEffects = std::dynamic_pointer_cast<DataModel::Objects::PostEffects>(child);
                     if (postEffects != nullptr) {
                         continue;
                     }
                 }
-                const auto directional = std::dynamic_pointer_cast<Objects::DirectionalLight>(child);
+                const auto directional = std::dynamic_pointer_cast<DataModel::Objects::DirectionalLight>(child);
                 if (directional == nullptr || !directional->GetProperty("Enabled").toBool()) {
                     continue;
                 }
@@ -578,14 +580,14 @@ void RenderContext::Render() {
     scene.DirectionalShadowResources.fill(nullptr);
 
     // Resolve camera for shadow cascade computation.
-    std::shared_ptr<Objects::Camera> camera{};
+    std::shared_ptr<DataModel::Objects::Camera> camera{};
     if (place_ != nullptr) {
         if (const auto workspaceService = std::dynamic_pointer_cast<DataModel::Workspace>(place_->FindService("Workspace"));
             workspaceService != nullptr) {
             const auto cameraVar = workspaceService->GetProperty("CurrentCamera");
             if (cameraVar.Is<Core::Variant::InstanceRef>()) {
                 if (const auto locked = cameraVar.Get<Core::Variant::InstanceRef>().lock()) {
-                    camera = std::dynamic_pointer_cast<Objects::Camera>(locked);
+                    camera = std::dynamic_pointer_cast<DataModel::Objects::Camera>(locked);
                 }
             }
         }

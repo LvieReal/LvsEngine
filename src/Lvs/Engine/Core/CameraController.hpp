@@ -4,7 +4,7 @@
 
 #include <memory>
 
-namespace Lvs::Engine::Objects {
+namespace Lvs::Engine::DataModel::Objects {
 class Camera;
 }
 
@@ -12,7 +12,7 @@ namespace Lvs::Engine::Core {
 
 class CameraController final {
 public:
-    explicit CameraController(const std::shared_ptr<Objects::Camera>& camera);
+    explicit CameraController(const std::shared_ptr<DataModel::Objects::Camera>& camera);
 
     void Rotate(double dx, double dy);
     void Move(const Math::Vector3& direction, double dt, bool slow = false) const;
@@ -28,7 +28,7 @@ public:
 private:
     void ApplyRotation() const;
 
-    std::shared_ptr<Objects::Camera> camera_;
+    std::shared_ptr<DataModel::Objects::Camera> camera_;
     double yaw_{-90.0};
     double pitch_{0.0};
     double mouseSensitivity_{0.15};

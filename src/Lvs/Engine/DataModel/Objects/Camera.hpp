@@ -5,7 +5,7 @@
 
 #include <optional>
 
-namespace Lvs::Engine::Objects {
+namespace Lvs::Engine::DataModel::Objects {
 
 class Camera : public Core::Instance {
 public:
@@ -29,4 +29,4 @@ private:
     Math::Matrix4 projectionMatrix_{Math::Matrix4::Identity()};
 };
 
-} // namespace Lvs::Engine::Objects
+} // namespace Lvs::Engine::DataModel::Objects

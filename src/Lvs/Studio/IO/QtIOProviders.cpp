@@ -2,7 +2,7 @@
 
 #include "Lvs/Engine/IO/Providers.hpp"
 
-#include "Lvs/Engine/Core/QtBridge.hpp"
+#include "Lvs/Qt/QtBridge.hpp"
 
 #include <QDir>
 #include <QFile>

@@ -3,8 +3,8 @@
 #include "Lvs/Engine/Math/CFrame.hpp"
 #include "Lvs/Engine/Math/Matrix4.hpp"
 #include "Lvs/Engine/Math/Vector3.hpp"
-#include "Lvs/Engine/Objects/BasePart.hpp"
-#include "Lvs/Engine/Objects/Camera.hpp"
+#include "Lvs/Engine/DataModel/Objects/BasePart.hpp"
+#include "Lvs/Engine/DataModel/Objects/Camera.hpp"
 #include "Lvs/Engine/Utils/Benchmark.hpp"
 
 #include <algorithm>
@@ -34,7 +34,7 @@ Ray ScreenPointToRay(
     const double y,
     const int width,
     const int height,
-    const std::shared_ptr<Objects::Camera>& camera
+    const std::shared_ptr<DataModel::Objects::Camera>& camera
 ) {
     const int safeWidth = std::max(1, width);
     const int safeHeight = std::max(1, height);
@@ -59,18 +59,18 @@ Ray ScreenPointToRay(
     return {origin, direction};
 }
 
-Math::AABB BuildPartWorldAABB(const std::shared_ptr<Objects::BasePart>& part) {
+Math::AABB BuildPartWorldAABB(const std::shared_ptr<DataModel::Objects::BasePart>& part) {
     const Math::AABB localAabb{Math::Vector3{-0.5, -0.5, -0.5}, Math::Vector3{0.5, 0.5, 0.5}};
     const auto size = part->GetProperty("Size").value<Math::Vector3>();
     const auto world = part->GetWorldCFrame().ToMatrix4() * Math::Matrix4::Scale(size);
     return Math::TransformAABB(localAabb, world);
 }
 
-std::optional<double> RaycastPartAABB(const Ray& ray, const std::shared_ptr<Objects::BasePart>& part) {
+std::optional<double> RaycastPartAABB(const Ray& ray, const std::shared_ptr<DataModel::Objects::BasePart>& part) {
     return Math::IntersectRayAABB(ray.Origin, ray.Direction, BuildPartWorldAABB(part));
 }
 
-PartBVH BuildPartBVH(const std::vector<std::shared_ptr<Objects::BasePart>>& parts) {
+PartBVH BuildPartBVH(const std::vector<std::shared_ptr<DataModel::Objects::BasePart>>& parts) {
     if (Benchmark::Enabled()) {
         LVS_BENCH_SCOPE("Raycast::BuildPartBVH");
     }
@@ -134,7 +134,7 @@ void RebuildPartBVH(PartBVH& bvh) {
     bvh.Bvh.Build(std::move(primitives));
 }
 
-std::pair<std::shared_ptr<Objects::BasePart>, double> RaycastPartBVH(const Ray& ray, const PartBVH& bvh) {
+std::pair<std::shared_ptr<DataModel::Objects::BasePart>, double> RaycastPartBVH(const Ray& ray, const PartBVH& bvh) {
     if (Benchmark::Enabled()) {
         LVS_BENCH_SCOPE("Raycast::RaycastPartBVH");
     }
@@ -153,10 +153,10 @@ std::pair<std::shared_ptr<Objects::BasePart>, double> RaycastPartBVH(const Ray& 
     return {bvh.Parts[hit->Payload], hit->Distance};
 }
 
-std::pair<std::shared_ptr<Objects::BasePart>, double> RaycastPartBVHWithFilter(
+std::pair<std::shared_ptr<DataModel::Objects::BasePart>, double> RaycastPartBVHWithFilter(
     const Ray& ray,
     const PartBVH& bvh,
-    const std::vector<std::shared_ptr<Objects::BasePart>>& descendantFilterList,
+    const std::vector<std::shared_ptr<DataModel::Objects::BasePart>>& descendantFilterList,
     const DescendantFilterType filterType
 ) {
     if (Benchmark::Enabled()) {
@@ -170,7 +170,7 @@ std::pair<std::shared_ptr<Objects::BasePart>, double> RaycastPartBVHWithFilter(
         return RaycastPartBVH(ray, bvh);
     }
 
-    std::unordered_set<const Objects::BasePart*> filterSet;
+    std::unordered_set<const DataModel::Objects::BasePart*> filterSet;
     filterSet.reserve(descendantFilterList.size());
     for (const auto& entry : descendantFilterList) {
         if (entry != nullptr) {
@@ -198,18 +198,18 @@ std::pair<std::shared_ptr<Objects::BasePart>, double> RaycastPartBVHWithFilter(
     return {bvh.Parts[hit->Payload], hit->Distance};
 }
 
-std::pair<std::shared_ptr<Objects::BasePart>, double> RaycastParts(
+std::pair<std::shared_ptr<DataModel::Objects::BasePart>, double> RaycastParts(
     const Ray& ray,
-    const std::vector<std::shared_ptr<Objects::BasePart>>& parts
+    const std::vector<std::shared_ptr<DataModel::Objects::BasePart>>& parts
 ) {
     const auto bvh = BuildPartBVH(parts);
     return RaycastPartBVH(ray, bvh);
 }
 
-std::pair<std::shared_ptr<Objects::BasePart>, double> RaycastPartsWithFilter(
+std::pair<std::shared_ptr<DataModel::Objects::BasePart>, double> RaycastPartsWithFilter(
     const Ray& ray,
-    const std::vector<std::shared_ptr<Objects::BasePart>>& parts,
-    const std::vector<std::shared_ptr<Objects::BasePart>>& descendantFilterList,
+    const std::vector<std::shared_ptr<DataModel::Objects::BasePart>>& parts,
+    const std::vector<std::shared_ptr<DataModel::Objects::BasePart>>& descendantFilterList,
     DescendantFilterType filterType
 ) {
     const auto bvh = BuildPartBVH(parts);

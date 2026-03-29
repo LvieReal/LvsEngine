@@ -1,6 +1,6 @@
-﻿#include "Lvs/Studio/Theme.hpp"
+#include "Lvs/Studio/Theme.hpp"
 
-#include "Lvs/Engine/Core/QtBridge.hpp"
+#include "Lvs/Qt/QtBridge.hpp"
 #include "Lvs/Engine/Enums/EnumMetadata.hpp"
 #include "Lvs/Engine/Enums/Theme.hpp"
 #include "Lvs/Engine/Utils/SourcePath.hpp"

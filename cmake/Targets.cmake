@@ -1,39 +1,52 @@
-add_library(lvs_core STATIC
-    ${ENGINE_SOURCES}
-    ${ENGINE_HEADERS}
+add_library(lvs_engine STATIC
+    ${LVS_ENGINE_SOURCES}
+    ${LVS_ENGINE_HEADERS}
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/lib/glad/glad.c
 )
 
-target_include_directories(lvs_core
+target_include_directories(lvs_engine
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party/lib
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party/lib/glad
 )
-target_link_libraries(lvs_core
+
+target_link_libraries(lvs_engine
     PUBLIC
-        Qt6::Core
-        Qt6::Gui
-        Qt6::Widgets
         Vulkan::Vulkan
         assimp::assimp
 )
 
-target_compile_definitions(lvs_core PUBLIC LVS_WITH_QT_BRIDGE)
-
 if(WIN32)
-    target_link_libraries(lvs_core PUBLIC opengl32)
+    target_link_libraries(lvs_engine PUBLIC opengl32)
+    target_compile_definitions(lvs_engine PUBLIC VK_USE_PLATFORM_WIN32_KHR WIN32_LEAN_AND_MEAN NOMINMAX)
 endif()
 
-qt_add_resources(lvs_core lvs_app_info_resource
-    PREFIX "/config"
-    BASE "${CMAKE_CURRENT_SOURCE_DIR}/config"
-    FILES "${CMAKE_CURRENT_SOURCE_DIR}/config/AppInfo.json"
+add_library(lvs_qt_common STATIC
+    ${LVS_QT_COMMON_SOURCES}
+    ${LVS_QT_COMMON_HEADERS}
 )
 
-if(WIN32)
-    target_compile_definitions(lvs_core PUBLIC VK_USE_PLATFORM_WIN32_KHR WIN32_LEAN_AND_MEAN NOMINMAX)
-endif()
+target_include_directories(lvs_qt_common
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+target_link_libraries(lvs_qt_common
+    PUBLIC
+        lvs_engine
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Widgets
+)
+
+qt_add_resources(lvs_qt_common lvs_config_resource
+    PREFIX "/config"
+    BASE "${CMAKE_CURRENT_SOURCE_DIR}/config"
+    FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/config/AppInfo.toml"
+        "${CMAKE_CURRENT_SOURCE_DIR}/config/reflection/Objects.toml"
+)
 
 function(lvs_apply_runtime_linking target)
     if(NOT WIN32 OR NOT LVS_STATIC_RUNTIME)
@@ -57,8 +70,12 @@ function(lvs_apply_release_windows_subsystem target)
     )
 endfunction()
 
-add_executable(lvs_app src/main_App.cpp)
-target_link_libraries(lvs_app PRIVATE lvs_core)
+add_executable(lvs_app
+    src/main_App.cpp
+    ${LVS_APP_SOURCES}
+    ${LVS_APP_HEADERS}
+)
+target_link_libraries(lvs_app PRIVATE lvs_qt_common)
 lvs_apply_runtime_linking(lvs_app)
 lvs_apply_release_windows_subsystem(lvs_app)
 lvs_attach_shader_compilation(lvs_app)
@@ -66,8 +83,12 @@ lvs_apply_windows_resources(lvs_app)
 lvs_attach_content_packaging(lvs_app)
 lvs_add_distribution_target(lvs_app)
 
-add_executable(lvs_studio src/main_Studio.cpp)
-target_link_libraries(lvs_studio PRIVATE lvs_core)
+add_executable(lvs_studio
+    src/main_Studio.cpp
+    ${LVS_STUDIO_SOURCES}
+    ${LVS_STUDIO_HEADERS}
+)
+target_link_libraries(lvs_studio PRIVATE lvs_qt_common)
 lvs_apply_runtime_linking(lvs_studio)
 lvs_apply_release_windows_subsystem(lvs_studio)
 lvs_attach_shader_compilation(lvs_studio)
@@ -79,3 +100,4 @@ add_custom_target(lvs_dist
     DEPENDS lvs_app_dist lvs_studio_dist
     COMMENT "Assembling distributable bundles for all executables"
 )
+

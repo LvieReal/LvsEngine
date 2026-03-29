@@ -6,19 +6,19 @@
 #include "Lvs/Engine/DataModel/Services/ServiceRegistry.hpp"
 #include "Lvs/Engine/DataModel/Services/Selection.hpp"
 
+#include <mutex>
 #include <stdexcept>
 
 namespace Lvs::Engine::DataModel {
 
 Core::ClassDescriptor& ChangeHistoryService::Descriptor() {
     static Core::ClassDescriptor descriptor("ChangeHistoryService", &Service::Descriptor());
-    static const bool initialized = []() {
+    static std::once_flag registered;
+    std::call_once(registered, [&]() {
         Core::ClassDescriptor::RegisterClassDescriptor(&descriptor);
         ClassRegistry::RegisterClass<ChangeHistoryService>("ChangeHistoryService", "Services", "Service");
         ServiceRegistry::RegisterService<ChangeHistoryService>();
-        return true;
-    }();
-    static_cast<void>(initialized);
+    });
     return descriptor;
 }
 

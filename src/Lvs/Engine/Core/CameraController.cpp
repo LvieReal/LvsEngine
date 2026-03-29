@@ -2,13 +2,13 @@
 
 #include "Lvs/Engine/Core/Variant.hpp"
 #include "Lvs/Engine/Math/CFrame.hpp"
-#include "Lvs/Engine/Objects/Camera.hpp"
+#include "Lvs/Engine/DataModel/Objects/Camera.hpp"
 
 #include <cmath>
 
 namespace Lvs::Engine::Core {
 
-CameraController::CameraController(const std::shared_ptr<Objects::Camera>& camera)
+CameraController::CameraController(const std::shared_ptr<DataModel::Objects::Camera>& camera)
     : camera_(camera) {
     if (camera_ == nullptr) {
         return;

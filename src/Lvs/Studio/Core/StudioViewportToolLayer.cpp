@@ -10,9 +10,9 @@
 #include "Lvs/Engine/DataModel/Services/Selection.hpp"
 #include "Lvs/Engine/DataModel/Services/Workspace.hpp"
 #include "Lvs/Engine/Math/CFrame.hpp"
-#include "Lvs/Engine/Objects/BasePart.hpp"
-#include "Lvs/Engine/Objects/Camera.hpp"
-#include "Lvs/Engine/Objects/SelectionBox.hpp"
+#include "Lvs/Engine/DataModel/Objects/BasePart.hpp"
+#include "Lvs/Engine/DataModel/Objects/Camera.hpp"
+#include "Lvs/Engine/DataModel/Objects/SelectionBox.hpp"
 #include "Lvs/Engine/Utils/Command.hpp"
 #include "Lvs/Engine/Utils/InstanceSelection.hpp"
 #include "Lvs/Engine/Utils/Raycast.hpp"
@@ -31,7 +31,7 @@ namespace Lvs::Studio::Core {
 
 namespace {
 
-std::shared_ptr<Engine::Objects::Camera> GetWorkspaceCamera(const std::shared_ptr<Engine::DataModel::Workspace>& workspace) {
+std::shared_ptr<Engine::DataModel::Objects::Camera> GetWorkspaceCamera(const std::shared_ptr<Engine::DataModel::Workspace>& workspace) {
     if (workspace == nullptr) {
         return nullptr;
     }
@@ -41,7 +41,7 @@ std::shared_ptr<Engine::Objects::Camera> GetWorkspaceCamera(const std::shared_pt
         return nullptr;
     }
 
-    return std::dynamic_pointer_cast<Engine::Objects::Camera>(cameraProp.Get<Engine::Core::Variant::InstanceRef>().lock());
+    return std::dynamic_pointer_cast<Engine::DataModel::Objects::Camera>(cameraProp.Get<Engine::Core::Variant::InstanceRef>().lock());
 }
 
 double SnapToStep(const double value, const double step) {
@@ -109,7 +109,7 @@ double DistanceToAabb(const Engine::Math::Vector3& point, const Engine::Math::AA
     return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
 
-std::shared_ptr<Engine::Core::Instance> FindAncestorModel(const std::shared_ptr<Engine::Objects::BasePart>& part) {
+std::shared_ptr<Engine::Core::Instance> FindAncestorModel(const std::shared_ptr<Engine::DataModel::Objects::BasePart>& part) {
     if (part == nullptr) {
         return nullptr;
     }
@@ -135,7 +135,7 @@ std::array<double, 4> MulMat4Vec4(const Engine::Math::Matrix4& matrix, const std
 }
 
 bool ProjectWorldToScreen(
-    const std::shared_ptr<Engine::Objects::Camera>& camera,
+    const std::shared_ptr<Engine::DataModel::Objects::Camera>& camera,
     const Engine::Math::Vector3& world,
     int viewportWidth,
     int viewportHeight,
@@ -213,7 +213,7 @@ const Engine::Utils::PartBVH* StudioViewportToolLayer::GetWorkspaceRaycastBVH() 
         if (workspaceSelectionCacheDirty_) {
             // Locked state changes require rebuilding selection BVH membership.
             const auto allParts = CollectWorkspaceParts();
-            std::vector<std::shared_ptr<Engine::Objects::BasePart>> selectableParts;
+            std::vector<std::shared_ptr<Engine::DataModel::Objects::BasePart>> selectableParts;
             selectableParts.reserve(allParts.size());
             for (const auto& part : allParts) {
                 if (part == nullptr) {
@@ -236,7 +236,7 @@ const Engine::Utils::PartBVH* StudioViewportToolLayer::GetWorkspaceRaycastBVH() 
     const auto allParts = CollectWorkspaceParts();
     cache.Bvh = Engine::Utils::BuildPartBVH(allParts);
 
-    std::vector<std::shared_ptr<Engine::Objects::BasePart>> selectableParts;
+    std::vector<std::shared_ptr<Engine::DataModel::Objects::BasePart>> selectableParts;
     selectableParts.reserve(allParts.size());
     for (const auto& part : allParts) {
         if (part == nullptr) {
@@ -635,7 +635,7 @@ void StudioViewportToolLayer::PickSelection(const Engine::Utils::Ray& ray, const
     const auto* bvh = GetWorkspaceSelectionBVH();
     const auto [hitPart, distance] = bvh != nullptr
         ? Engine::Utils::RaycastPartBVH(ray, *bvh)
-        : std::pair<std::shared_ptr<Engine::Objects::BasePart>, double>{nullptr, std::numeric_limits<double>::infinity()};
+        : std::pair<std::shared_ptr<Engine::DataModel::Objects::BasePart>, double>{nullptr, std::numeric_limits<double>::infinity()};
     static_cast<void>(distance);
 
     if (hitPart == nullptr) {
@@ -868,7 +868,7 @@ bool StudioViewportToolLayer::TryBeginPartDrag(const Engine::Utils::Ray& ray) {
     const auto* bvh = GetWorkspaceRaycastBVH();
     const auto [hitPart, hitDistance] = bvh != nullptr
         ? Engine::Utils::RaycastPartBVH(ray, *bvh)
-        : std::pair<std::shared_ptr<Engine::Objects::BasePart>, double>{nullptr, std::numeric_limits<double>::infinity()};
+        : std::pair<std::shared_ptr<Engine::DataModel::Objects::BasePart>, double>{nullptr, std::numeric_limits<double>::infinity()};
     if (hitPart == nullptr || !std::isfinite(hitDistance)) {
         return false;
     }
@@ -890,7 +890,7 @@ bool StudioViewportToolLayer::TryBeginPartDrag(const Engine::Utils::Ray& ray) {
 
     const Engine::Math::Vector3 hitPoint = ray.Origin + ray.Direction * hitDistance;
 
-    std::vector<std::shared_ptr<Engine::Objects::BasePart>> dragParts;
+    std::vector<std::shared_ptr<Engine::DataModel::Objects::BasePart>> dragParts;
     if (selection_ != nullptr) {
         const auto topLevelSelected = Engine::Utils::FilterTopLevelInstances(selection_->Get());
         dragParts = Engine::Utils::CollectBasePartsFromInstances(topLevelSelected);
@@ -962,7 +962,7 @@ void StudioViewportToolLayer::UpdatePartDrag(const Engine::Utils::Ray& ray) {
     bool hasHitPlacement = false;
 
     if (const auto* bvh = GetWorkspaceRaycastBVH(); bvh != nullptr && !bvh->Parts.empty()) {
-        std::vector<std::shared_ptr<Engine::Objects::BasePart>> descendantsToExclude;
+        std::vector<std::shared_ptr<Engine::DataModel::Objects::BasePart>> descendantsToExclude;
         descendantsToExclude.reserve(state.Targets.size() * 2);
 
         for (const auto& target : state.Targets) {
@@ -971,7 +971,7 @@ void StudioViewportToolLayer::UpdatePartDrag(const Engine::Utils::Ray& ray) {
             }
             descendantsToExclude.push_back(target.Part);
             target.Part->ForEachDescendant([&descendantsToExclude](const std::shared_ptr<Engine::Core::Instance>& desc) {
-                if (const auto descPart = std::dynamic_pointer_cast<Engine::Objects::BasePart>(desc);
+                if (const auto descPart = std::dynamic_pointer_cast<Engine::DataModel::Objects::BasePart>(desc);
                     descPart != nullptr) {
                     descendantsToExclude.push_back(descPart);
                 }
@@ -1040,7 +1040,7 @@ void StudioViewportToolLayer::UpdatePartDrag(const Engine::Utils::Ray& ray) {
         nextWorld.Position = nextWorld.Position + deltaWorld;
 
         const auto parent = target.Part->GetParent();
-        if (const auto parentPart = std::dynamic_pointer_cast<Engine::Objects::BasePart>(parent); parentPart != nullptr) {
+        if (const auto parentPart = std::dynamic_pointer_cast<Engine::DataModel::Objects::BasePart>(parent); parentPart != nullptr) {
             const auto local = parentPart->GetWorldCFrame().Inverse() * nextWorld;
             target.Part->SetProperty("CFrame", local);
         } else {
@@ -1062,18 +1062,18 @@ Engine::Math::Vector3 StudioViewportToolLayer::SnapPosition(const Engine::Math::
     };
 }
 
-std::vector<std::shared_ptr<Engine::Objects::BasePart>> StudioViewportToolLayer::CollectWorkspaceParts(
-    const std::shared_ptr<Engine::Objects::BasePart>& ignore
+std::vector<std::shared_ptr<Engine::DataModel::Objects::BasePart>> StudioViewportToolLayer::CollectWorkspaceParts(
+    const std::shared_ptr<Engine::DataModel::Objects::BasePart>& ignore
 ) const {
     if (Engine::Utils::Benchmark::Enabled()) {
         LVS_BENCH_SCOPE("StudioViewportToolLayer::CollectWorkspaceParts");
     }
-    std::vector<std::shared_ptr<Engine::Objects::BasePart>> parts;
+    std::vector<std::shared_ptr<Engine::DataModel::Objects::BasePart>> parts;
     if (workspace_ == nullptr) {
         return parts;
     }
     workspace_->ForEachDescendant([&parts, &ignore](const std::shared_ptr<Engine::Core::Instance>& descendant) {
-        const auto part = std::dynamic_pointer_cast<Engine::Objects::BasePart>(descendant);
+        const auto part = std::dynamic_pointer_cast<Engine::DataModel::Objects::BasePart>(descendant);
         if (part == nullptr || part->GetParent() == nullptr || part == ignore) {
             return;
         }
@@ -1122,7 +1122,7 @@ void StudioViewportToolLayer::AppendGizmoSelectionBox(
             }
 
             if (entry.IsBasePart) {
-                const auto selected = std::dynamic_pointer_cast<Engine::Objects::BasePart>(instance);
+                const auto selected = std::dynamic_pointer_cast<Engine::DataModel::Objects::BasePart>(instance);
                 if (selected == nullptr || selected->GetParent() == nullptr) {
                     continue;
                 }
@@ -1250,9 +1250,9 @@ void StudioViewportToolLayer::AppendSelectionBoxInstances(
         if (adorneeProp.Is<Engine::Core::Variant::InstanceRef>()) {
             adorneeInstance = adorneeProp.Get<Engine::Core::Variant::InstanceRef>().lock();
         }
-        auto adorneePart = std::dynamic_pointer_cast<Engine::Objects::BasePart>(adorneeInstance);
+        auto adorneePart = std::dynamic_pointer_cast<Engine::DataModel::Objects::BasePart>(adorneeInstance);
         if (adorneePart == nullptr && adorneeInstance == nullptr) {
-            adorneePart = std::dynamic_pointer_cast<Engine::Objects::BasePart>(box->GetParent());
+            adorneePart = std::dynamic_pointer_cast<Engine::DataModel::Objects::BasePart>(box->GetParent());
         }
 
         std::optional<Engine::Math::AABB> bounds;
@@ -1306,7 +1306,7 @@ void StudioViewportToolLayer::AppendSelectionBoxInstances(
     }
 }
 
-void StudioViewportToolLayer::BeginGizmoHistory(const std::shared_ptr<Engine::Objects::BasePart>& targetOverride) {
+void StudioViewportToolLayer::BeginGizmoHistory(const std::shared_ptr<Engine::DataModel::Objects::BasePart>& targetOverride) {
     GizmoHistorySnapshot snapshot;
 
     if (selection_ != nullptr) {
@@ -1326,7 +1326,7 @@ void StudioViewportToolLayer::BeginGizmoHistory(const std::shared_ptr<Engine::Ob
     }
 
     if (snapshot.Instances.empty()) {
-        std::shared_ptr<Engine::Objects::BasePart> target = targetOverride;
+        std::shared_ptr<Engine::DataModel::Objects::BasePart> target = targetOverride;
         if (target == nullptr && gizmoSystem_ != nullptr) {
             target = gizmoSystem_->GetTargetPart();
         }
@@ -1389,7 +1389,7 @@ void StudioViewportToolLayer::RebuildSelectionCache() {
         CachedSelectionEntry entry;
         entry.Instance = instance;
 
-        if (const auto asPart = std::dynamic_pointer_cast<Engine::Objects::BasePart>(instance); asPart != nullptr) {
+        if (const auto asPart = std::dynamic_pointer_cast<Engine::DataModel::Objects::BasePart>(instance); asPart != nullptr) {
             entry.IsBasePart = true;
             entry.Parts.push_back(asPart);
             cachedSelectedParts_.insert(asPart.get());
@@ -1461,7 +1461,7 @@ void StudioViewportToolLayer::RescanSelectionBoxCache() {
     }
 
     workspace_->ForEachDescendant([this](const std::shared_ptr<Engine::Core::Instance>& descendant) {
-        const auto box = std::dynamic_pointer_cast<Engine::Objects::SelectionBox>(descendant);
+        const auto box = std::dynamic_pointer_cast<Engine::DataModel::Objects::SelectionBox>(descendant);
         if (box == nullptr) {
             return;
         }
@@ -1480,7 +1480,7 @@ void StudioViewportToolLayer::CommitGizmoHistory() {
 
     bool anyChanged = false;
     struct Change {
-        std::shared_ptr<Engine::Objects::BasePart> Instance;
+        std::shared_ptr<Engine::DataModel::Objects::BasePart> Instance;
         Engine::Math::CFrame OldCFrame;
         Engine::Math::CFrame NewCFrame;
         Engine::Math::Vector3 OldSize;

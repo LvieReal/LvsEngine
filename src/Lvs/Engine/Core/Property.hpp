@@ -13,6 +13,7 @@ public:
     [[nodiscard]] const PropertyDefinition& Definition() const;
     [[nodiscard]] const Variant& Get() const;
     void Set(const Variant& value);
+    void ReplaceDefinition(PropertyDefinition definition, bool preserveValue = true);
 
     Utils::Signal<const Variant&, const Variant&> Changed;
 

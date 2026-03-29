@@ -2,31 +2,20 @@
 
 #include "Lvs/Engine/DataModel/ClassRegistry.hpp"
 #include "Lvs/Engine/DataModel/Services/ServiceRegistry.hpp"
-#include "Lvs/Engine/Objects/Camera.hpp"
+#include "Lvs/Engine/DataModel/Objects/Camera.hpp"
+
+#include <mutex>
 
 namespace Lvs::Engine::DataModel {
 
 Core::ClassDescriptor& Workspace::Descriptor() {
     static Core::ClassDescriptor descriptor("Workspace", &Service::Descriptor());
-    static const bool initialized = []() {
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Core::Variant::InstanceRef>(
-            "CurrentCamera",
-            {},
-            true,
-            "Data",
-            {},
-            true,
-            {},
-            {},
-            true
-        ));
-
+    static std::once_flag registered;
+    std::call_once(registered, [&]() {
         Core::ClassDescriptor::RegisterClassDescriptor(&descriptor);
         ClassRegistry::RegisterClass<Workspace>("Workspace", "Services", "Service");
         ServiceRegistry::RegisterService<Workspace>();
-        return true;
-    }();
-    static_cast<void>(initialized);
+    });
     return descriptor;
 }
 

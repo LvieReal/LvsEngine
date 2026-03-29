@@ -58,6 +58,9 @@ std::filesystem::path FindAnchorDir() {
     for (auto root : roots) {
         root = NormalizePath(root);
         for (int i = 0; i < 6; ++i) {
+            if (std::filesystem::exists(root / "content")) {
+                return root;
+            }
             if (std::filesystem::exists(root / "src" / "Lvs" / "Engine" / "Content")) {
                 return root;
             }
@@ -77,6 +80,10 @@ std::filesystem::path FindAnchorDir() {
 std::filesystem::path ResourceRootPath() {
     static const std::filesystem::path root = []() {
         const std::filesystem::path anchor = FindAnchorDir();
+        const std::filesystem::path rootContent = anchor / "content";
+        if (std::filesystem::exists(rootContent)) {
+            return NormalizePath(rootContent);
+        }
         const std::filesystem::path devPath = anchor / "src" / "Lvs" / "Engine" / "Content";
         if (std::filesystem::exists(devPath)) {
             return NormalizePath(devPath);
@@ -186,4 +193,3 @@ Core::String ToOsPath(const Core::String& path) {
 }
 
 } // namespace Lvs::Engine::Utils::SourcePath
-

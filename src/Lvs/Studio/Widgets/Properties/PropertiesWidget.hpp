@@ -73,6 +73,7 @@ private:
     QPointer<QLabel> headerTitleLabel_;
     std::shared_ptr<Core::Settings::Connection> iconPackConnection_;
     std::optional<Engine::Utils::Signal<const Engine::Core::String&, const Engine::Core::Variant&>::Connection> propertyChangedConnection_;
+    std::optional<Engine::Utils::Signal<>::Connection> metadataReloadedConnection_;
     QPointer<QScrollArea> scroll_;
     QPointer<QWidget> contentRoot_;
     bool isBinding_{false};

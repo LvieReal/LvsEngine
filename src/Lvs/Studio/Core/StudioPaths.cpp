@@ -1,6 +1,6 @@
 #include "Lvs/Studio/Core/StudioPaths.hpp"
 
-#include "Lvs/Engine/Core/QtBridge.hpp"
+#include "Lvs/Qt/QtBridge.hpp"
 #include "Lvs/Engine/Utils/EngineDataPaths.hpp"
 #include "Lvs/Studio/Core/Settings.hpp"
 

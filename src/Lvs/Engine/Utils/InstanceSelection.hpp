@@ -2,7 +2,7 @@
 
 #include "Lvs/Engine/Core/Instance.hpp"
 #include "Lvs/Engine/Math/AABB.hpp"
-#include "Lvs/Engine/Objects/BasePart.hpp"
+#include "Lvs/Engine/DataModel/Objects/BasePart.hpp"
 #include "Lvs/Engine/Utils/Raycast.hpp"
 #include "Lvs/Engine/Utils/Benchmark.hpp"
 
@@ -60,18 +60,18 @@ inline std::vector<std::shared_ptr<Core::Instance>> FilterTopLevelInstances(
     return out;
 }
 
-inline std::vector<std::shared_ptr<Objects::BasePart>> CollectDescendantBaseParts(
+inline std::vector<std::shared_ptr<DataModel::Objects::BasePart>> CollectDescendantBaseParts(
     const std::shared_ptr<Core::Instance>& instance
 ) {
     if (Benchmark::Enabled()) {
         LVS_BENCH_SCOPE("InstanceSelection::CollectDescendantBaseParts");
     }
-    std::vector<std::shared_ptr<Objects::BasePart>> parts;
+    std::vector<std::shared_ptr<DataModel::Objects::BasePart>> parts;
     if (instance == nullptr) {
         return parts;
     }
 
-    if (const auto part = std::dynamic_pointer_cast<Objects::BasePart>(instance); part != nullptr) {
+    if (const auto part = std::dynamic_pointer_cast<DataModel::Objects::BasePart>(instance); part != nullptr) {
         parts.push_back(part);
         return parts;
     }
@@ -79,7 +79,7 @@ inline std::vector<std::shared_ptr<Objects::BasePart>> CollectDescendantBasePart
     const auto descendants = instance->GetDescendants();
     parts.reserve(descendants.size());
     for (const auto& desc : descendants) {
-        const auto part = std::dynamic_pointer_cast<Objects::BasePart>(desc);
+        const auto part = std::dynamic_pointer_cast<DataModel::Objects::BasePart>(desc);
         if (part == nullptr) {
             continue;
         }
@@ -88,14 +88,14 @@ inline std::vector<std::shared_ptr<Objects::BasePart>> CollectDescendantBasePart
     return parts;
 }
 
-inline std::vector<std::shared_ptr<Objects::BasePart>> CollectBasePartsFromInstances(
+inline std::vector<std::shared_ptr<DataModel::Objects::BasePart>> CollectBasePartsFromInstances(
     const std::vector<std::shared_ptr<Core::Instance>>& instances
 ) {
     if (Benchmark::Enabled()) {
         LVS_BENCH_SCOPE("InstanceSelection::CollectBasePartsFromInstances");
     }
-    std::vector<std::shared_ptr<Objects::BasePart>> out;
-    std::unordered_set<const Objects::BasePart*> seen;
+    std::vector<std::shared_ptr<DataModel::Objects::BasePart>> out;
+    std::unordered_set<const DataModel::Objects::BasePart*> seen;
 
     for (const auto& inst : instances) {
         const auto parts = CollectDescendantBaseParts(inst);
@@ -114,7 +114,7 @@ inline std::vector<std::shared_ptr<Objects::BasePart>> CollectBasePartsFromInsta
 }
 
 inline std::optional<Math::AABB> ComputeCombinedWorldAABB(
-    const std::vector<std::shared_ptr<Objects::BasePart>>& parts
+    const std::vector<std::shared_ptr<DataModel::Objects::BasePart>>& parts
 ) {
     if (Benchmark::Enabled()) {
         LVS_BENCH_SCOPE("InstanceSelection::ComputeCombinedWorldAABB");
@@ -147,15 +147,15 @@ inline std::optional<Math::AABB> ComputeCombinedWorldAABB(
     return combined;
 }
 
-inline std::shared_ptr<Objects::BasePart> ResolveLocalSpaceTargetPart(
+inline std::shared_ptr<DataModel::Objects::BasePart> ResolveLocalSpaceTargetPart(
     const std::shared_ptr<Core::Instance>& selectionPrimary,
-    const std::vector<std::shared_ptr<Objects::BasePart>>& selectionParts
+    const std::vector<std::shared_ptr<DataModel::Objects::BasePart>>& selectionParts
 ) {
     if (selectionPrimary == nullptr) {
         return !selectionParts.empty() ? selectionParts.front() : nullptr;
     }
 
-    if (const auto primaryPart = std::dynamic_pointer_cast<Objects::BasePart>(selectionPrimary);
+    if (const auto primaryPart = std::dynamic_pointer_cast<DataModel::Objects::BasePart>(selectionPrimary);
         primaryPart != nullptr) {
         return primaryPart;
     }
@@ -164,7 +164,7 @@ inline std::shared_ptr<Objects::BasePart> ResolveLocalSpaceTargetPart(
         const auto primaryVar = selectionPrimary->GetProperty("PrimaryPart");
         if (primaryVar.Is<Core::Variant::InstanceRef>()) {
             if (const auto locked = primaryVar.Get<Core::Variant::InstanceRef>().lock()) {
-                if (const auto asPart = std::dynamic_pointer_cast<Objects::BasePart>(locked);
+                if (const auto asPart = std::dynamic_pointer_cast<DataModel::Objects::BasePart>(locked);
                     asPart != nullptr && asPart->GetParent() != nullptr) {
                     return asPart;
                 }

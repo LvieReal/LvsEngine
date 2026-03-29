@@ -6,45 +6,22 @@
 #include "Lvs/Engine/Enums/LightingComputationMode.hpp"
 #include "Lvs/Engine/Enums/LightingTechnology.hpp"
 #include "Lvs/Engine/Math/Color3.hpp"
-#include "Lvs/Engine/Objects/DirectionalLight.hpp"
-#include "Lvs/Engine/Objects/PostEffects.hpp"
-#include "Lvs/Engine/Objects/Skybox.hpp"
+#include "Lvs/Engine/DataModel/Objects/DirectionalLight.hpp"
+#include "Lvs/Engine/DataModel/Objects/PostEffects.hpp"
+#include "Lvs/Engine/DataModel/Objects/Skybox.hpp"
+
+#include <mutex>
 
 namespace Lvs::Engine::DataModel {
 
 Core::ClassDescriptor& Lighting::Descriptor() {
     static Core::ClassDescriptor descriptor("Lighting", &Service::Descriptor());
-    static const bool initialized = []() {
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Math::Color3>(
-            "Ambient", Math::Color3{1.0, 1.0, 1.0}, true, "Rendering", "Global ambient color."
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
-            "AmbientStrength", 0.1, true, "Rendering", "Global ambient strength."
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Enums::LightingTechnology>(
-            "Technology", Enums::LightingTechnology::Default, true, "Rendering", "Controls the lighting style."
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Enums::LightingComputationMode>(
-            "Shading",
-            Enums::LightingComputationMode::PerPixel,
-            true,
-            "Rendering",
-            "Selects per-fragment or legacy per-vertex lighting."
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
-            "FresnelAmount",
-            1.0,
-            true,
-            "Rendering",
-            "Scales Fresnel term contribution (0 disables angle-dependent Fresnel, 1 is default)."
-        ));
-
+    static std::once_flag registered;
+    std::call_once(registered, [&]() {
         Core::ClassDescriptor::RegisterClassDescriptor(&descriptor);
         ClassRegistry::RegisterClass<Lighting>("Lighting", "Services", "Service");
         ServiceRegistry::RegisterService<Lighting>();
-        return true;
-    }();
-    static_cast<void>(initialized);
+    });
     return descriptor;
 }
 

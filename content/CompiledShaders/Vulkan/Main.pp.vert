@@ -15,7 +15,7 @@ layout(set = 0, binding = 0) uniform CameraUBO {
 } camera;
 
 
-// --- include begin: D:\VSCode\PROJECTS\LvsEngine\src\Lvs\Engine\Content\Shaders\Utils\LightingTypes.glsl
+// --- include begin: D:\VSCode\PROJECTS\LvsEngine\content\Shaders\Utils\LightingTypes.glsl
 
 #ifndef LVS_UTIL_LIGHTING_TYPES_GLSL
 #define LVS_UTIL_LIGHTING_TYPES_GLSL
@@ -49,7 +49,7 @@ layout(set = 0, binding = 10, std430) readonly buffer LightsSSBO {
 
 
 
-// --- include end: D:\VSCode\PROJECTS\LvsEngine\src\Lvs\Engine\Content\Shaders\Utils\LightingTypes.glsl
+// --- include end: D:\VSCode\PROJECTS\LvsEngine\content\Shaders\Utils\LightingTypes.glsl
 
 struct InstanceData {
     mat4 model;
@@ -77,7 +77,7 @@ layout(location = 6) out vec3 fragLocalNormal;
 layout(location = 7) flat out uint fragInstanceIndex;
 
 
-// --- include begin: D:\VSCode\PROJECTS\LvsEngine\src\Lvs\Engine\Content\Shaders\Utils\LightingBRDF.glsl
+// --- include begin: D:\VSCode\PROJECTS\LvsEngine\content\Shaders\Utils\LightingBRDF.glsl
 
 #ifndef LVS_UTIL_LIGHTING_BRDF_GLSL
 #define LVS_UTIL_LIGHTING_BRDF_GLSL
@@ -149,7 +149,7 @@ vec3 SpecularCookTorrance(vec3 N, vec3 V, vec3 L, vec3 H, vec3 F, float effectiv
 
 
 
-// --- include end: D:\VSCode\PROJECTS\LvsEngine\src\Lvs\Engine\Content\Shaders\Utils\LightingBRDF.glsl
+// --- include end: D:\VSCode\PROJECTS\LvsEngine\content\Shaders\Utils\LightingBRDF.glsl
 
 void main() {
     uint instanceIndex = pushData.data.x + gl_InstanceIndex;

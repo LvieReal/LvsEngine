@@ -6,12 +6,12 @@
 #include "Lvs/Engine/Enums/LightingComputationMode.hpp"
 #include "Lvs/Engine/Enums/PartSurfaceType.hpp"
 #include "Lvs/Engine/Math/CFrame.hpp"
-#include "Lvs/Engine/Objects/BasePart.hpp"
-#include "Lvs/Engine/Objects/Camera.hpp"
-#include "Lvs/Engine/Objects/DirectionalLight.hpp"
-#include "Lvs/Engine/Objects/MeshPart.hpp"
-#include "Lvs/Engine/Objects/Part.hpp"
-#include "Lvs/Engine/Objects/PostEffects.hpp"
+#include "Lvs/Engine/DataModel/Objects/BasePart.hpp"
+#include "Lvs/Engine/DataModel/Objects/Camera.hpp"
+#include "Lvs/Engine/DataModel/Objects/DirectionalLight.hpp"
+#include "Lvs/Engine/DataModel/Objects/MeshPart.hpp"
+#include "Lvs/Engine/DataModel/Objects/Part.hpp"
+#include "Lvs/Engine/DataModel/Objects/PostEffects.hpp"
 #include "Lvs/Engine/Rendering/Context/RenderContextUtils.hpp"
 
 #include <algorithm>
@@ -45,9 +45,9 @@ Common::CameraUniformData RenderContext::BuildCameraUniforms() {
             ambientColor,
             static_cast<float>(std::clamp(lightingService->GetProperty("AmbientStrength").toDouble(), 0.0, 1.0))
         );
-        std::shared_ptr<Objects::PostEffects> postEffects{};
+        std::shared_ptr<DataModel::Objects::PostEffects> postEffects{};
         for (const auto& child : lightingService->GetChildren()) {
-            postEffects = std::dynamic_pointer_cast<Objects::PostEffects>(child);
+            postEffects = std::dynamic_pointer_cast<DataModel::Objects::PostEffects>(child);
             if (postEffects != nullptr) {
                 break;
             }
@@ -74,10 +74,10 @@ Common::CameraUniformData RenderContext::BuildCameraUniforms() {
     }
 
     const auto cameraVar = workspaceService->GetProperty("CurrentCamera");
-    std::shared_ptr<Objects::Camera> camera{};
+    std::shared_ptr<DataModel::Objects::Camera> camera{};
     if (cameraVar.Is<Core::Variant::InstanceRef>()) {
         if (const auto locked = cameraVar.Get<Core::Variant::InstanceRef>().lock()) {
-            camera = std::dynamic_pointer_cast<Objects::Camera>(locked);
+            camera = std::dynamic_pointer_cast<DataModel::Objects::Camera>(locked);
         }
     }
     if (camera == nullptr) {
@@ -115,10 +115,10 @@ Common::SkyboxPushConstants RenderContext::BuildSkyboxPushConstants() const {
         return push;
     }
     const auto cameraVar = workspaceService->GetProperty("CurrentCamera");
-    std::shared_ptr<Objects::Camera> camera{};
+    std::shared_ptr<DataModel::Objects::Camera> camera{};
     if (cameraVar.Is<Core::Variant::InstanceRef>()) {
         if (const auto locked = cameraVar.Get<Core::Variant::InstanceRef>().lock()) {
-            camera = std::dynamic_pointer_cast<Objects::Camera>(locked);
+            camera = std::dynamic_pointer_cast<DataModel::Objects::Camera>(locked);
         }
     }
     if (camera == nullptr) {

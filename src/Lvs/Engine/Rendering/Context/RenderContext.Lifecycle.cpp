@@ -4,6 +4,8 @@
 #include "Lvs/Engine/Rendering/Backends/Vulkan/VulkanContext.hpp"
 #include "Lvs/Engine/Rendering/Context/RenderContextUtils.hpp"
 #include "Lvs/Engine/Utils/Benchmark.hpp"
+#include "Lvs/Engine/Core/ExternalMetadata.hpp"
+#include "Lvs/Engine/DataModel/Place.hpp"
 
 #include <cstring>
 
@@ -71,11 +73,25 @@ void RenderContext::SetClearColor(const float r, const float g, const float b, c
 }
 
 void RenderContext::BindToPlace(const std::shared_ptr<DataModel::Place>& place) {
+    if (metadataRoot_ != nullptr) {
+        Core::ExternalMetadata::Get().UnregisterRoot(metadataRoot_);
+        metadataRoot_.reset();
+    }
     place_ = place;
+    if (place_ != nullptr) {
+        metadataRoot_ = place_->GetDataModel();
+        if (metadataRoot_ != nullptr) {
+            Core::ExternalMetadata::Get().RegisterRoot(metadataRoot_);
+        }
+    }
     ClearGeometryCache();
 }
 
 void RenderContext::Unbind() {
+    if (metadataRoot_ != nullptr) {
+        Core::ExternalMetadata::Get().UnregisterRoot(metadataRoot_);
+        metadataRoot_.reset();
+    }
     place_.reset();
     overlayPrimitives_.clear();
     ClearGeometryCache();

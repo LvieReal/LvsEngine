@@ -36,7 +36,7 @@ class Selection;
 class Workspace;
 }
 
-namespace Lvs::Engine::Objects {
+namespace Lvs::Engine::DataModel::Objects {
 class BasePart;
 class SelectionBox;
 }
@@ -88,8 +88,8 @@ private:
     void UpdatePartDrag(const Engine::Utils::Ray& ray);
     void EndPartDrag();
     Engine::Math::Vector3 SnapPosition(const Engine::Math::Vector3& value) const;
-    std::vector<std::shared_ptr<Engine::Objects::BasePart>> CollectWorkspaceParts(
-        const std::shared_ptr<Engine::Objects::BasePart>& ignore = nullptr
+    std::vector<std::shared_ptr<Engine::DataModel::Objects::BasePart>> CollectWorkspaceParts(
+        const std::shared_ptr<Engine::DataModel::Objects::BasePart>& ignore = nullptr
     ) const;
     void AppendGizmoSelectionBox(
         std::vector<Engine::Rendering::Common::OverlayPrimitive>& overlay
@@ -97,7 +97,7 @@ private:
     void AppendSelectionBoxInstances(
         std::vector<Engine::Rendering::Common::OverlayPrimitive>& overlay
     ) const;
-    void BeginGizmoHistory(const std::shared_ptr<Engine::Objects::BasePart>& targetOverride = nullptr);
+    void BeginGizmoHistory(const std::shared_ptr<Engine::DataModel::Objects::BasePart>& targetOverride = nullptr);
     void CommitGizmoHistory();
 
     Engine::EngineContextPtr context_;
@@ -111,9 +111,9 @@ private:
     bool gizmoDragging_{false};
     bool partDragging_{false};
     struct PartDragState {
-        std::shared_ptr<Engine::Objects::BasePart> Instance;
+        std::shared_ptr<Engine::DataModel::Objects::BasePart> Instance;
         struct TargetSnapshot {
-            std::shared_ptr<Engine::Objects::BasePart> Part;
+            std::shared_ptr<Engine::DataModel::Objects::BasePart> Part;
             Engine::Math::CFrame StartWorldCFrame;
         };
         std::vector<TargetSnapshot> Targets;
@@ -126,18 +126,18 @@ private:
         double FallbackDepth{8.0};
     };
     std::optional<PartDragState> partDragState_;
-    std::shared_ptr<Engine::Objects::BasePart> hoveredPart_;
+    std::shared_ptr<Engine::DataModel::Objects::BasePart> hoveredPart_;
     std::weak_ptr<Engine::Core::Instance> hoveredBoundsKey_;
     std::optional<Engine::Math::AABB> hoveredBoundsCache_;
 
     struct CachedSelectionEntry {
         std::shared_ptr<Engine::Core::Instance> Instance;
         bool IsBasePart{false};
-        std::vector<std::shared_ptr<Engine::Objects::BasePart>> Parts;
+        std::vector<std::shared_ptr<Engine::DataModel::Objects::BasePart>> Parts;
         std::optional<Engine::Math::AABB> Bounds;
     };
     std::vector<CachedSelectionEntry> cachedTopLevelSelection_;
-    std::unordered_set<const Engine::Objects::BasePart*> cachedSelectedParts_;
+    std::unordered_set<const Engine::DataModel::Objects::BasePart*> cachedSelectedParts_;
     bool cachedSelectionBoundsDirty_{true};
     Engine::Utils::Signal<const std::vector<std::shared_ptr<Engine::Core::Instance>>&>::Connection selectionChangedConnection_;
     std::vector<Engine::Core::Instance::PropertyChangedConnection> cachedSelectionPartPropertyChanged_;
@@ -145,7 +145,7 @@ private:
 
     bool selectionBoxCacheDirty_{true};
     double selectionBoxRescanSeconds_{0.0};
-    std::vector<std::weak_ptr<Engine::Objects::SelectionBox>> selectionBoxCache_;
+    std::vector<std::weak_ptr<Engine::DataModel::Objects::SelectionBox>> selectionBoxCache_;
     struct WorkspaceRaycastCache {
         Engine::Utils::PartBVH Bvh;
         Engine::Utils::PartBVH SelectionBvh;
@@ -172,7 +172,7 @@ private:
     bool gizmoSizeCollisions_{true};
     struct GizmoHistorySnapshot {
         struct TransformSnapshot {
-            std::shared_ptr<Engine::Objects::BasePart> Instance;
+            std::shared_ptr<Engine::DataModel::Objects::BasePart> Instance;
             Engine::Math::CFrame CFrame;
             Engine::Math::Vector3 Size;
         };

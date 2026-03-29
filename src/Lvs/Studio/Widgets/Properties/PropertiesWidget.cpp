@@ -3,7 +3,8 @@
 #include "Lvs/Engine/Core/Instance.hpp"
 #include "Lvs/Engine/Core/Property.hpp"
 #include "Lvs/Engine/Core/PropertyTags.hpp"
-#include "Lvs/Engine/Core/QtBridge.hpp"
+#include "Lvs/Qt/QtBridge.hpp"
+#include "Lvs/Engine/Core/ExternalMetadata.hpp"
 #include "Lvs/Studio/Core/RegularError.hpp"
 #include "Lvs/Engine/Enums/EnumMetadata.hpp"
 #include "Lvs/Engine/DataModel/Services/ChangeHistoryService.hpp"
@@ -11,7 +12,7 @@
 #include "Lvs/Engine/Math/Color3.hpp"
 #include "Lvs/Engine/Utils/Command.hpp"
 #include "Lvs/Studio/Core/IconPackManager.hpp"
-#include "Lvs/Studio/Core/QtMetaTypes.hpp"
+#include "Lvs/Qt/QtMetaTypes.hpp"
 #include "Lvs/Studio/Widgets/Properties/PathEditor.hpp"
 #include "Lvs/Studio/Widgets/Properties/PropertyEditorUtils.hpp"
 #include "Lvs/Studio/Widgets/Properties/PropertyValueUtils.hpp"
@@ -107,12 +108,23 @@ PropertiesWidget::PropertiesWidget(const std::shared_ptr<Engine::DataModel::Plac
             headerIconLabel_->setPixmap(Core::GetIconPackManager().GetPixmapForInstance(instance_));
         })
     );
+
+    metadataReloadedConnection_ = Engine::Core::ExternalMetadata::Get().Reloaded.Connect([this]() {
+        if (instance_ == nullptr) {
+            return;
+        }
+        RebuildForCurrentInstance();
+    });
 }
 
 PropertiesWidget::~PropertiesWidget() {
     if (iconPackConnection_ != nullptr) {
         iconPackConnection_->Disconnect();
         iconPackConnection_.reset();
+    }
+    if (metadataReloadedConnection_.has_value()) {
+        metadataReloadedConnection_->Disconnect();
+        metadataReloadedConnection_.reset();
     }
     isBinding_ = false;
     clearQueued_ = false;

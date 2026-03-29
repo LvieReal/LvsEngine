@@ -18,32 +18,52 @@
 #include "Lvs/Engine/Math/CFrame.hpp"
 #include "Lvs/Engine/Math/Color3.hpp"
 #include "Lvs/Engine/Math/Vector3.hpp"
-#include "Lvs/Engine/Objects/BasePart.hpp"
-#include "Lvs/Engine/Objects/Camera.hpp"
-#include "Lvs/Engine/Objects/DirectionalLight.hpp"
-#include "Lvs/Engine/Objects/Light.hpp"
-#include "Lvs/Engine/Objects/Model.hpp"
-#include "Lvs/Engine/Objects/MeshPart.hpp"
-#include "Lvs/Engine/Objects/Part.hpp"
-#include "Lvs/Engine/Objects/PostEffects.hpp"
-#include "Lvs/Engine/Objects/SelectionBox.hpp"
-#include "Lvs/Engine/Objects/Skybox.hpp"
-#include "Lvs/Engine/Objects/Folder.hpp"
+#include "Lvs/Engine/DataModel/Objects/BasePart.hpp"
+#include "Lvs/Engine/DataModel/Objects/Camera.hpp"
+#include "Lvs/Engine/DataModel/Objects/DirectionalLight.hpp"
+#include "Lvs/Engine/DataModel/Objects/Light.hpp"
+#include "Lvs/Engine/DataModel/Objects/Model.hpp"
+#include "Lvs/Engine/DataModel/Objects/MeshPart.hpp"
+#include "Lvs/Engine/DataModel/Objects/Part.hpp"
+#include "Lvs/Engine/DataModel/Objects/PostEffects.hpp"
+#include "Lvs/Engine/DataModel/Objects/SelectionBox.hpp"
+#include "Lvs/Engine/DataModel/Objects/Skybox.hpp"
+#include "Lvs/Engine/DataModel/Objects/Folder.hpp"
+#include "Lvs/Engine/Reflection/ReflectionSystem.hpp"
+#include "Lvs/Engine/Utils/Toml.hpp"
 
 #include <array>
+#include <cctype>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <iomanip>
 #include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 namespace Lvs::Engine::DataModel {
 
 namespace {
 constexpr auto FILE_FORMAT_VERSION = "1";
+
+[[nodiscard]] std::string_view LTrim(std::string_view s) {
+    while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front()))) {
+        s.remove_prefix(1);
+    }
+    return s;
+}
+
+[[nodiscard]] Place::FileFormat DetectFileFormat(std::string_view text) {
+    const auto trimmed = LTrim(text);
+    if (!trimmed.empty() && trimmed.front() == '<') {
+        return Place::FileFormat::Xml;
+    }
+    return Place::FileFormat::Toml;
+}
 
 [[nodiscard]] Core::String GetAttr(IO::IXmlReader& reader, const Core::String& name) {
     const auto attrs = reader.Attributes();
@@ -64,30 +84,6 @@ constexpr auto FILE_FORMAT_VERSION = "1";
         start = pos + 1;
     }
     return out;
-}
-
-void EnsureBuiltinRegistrations() {
-    static const bool initialized = []() {
-        (void)DataModel::Descriptor();
-        (void)Service::Descriptor();
-        (void)Workspace::Descriptor();
-        (void)Lighting::Descriptor();
-        (void)QualitySettings::Descriptor();
-        (void)Selection::Descriptor();
-        (void)ChangeHistoryService::Descriptor();
-        (void)Objects::BasePart::Descriptor();
-        (void)Objects::Part::Descriptor();
-        (void)Objects::MeshPart::Descriptor();
-        (void)Objects::Camera::Descriptor();
-        (void)Objects::Light::Descriptor();
-        (void)Objects::DirectionalLight::Descriptor();
-        (void)Objects::Skybox::Descriptor();
-        (void)Objects::SelectionBox::Descriptor();
-        (void)Objects::Model::Descriptor();
-        (void)Objects::Folder::Descriptor();
-        return true;
-    }();
-    static_cast<void>(initialized);
 }
 
 void EnsureWorkspaceCurrentCamera(const std::shared_ptr<Workspace>& workspace) {
@@ -117,6 +113,188 @@ void EnsureWorkspaceCurrentCamera(const std::shared_ptr<Workspace>& workspace) {
     workspace->SetProperty("CurrentCamera", Core::Variant::InstanceRef{camera});
 }
 
+void SetTomlValue(Utils::Toml::Table& table, const Core::String& key, Utils::Toml::Value value) {
+    for (auto& [k, v] : table.Values) {
+        if (k == key) {
+            v = std::move(value);
+            return;
+        }
+    }
+    table.Values.emplace_back(key, std::move(value));
+}
+
+[[nodiscard]] Utils::Toml::Value VariantToTomlValue(const Core::Variant& value, const Core::PropertyDefinition& definition) {
+    Utils::Toml::Value out;
+    if (!value.IsValid() || value.IsNull()) {
+        return out;
+    }
+
+    switch (definition.Type) {
+    case Core::TypeId::Bool:
+        out.Storage = value.toBool();
+        return out;
+    case Core::TypeId::Int:
+        out.Storage = static_cast<std::int64_t>(value.toLongLong());
+        return out;
+    case Core::TypeId::Double:
+        out.Storage = value.toDouble();
+        return out;
+    case Core::TypeId::String:
+        out.Storage = value.Get<Core::String>();
+        return out;
+    case Core::TypeId::Enum: {
+        const auto enumTypeIt = definition.CustomAttributes.find("EnumType");
+        if (enumTypeIt != definition.CustomAttributes.end() && enumTypeIt->second.Is<Core::String>()) {
+            const auto name = Enums::Metadata::NameFromInt(enumTypeIt->second.Get<Core::String>(), value.toInt());
+            if (!name.empty()) {
+                out.Storage = name;
+                return out;
+            }
+        }
+        out.Storage = static_cast<std::int64_t>(value.toInt());
+        return out;
+    }
+    case Core::TypeId::Vector3: {
+        const auto v = value.Get<Math::Vector3>();
+        Utils::Toml::Array arr;
+        arr.push_back(Utils::Toml::Value{.Storage = v.x});
+        arr.push_back(Utils::Toml::Value{.Storage = v.y});
+        arr.push_back(Utils::Toml::Value{.Storage = v.z});
+        out.Storage = std::move(arr);
+        return out;
+    }
+    case Core::TypeId::Color3: {
+        const auto c = value.Get<Math::Color3>();
+        Utils::Toml::Array arr;
+        arr.push_back(Utils::Toml::Value{.Storage = c.r});
+        arr.push_back(Utils::Toml::Value{.Storage = c.g});
+        arr.push_back(Utils::Toml::Value{.Storage = c.b});
+        out.Storage = std::move(arr);
+        return out;
+    }
+    case Core::TypeId::CFrame: {
+        const auto c = value.Get<Math::CFrame>();
+        if (c == Math::CFrame::Identity()) {
+            out.Storage = Core::String("identity");
+            return out;
+        }
+
+        auto vec3Arr = [](const Math::Vector3& v3) -> Utils::Toml::Value {
+            Utils::Toml::Array a;
+            a.push_back(Utils::Toml::Value{.Storage = v3.x});
+            a.push_back(Utils::Toml::Value{.Storage = v3.y});
+            a.push_back(Utils::Toml::Value{.Storage = v3.z});
+            return Utils::Toml::Value{.Storage = std::move(a)};
+        };
+
+        Utils::Toml::Array rows;
+        rows.push_back(vec3Arr(c.Position));
+        rows.push_back(vec3Arr(c.Right));
+        rows.push_back(vec3Arr(c.Up));
+        rows.push_back(vec3Arr(c.Back));
+        out.Storage = std::move(rows);
+        return out;
+    }
+    case Core::TypeId::Invalid:
+    case Core::TypeId::InstanceRef:
+    case Core::TypeId::ByteArray:
+        return out;
+    }
+
+    out.Storage = value.toString();
+    return out;
+}
+
+[[nodiscard]] std::optional<Core::Variant> TomlValueToVariant(
+    const Utils::Toml::Value& value,
+    const Core::PropertyDefinition& definition
+) {
+    if (definition.IsInstanceReference) {
+        return std::nullopt;
+    }
+
+    switch (definition.Type) {
+    case Core::TypeId::Bool:
+        if (value.IsBool()) return Core::Variant::From(value.AsBool());
+        return std::nullopt;
+    case Core::TypeId::Int:
+        if (value.IsInt()) return Core::Variant::From(static_cast<std::int64_t>(value.AsInt()));
+        if (value.IsDouble()) return Core::Variant::From(static_cast<std::int64_t>(value.AsDouble()));
+        return std::nullopt;
+    case Core::TypeId::Double:
+        if (value.IsDouble() || value.IsInt()) return Core::Variant::From(value.AsDouble());
+        return std::nullopt;
+    case Core::TypeId::String:
+        if (value.IsString()) return Core::Variant::From(value.AsString());
+        return std::nullopt;
+    case Core::TypeId::Enum: {
+        const auto enumTypeIt = definition.CustomAttributes.find("EnumType");
+        const Core::String enumType = (enumTypeIt != definition.CustomAttributes.end() && enumTypeIt->second.Is<Core::String>())
+            ? enumTypeIt->second.Get<Core::String>()
+            : Core::String{};
+
+        if (value.IsString()) {
+            if (!enumType.empty() && Enums::Metadata::IsRegisteredEnum(enumType)) {
+                const auto v = Enums::Metadata::VariantFromName(enumType, value.AsString());
+                if (v.IsValid()) {
+                    return v;
+                }
+            }
+            return Core::Variant::From(0);
+        }
+        if (value.IsInt()) {
+            return Core::Variant::From(static_cast<int>(value.AsInt()));
+        }
+        if (value.IsDouble()) {
+            return Core::Variant::From(static_cast<int>(value.AsDouble()));
+        }
+        return std::nullopt;
+    }
+    case Core::TypeId::Vector3: {
+        if (!value.IsArray() || value.AsArray().size() != 3) return std::nullopt;
+        const auto& a = value.AsArray();
+        return Core::Variant::From(Math::Vector3{a[0].AsDouble(), a[1].AsDouble(), a[2].AsDouble()});
+    }
+    case Core::TypeId::Color3: {
+        if (!value.IsArray() || value.AsArray().size() != 3) return std::nullopt;
+        const auto& a = value.AsArray();
+        return Core::Variant::From(Math::Color3{a[0].AsDouble(), a[1].AsDouble(), a[2].AsDouble()});
+    }
+    case Core::TypeId::CFrame: {
+        if (value.IsString()) {
+            Core::String lowered;
+            lowered.reserve(value.AsString().size());
+            for (const char ch : value.AsString()) {
+                lowered.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+            }
+            if (lowered == "identity") {
+                return Core::Variant::From(Math::CFrame::Identity());
+            }
+            return std::nullopt;
+        }
+        if (!value.IsArray()) return std::nullopt;
+        const auto& rows = value.AsArray();
+        if (rows.size() != 4) return std::nullopt;
+        auto parseVec = [](const Utils::Toml::Value& v) -> std::optional<Math::Vector3> {
+            if (!v.IsArray() || v.AsArray().size() != 3) return std::nullopt;
+            const auto& a = v.AsArray();
+            return Math::Vector3{a[0].AsDouble(), a[1].AsDouble(), a[2].AsDouble()};
+        };
+        const auto p = parseVec(rows[0]);
+        const auto r = parseVec(rows[1]);
+        const auto u = parseVec(rows[2]);
+        const auto b = parseVec(rows[3]);
+        if (!p || !r || !u || !b) return std::nullopt;
+        return Core::Variant::From(Math::CFrame{*p, *r, *u, *b});
+    }
+    case Core::TypeId::Invalid:
+    case Core::TypeId::InstanceRef:
+    case Core::TypeId::ByteArray:
+        return std::nullopt;
+    }
+    return std::nullopt;
+}
+
 } // namespace
 
 Place::Place() {
@@ -126,8 +304,8 @@ Place::Place() {
 std::shared_ptr<Place> Place::LoadFromFile(const Core::String& filePath) {
     const auto fs = IO::Providers::GetFileSystem();
     const auto xml = IO::Providers::GetXml();
-    if (!fs || !xml) {
-        throw std::runtime_error("Place::LoadFromFile requires IO providers (FileSystem + Xml) to be registered.");
+    if (!fs) {
+        throw std::runtime_error("Place::LoadFromFile requires an IO FileSystem provider to be registered.");
     }
 
     const auto text = fs->ReadAllText(filePath);
@@ -135,26 +313,51 @@ std::shared_ptr<Place> Place::LoadFromFile(const Core::String& filePath) {
         throw std::runtime_error("Failed to read place file: " + filePath);
     }
 
-    auto reader = xml->CreateReaderFromText(*text);
-    if (!reader || !reader->ReadNextStartElement() || reader->Name() != "Place") {
-        throw std::runtime_error("Invalid place file: expected root <Place>.");
-    }
-    if (reader->HasError()) {
-        throw std::runtime_error("Invalid place file: " + reader->ErrorString());
-    }
-
     auto place = std::make_shared<Place>();
-    place->LoadFromXmlRoot(*reader);
+    const FileFormat format = DetectFileFormat(*text);
+    place->loadedFormat_ = format;
+    place->preferredSaveFormat_ = format;
+
+    if (format == FileFormat::Xml) {
+        if (!xml) {
+            throw std::runtime_error("Place::LoadFromFile requires an IO Xml provider to open XML place files.");
+        }
+        auto reader = xml->CreateReaderFromText(*text);
+        if (!reader || !reader->ReadNextStartElement() || reader->Name() != "Place") {
+            throw std::runtime_error("Invalid place file: expected root <Place>.");
+        }
+        if (reader->HasError()) {
+            throw std::runtime_error("Invalid place file: " + reader->ErrorString());
+        }
+        place->LoadFromXmlRoot(*reader);
+    } else {
+        place->LoadFromTomlText(*text);
+    }
     place->SetFilePath(filePath);
     place->MarkDirty(false);
     return place;
 }
 
 void Place::SaveToFile(const Core::String& filePath) {
+    const auto ext = std::filesystem::path(filePath).extension().string();
+    FileFormat format = preferredSaveFormat_;
+    if (!ext.empty()) {
+        Core::String lower(ext.data(), ext.size());
+        for (char& ch : lower) {
+            ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        }
+        if (lower == ".xml") {
+            format = FileFormat::Xml;
+        }
+    }
+    SaveToFileAs(filePath, format);
+}
+
+void Place::SaveToFileAs(const Core::String& filePath, const FileFormat format) {
     const auto fs = IO::Providers::GetFileSystem();
     const auto xml = IO::Providers::GetXml();
-    if (!fs || !xml) {
-        throw std::runtime_error("Place::SaveToFile requires IO providers (FileSystem + Xml) to be registered.");
+    if (!fs) {
+        throw std::runtime_error("Place::SaveToFile requires an IO FileSystem provider to be registered.");
     }
 
     const std::filesystem::path path(filePath);
@@ -166,41 +369,67 @@ void Place::SaveToFile(const Core::String& filePath) {
         }
     }
 
-    auto writer = xml->CreateWriter();
-    if (!writer) {
-        throw std::runtime_error("XML provider returned a null writer.");
-    }
-
-    writer->WriteStartDocument();
-    writer->WriteStartElement("Place");
-    writer->WriteAttribute("Version", FILE_FORMAT_VERSION);
-
-    for (const auto& [serviceName, service] : services_) {
-        if (service->IsHiddenService()) {
-            continue;
+    if (format == FileFormat::Xml) {
+        if (!xml) {
+            throw std::runtime_error("Place::SaveToFile requires an IO Xml provider to save XML place files.");
         }
 
-        writer->WriteStartElement("Service");
-        writer->WriteAttribute("Name", serviceName);
-        SerializeProperties(service, *writer);
-
-        writer->WriteStartElement("Instances");
-        for (const auto& child : service->GetChildren()) {
-            SerializeInstanceRecursive(child, *writer);
+        auto writer = xml->CreateWriter();
+        if (!writer) {
+            throw std::runtime_error("XML provider returned a null writer.");
         }
-        writer->WriteEndElement(); // Instances
-        writer->WriteEndElement(); // Service
-    }
 
-    writer->WriteEndElement(); // Place
-    writer->WriteEndDocument();
+        writer->WriteStartDocument();
+        writer->WriteStartElement("Place");
+        writer->WriteAttribute("Version", FILE_FORMAT_VERSION);
 
-    if (!fs->WriteAllText(filePath, writer->GetText())) {
-        throw std::runtime_error("Failed to write place file: " + filePath);
+        for (const auto& [serviceName, service] : services_) {
+            if (service->IsHiddenService()) {
+                continue;
+            }
+
+            writer->WriteStartElement("Service");
+            writer->WriteAttribute("Name", serviceName);
+            SerializeProperties(service, *writer);
+
+            writer->WriteStartElement("Instances");
+            for (const auto& child : service->GetChildren()) {
+                SerializeInstanceRecursive(child, *writer);
+            }
+            writer->WriteEndElement(); // Instances
+            writer->WriteEndElement(); // Service
+        }
+
+        writer->WriteEndElement(); // Place
+        writer->WriteEndDocument();
+
+        if (!fs->WriteAllText(filePath, writer->GetText())) {
+            throw std::runtime_error("Failed to write place file: " + filePath);
+        }
+    } else {
+        Core::String toml;
+        SerializeToToml(toml);
+        if (!fs->WriteAllText(filePath, toml)) {
+            throw std::runtime_error("Failed to write place file: " + filePath);
+        }
     }
 
     SetFilePath(filePath);
+    loadedFormat_ = format;
+    preferredSaveFormat_ = format;
     MarkDirty(false);
+}
+
+Place::FileFormat Place::GetLoadedFileFormat() const {
+    return loadedFormat_;
+}
+
+Place::FileFormat Place::GetPreferredSaveFormat() const {
+    return preferredSaveFormat_;
+}
+
+void Place::SetPreferredSaveFormat(const FileFormat format) {
+    preferredSaveFormat_ = format;
 }
 
 std::shared_ptr<DataModel> Place::GetDataModel() const {
@@ -248,7 +477,7 @@ void Place::Destroy() {
 }
 
 void Place::CreateDefaultScene() {
-    EnsureBuiltinRegistrations();
+    Reflection::EnsureInitialized();
 
     dataModel_ = std::make_shared<DataModel>();
     dataModel_->SetOwnerPlace(this);
@@ -331,6 +560,73 @@ void Place::LoadFromXmlRoot(IO::IXmlReader& reader) {
     }
 }
 
+void Place::LoadFromTomlText(std::string_view text) {
+    Utils::Toml::Document doc;
+    try {
+        doc = Utils::Toml::Parse(text);
+    } catch (const std::exception&) {
+        throw std::runtime_error("Invalid place TOML: parse failed.");
+    }
+
+    auto applyProps = [&](const std::shared_ptr<Core::Instance>& instance, const Utils::Toml::Table& table) {
+        if (instance == nullptr) {
+            return;
+        }
+        for (const auto& [key, val] : table.Values) {
+            if (key == "ClassName") {
+                continue;
+            }
+            const auto& props = instance->GetProperties();
+            const auto it = props.find(key);
+            if (it == props.end()) {
+                continue;
+            }
+            const auto& definition = it->second.Definition();
+            if (!definition.Serializable || definition.Name == "ClassName" || definition.IsInstanceReference) {
+                continue;
+            }
+            const auto parsed = TomlValueToVariant(val, definition);
+            if (!parsed.has_value()) {
+                continue;
+            }
+            instance->SetProperty(key, *parsed);
+        }
+    };
+
+    for (const auto& [serviceKey, serviceTable] : doc.Root.Children) {
+        const auto* classNameV = Utils::Toml::FindValue(serviceTable, "ClassName");
+        const Core::String serviceClassName = (classNameV && classNameV->IsString()) ? classNameV->AsString() : serviceKey;
+
+        auto service = FindService(serviceClassName);
+        if (service == nullptr) {
+            continue;
+        }
+
+        PrepareServiceForLoad(service);
+        applyProps(service, serviceTable);
+
+        for (const auto& [childKey, childTable] : serviceTable.Children) {
+            DeserializeInstanceRecursiveToml(childTable, childKey, service);
+        }
+    }
+
+    EnsureWorkspaceCurrentCamera(std::dynamic_pointer_cast<Workspace>(FindService("Workspace")));
+
+    if (const auto lighting = std::dynamic_pointer_cast<Lighting>(FindService("Lighting")); lighting != nullptr) {
+        std::shared_ptr<Objects::PostEffects> postEffects{};
+        for (const auto& child : lighting->GetChildren()) {
+            postEffects = std::dynamic_pointer_cast<Objects::PostEffects>(child);
+            if (postEffects != nullptr) {
+                break;
+            }
+        }
+        if (postEffects == nullptr) {
+            postEffects = std::make_shared<Objects::PostEffects>();
+            postEffects->SetParent(lighting);
+        }
+    }
+}
+
 void Place::PrepareServiceForLoad(const std::shared_ptr<Service>& service) {
     for (const auto& child : service->GetChildren()) {
         if (child->IsInsertable()) {
@@ -390,6 +686,63 @@ std::shared_ptr<Core::Instance> Place::DeserializeInstanceRecursive(
     return instance;
 }
 
+void Place::DeserializeInstanceRecursiveToml(
+    const Utils::Toml::Table& table,
+    const Core::String& tableKeyName,
+    const std::shared_ptr<Core::Instance>& parent
+) {
+    const auto* classNameV = Utils::Toml::FindValue(table, "ClassName");
+    if (classNameV == nullptr || !classNameV->IsString()) {
+        return;
+    }
+
+    const Core::String className = classNameV->AsString();
+    auto instance = ClassRegistry::CreateInstance(className);
+    if (instance == nullptr) {
+        return;
+    }
+
+    instance->SetParent(parent);
+
+    bool hasName = false;
+    for (const auto& [k, _] : table.Values) {
+        if (k == "Name") {
+            hasName = true;
+            break;
+        }
+    }
+    if (!hasName) {
+        const auto& props = instance->GetProperties();
+        if (props.find("Name") != props.end()) {
+            instance->SetProperty("Name", Core::Variant::From(tableKeyName));
+        }
+    }
+
+    for (const auto& [key, val] : table.Values) {
+        if (key == "ClassName") {
+            continue;
+        }
+        const auto& props = instance->GetProperties();
+        const auto it = props.find(key);
+        if (it == props.end()) {
+            continue;
+        }
+        const auto& definition = it->second.Definition();
+        if (!definition.Serializable || definition.Name == "ClassName" || definition.IsInstanceReference) {
+            continue;
+        }
+        const auto parsed = TomlValueToVariant(val, definition);
+        if (!parsed.has_value()) {
+            continue;
+        }
+        instance->SetProperty(key, *parsed);
+    }
+
+    for (const auto& [childKey, childTable] : table.Children) {
+        DeserializeInstanceRecursiveToml(childTable, childKey, instance);
+    }
+}
+
 void Place::SerializeProperties(const std::shared_ptr<Core::Instance>& instance, IO::IXmlWriter& writer) const {
     writer.WriteStartElement("Properties");
 
@@ -409,6 +762,108 @@ void Place::SerializeProperties(const std::shared_ptr<Core::Instance>& instance,
     }
 
     writer.WriteEndElement(); // Properties
+}
+
+void Place::SerializeToToml(Core::String& out) const {
+    Utils::Toml::Document doc;
+    SetTomlValue(doc.Root, "schemaVersion", Utils::Toml::Value{.Storage = static_cast<std::int64_t>(1)});
+
+    std::vector<std::pair<Core::String, std::shared_ptr<Service>>> services;
+    services.reserve(services_.size());
+    for (const auto& [name, service] : services_) {
+        if (service != nullptr && !service->IsHiddenService()) {
+            services.emplace_back(name, service);
+        }
+    }
+    std::sort(services.begin(), services.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+
+    auto writeProps = [&](const std::shared_ptr<Core::Instance>& instance, Utils::Toml::Table& table) {
+        if (instance == nullptr) {
+            return;
+        }
+        for (const auto& [_, property] : instance->GetProperties()) {
+            const auto& definition = property.Definition();
+            if (!definition.Serializable || definition.Name == "ClassName" || definition.IsInstanceReference) {
+                continue;
+            }
+            Utils::Toml::Value v = VariantToTomlValue(property.Get(), definition);
+            if (std::holds_alternative<std::monostate>(v.Storage)) {
+                continue;
+            }
+            SetTomlValue(table, definition.Name, std::move(v));
+        }
+    };
+
+    auto makeUniqueKey = [](Core::String base, Core::HashMap<Core::String, int>& used) {
+        if (base.empty()) {
+            base = "Instance";
+        }
+        if (used.find(base) == used.end()) {
+            used.insert_or_assign(base, 1);
+            return base;
+        }
+        int& counter = used[base];
+        ++counter;
+        return base + "_" + std::to_string(counter);
+    };
+
+    // Serialize services + instance trees.
+    for (const auto& [serviceName, service] : services) {
+        std::vector<Core::String> servicePath{serviceName};
+        auto& serviceTable = Utils::Toml::GetOrCreateTablePath(doc.Root, servicePath);
+        SetTomlValue(serviceTable, "ClassName", Utils::Toml::Value{.Storage = service->GetClassName()});
+        writeProps(service, serviceTable);
+
+        // For each service, ensure sibling keys are unique.
+        Core::HashMap<Core::String, int> siblingUsed;
+        for (const auto& child : service->GetChildren()) {
+            if (child == nullptr || !child->IsInsertable()) {
+                continue;
+            }
+
+            Core::String childKey{};
+            if (const auto nameVar = child->GetProperty("Name"); nameVar.IsValid() && nameVar.Is<Core::String>()) {
+                childKey = nameVar.Get<Core::String>();
+            } else {
+                childKey = child->GetClassName();
+            }
+            childKey = makeUniqueKey(std::move(childKey), siblingUsed);
+
+            std::vector<Core::String> childPath = servicePath;
+            childPath.push_back(childKey);
+            auto& childTable = Utils::Toml::GetOrCreateTablePath(doc.Root, childPath);
+            SetTomlValue(childTable, "ClassName", Utils::Toml::Value{.Storage = child->GetClassName()});
+            writeProps(child, childTable);
+
+            // Recurse descendants.
+            std::function<void(const std::shared_ptr<Core::Instance>&, const std::vector<Core::String>&)> writeChildren;
+            writeChildren = [&](const std::shared_ptr<Core::Instance>& parentInstance, const std::vector<Core::String>& parentPath) {
+                Core::HashMap<Core::String, int> used;
+                for (const auto& grandChild : parentInstance->GetChildren()) {
+                    if (grandChild == nullptr || !grandChild->IsInsertable()) {
+                        continue;
+                    }
+                    Core::String key{};
+                    if (const auto nameVar = grandChild->GetProperty("Name"); nameVar.IsValid() && nameVar.Is<Core::String>()) {
+                        key = nameVar.Get<Core::String>();
+                    } else {
+                        key = grandChild->GetClassName();
+                    }
+                    key = makeUniqueKey(std::move(key), used);
+
+                    std::vector<Core::String> p = parentPath;
+                    p.push_back(key);
+                    auto& t = Utils::Toml::GetOrCreateTablePath(doc.Root, p);
+                    SetTomlValue(t, "ClassName", Utils::Toml::Value{.Storage = grandChild->GetClassName()});
+                    writeProps(grandChild, t);
+                    writeChildren(grandChild, p);
+                }
+            };
+            writeChildren(child, childPath);
+        }
+    }
+
+    out = Utils::Toml::Serialize(doc);
 }
 
 void Place::DeserializeProperties(const std::shared_ptr<Core::Instance>& instance, IO::IXmlReader& reader) {

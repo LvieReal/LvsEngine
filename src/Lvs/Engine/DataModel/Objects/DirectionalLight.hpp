@@ -1,8 +1,8 @@
 #pragma once
 
-#include "Lvs/Engine/Objects/Light.hpp"
+#include "Lvs/Engine/DataModel/Objects/Light.hpp"
 
-namespace Lvs::Engine::Objects {
+namespace Lvs::Engine::DataModel::Objects {
 
 class DirectionalLight : public Light {
 public:
@@ -13,4 +13,4 @@ public:
     [[nodiscard]] int GetLightType() const override;
 };
 
-} // namespace Lvs::Engine::Objects
+} // namespace Lvs::Engine::DataModel::Objects

@@ -23,7 +23,7 @@ std::filesystem::path ResolvePath(const std::filesystem::path& path) {
         Utils::PathUtils::ToOsPath(path.string()),
         Utils::PathUtils::GetResourcePath(path.string()),
         Utils::PathUtils::GetSourcePath(path.string()),
-        Utils::PathUtils::GetSourcePath(std::string("src/Lvs/Engine/Content/") + path.string())
+        Utils::PathUtils::GetSourcePath(std::string("content/") + path.string())
     };
     for (const auto& candidate : candidates) {
         if (candidate.empty()) {

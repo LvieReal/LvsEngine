@@ -2,7 +2,7 @@
 
 #include "Lvs/Engine/Core/Instance.hpp"
 
-namespace Lvs::Engine::Objects {
+namespace Lvs::Engine::DataModel::Objects {
 
 inline constexpr int LIGHT_TYPE_DIRECTIONAL = 0;
 inline constexpr int LIGHT_TYPE_POINT = 1;
@@ -20,4 +20,4 @@ protected:
     explicit Light(const Core::ClassDescriptor& descriptor);
 };
 
-} // namespace Lvs::Engine::Objects
+} // namespace Lvs::Engine::DataModel::Objects

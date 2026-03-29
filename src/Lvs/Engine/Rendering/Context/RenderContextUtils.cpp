@@ -84,7 +84,7 @@ std::filesystem::path ResolveContentPath(const std::string& contentId) {
 
     const std::array<std::filesystem::path, 3> candidates{
         Utils::PathUtils::GetResourcePath(std::string("Meshes/") + contentId),
-        Utils::PathUtils::GetSourcePath(std::string("src/Lvs/Engine/Content/Meshes/") + contentId),
+        Utils::PathUtils::GetSourcePath(std::string("content/Meshes/") + contentId),
         Utils::PathUtils::GetSourcePath(contentId)
     };
 

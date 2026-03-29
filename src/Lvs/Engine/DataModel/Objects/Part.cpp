@@ -1,56 +1,20 @@
-#include "Lvs/Engine/Objects/Part.hpp"
+#include "Lvs/Engine/DataModel/Objects/Part.hpp"
 
 #include "Lvs/Engine/DataModel/ClassRegistry.hpp"
-#include "Lvs/Engine/Core/PropertyTags.hpp"
 #include "Lvs/Engine/Enums/PartShape.hpp"
 #include "Lvs/Engine/Enums/PartSurfaceType.hpp"
 
-namespace Lvs::Engine::Objects {
+#include <mutex>
+
+namespace Lvs::Engine::DataModel::Objects {
 
 Core::ClassDescriptor& Part::Descriptor() {
     static Core::ClassDescriptor descriptor("Part", &BasePart::Descriptor());
-    static const bool initialized = []() {
-        const Core::String cubeVisibleTag = Core::PropertyTags::BuildVisibleIfTag("Shape", "Cube");
-        const Core::String beveledVisibleTag = Core::PropertyTags::BuildVisibleIfTag("Beveled", "true");
-
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Enums::PartShape>(
-            "Shape", Enums::PartShape::Cube, true, "Appearance"
-        ));
-
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
-            "Beveled", false, true, "Appearance", {}, false, Core::StringList{cubeVisibleTag}
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
-            "BevelWidth", 0.05, true, "Appearance", "Bevel width in world units.", false, Core::StringList{cubeVisibleTag, beveledVisibleTag}
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
-            "BevelSmooth", true, true, "Appearance", "Smooth normals across bevel faces.", false, Core::StringList{cubeVisibleTag, beveledVisibleTag}
-        ));
-
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Enums::PartSurfaceType>(
-            "RightSurface", Enums::PartSurfaceType::Smooth, true, "Surfaces"
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Enums::PartSurfaceType>(
-            "LeftSurface", Enums::PartSurfaceType::Smooth, true, "Surfaces"
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Enums::PartSurfaceType>(
-            "TopSurface", Enums::PartSurfaceType::Studs, true, "Surfaces"
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Enums::PartSurfaceType>(
-            "BottomSurface", Enums::PartSurfaceType::Inlets, true, "Surfaces"
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Enums::PartSurfaceType>(
-            "FrontSurface", Enums::PartSurfaceType::Smooth, true, "Surfaces"
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Enums::PartSurfaceType>(
-            "BackSurface", Enums::PartSurfaceType::Smooth, true, "Surfaces"
-        ));
-
+    static std::once_flag registered;
+    std::call_once(registered, [&]() {
         Core::ClassDescriptor::RegisterClassDescriptor(&descriptor);
-        DataModel::ClassRegistry::RegisterClass<Part>("Part", "3D Objects", "BasePart");
-        return true;
-    }();
-    static_cast<void>(initialized);
+        ClassRegistry::RegisterClass<Part>("Part", "3D Objects", "BasePart");
+    });
     return descriptor;
 }
 
@@ -63,4 +27,4 @@ Part::Part(const Core::ClassDescriptor& descriptor)
     SetInsertable(true);
 }
 
-} // namespace Lvs::Engine::Objects
+} // namespace Lvs::Engine::DataModel::Objects

@@ -172,6 +172,7 @@ private:
     void* nativeWindowHandle_{nullptr};
 
     std::shared_ptr<DataModel::Place> place_{};
+    std::shared_ptr<Core::Instance> metadataRoot_{};
 
     std::vector<Common::OverlayPrimitive> overlayPrimitives_{};
     std::size_t overlayCacheKey_{0};

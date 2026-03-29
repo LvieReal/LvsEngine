@@ -1,0 +1,573 @@
+schemaVersion = 1
+
+["classes"."BasePart"."categories"."Appearance"."Color"]
+type = "Color3"
+default = [0.7, 0.7, 0.7]
+order = 2
+
+["classes"."BasePart"."categories"."Appearance"."Transparency"]
+type = "double"
+default = 0
+order = 3
+
+["classes"."BasePart"."categories"."Appearance"."Roughness"]
+type = "double"
+default = 0.75
+order = 4
+
+["classes"."BasePart"."categories"."Appearance"."Metalness"]
+type = "double"
+default = 0
+order = 5
+
+["classes"."BasePart"."categories"."Appearance"."Emissive"]
+type = "double"
+default = 0
+order = 6
+
+["classes"."BasePart"."categories"."Appearance"."Renders"]
+type = "bool"
+default = true
+order = 7
+
+["classes"."BasePart"."categories"."Appearance"."AlwaysOnTop"]
+type = "bool"
+default = false
+order = 9
+
+["classes"."BasePart"."categories"."Appearance"."ZIndex"]
+type = "int"
+default = 0
+order = 10
+tags = ["VisibleIf:AlwaysOnTop=true"]
+
+["classes"."BasePart"."categories"."Appearance"."CullMode"]
+type = "enum"
+enumType = "MeshCullMode"
+default = "Back"
+order = 11
+
+["classes"."BasePart"."categories"."Behavior"."Locked"]
+type = "bool"
+default = false
+description = "Locked parts cannot be selected."
+order = 8
+
+["classes"."BasePart"."categories"."Physics"."Anchored"]
+type = "bool"
+default = false
+order = 12
+
+["classes"."BasePart"."categories"."Physics"."CanCollide"]
+type = "bool"
+default = true
+order = 13
+
+["classes"."BasePart"."categories"."Transform"."Position"]
+type = "Vector3"
+default = [0, 0, 0]
+order = 14
+
+["classes"."BasePart"."categories"."Transform"."Rotation"]
+type = "Vector3"
+default = [0, 0, 0]
+order = 15
+
+["classes"."BasePart"."categories"."Transform"."CFrame"]
+type = "CFrame"
+default = "identity"
+readOnly = true
+order = 16
+tags = ["IsSeparateBox"]
+
+["classes"."BasePart"."categories"."Transform"."Size"]
+type = "Vector3"
+default = [4, 1, 2]
+order = 17
+
+["classes"."Part"."categories"."Appearance"."Shape"]
+type = "enum"
+enumType = "PartShape"
+default = "Cube"
+order = 18
+
+["classes"."Part"."categories"."Appearance"."Beveled"]
+type = "bool"
+default = false
+order = 19
+tags = ["VisibleIf:Shape=Cube"]
+
+["classes"."Part"."categories"."Appearance"."BevelWidth"]
+type = "double"
+default = 0.05
+description = "Bevel width in world units."
+order = 20
+tags = ["VisibleIf:Shape=Cube", "VisibleIf:Beveled=true"]
+
+["classes"."Part"."categories"."Appearance"."BevelSmooth"]
+type = "bool"
+default = true
+description = "Smooth normals across bevel faces."
+order = 21
+tags = ["VisibleIf:Shape=Cube", "VisibleIf:Beveled=true"]
+
+["classes"."Part"."categories"."Surfaces"."RightSurface"]
+type = "enum"
+enumType = "PartSurfaceType"
+default = "Smooth"
+order = 22
+
+["classes"."Part"."categories"."Surfaces"."LeftSurface"]
+type = "enum"
+enumType = "PartSurfaceType"
+default = "Smooth"
+order = 23
+
+["classes"."Part"."categories"."Surfaces"."TopSurface"]
+type = "enum"
+enumType = "PartSurfaceType"
+default = "Studs"
+order = 24
+
+["classes"."Part"."categories"."Surfaces"."BottomSurface"]
+type = "enum"
+enumType = "PartSurfaceType"
+default = "Inlets"
+order = 25
+
+["classes"."Part"."categories"."Surfaces"."FrontSurface"]
+type = "enum"
+enumType = "PartSurfaceType"
+default = "Smooth"
+order = 26
+
+["classes"."Part"."categories"."Surfaces"."BackSurface"]
+type = "enum"
+enumType = "PartSurfaceType"
+default = "Smooth"
+order = 27
+
+["classes"."MeshPart"."categories"."Appearance"."ContentId"]
+type = "string"
+default = ""
+order = 18
+tags = ["IsPath"]
+
+["classes"."MeshPart"."categories"."Appearance"."ContentId"."attributes"]
+"FileExtensions" = ".obj;.fbx;.gltf;.glb;.dae;.3ds;.blend;.stl;.ply"
+
+["classes"."MeshPart"."categories"."Appearance"."SmoothNormals"]
+type = "bool"
+default = true
+order = 19
+
+["classes"."Camera"."categories"."Transform"."CFrame"]
+type = "CFrame"
+default = "identity"
+order = 2
+tags = ["IsSeparateBox"]
+
+["classes"."Camera"."categories"."Camera"."FieldOfView"]
+type = "double"
+default = 70
+order = 3
+
+["classes"."Camera"."categories"."Camera"."NearPlane"]
+type = "double"
+default = 0.1
+order = 4
+
+["classes"."Light"."categories"."Appearance"."Color"]
+type = "Color3"
+default = [1, 1, 1]
+order = 2
+
+["classes"."Light"."categories"."Appearance"."Intensity"]
+type = "double"
+default = 1
+order = 3
+
+["classes"."Light"."categories"."Appearance"."SpecularStrength"]
+type = "double"
+default = 1
+order = 4
+
+["classes"."Light"."categories"."Appearance"."Shininess"]
+type = "double"
+default = 32
+order = 5
+
+["classes"."Light"."categories"."Appearance"."SpecularHighlightType"]
+type = "enum"
+enumType = "SpecularHighlightType"
+default = "CookTorrance"
+order = 6
+
+["classes"."Light"."categories"."Appearance"."Enabled"]
+type = "bool"
+default = true
+order = 7
+
+["classes"."DirectionalLight"."categories"."Appearance"."Direction"]
+type = "Vector3"
+default = [0.5, -1, 0.5]
+description = "Direction of the light."
+order = 8
+
+["classes"."DirectionalLight"."categories"."Shadow"."ShadowEnabled"]
+type = "bool"
+default = true
+description = "Enable directional shadows for this light."
+order = 9
+
+["classes"."DirectionalLight"."categories"."Shadow"."ShadowType"]
+type = "enum"
+enumType = "ShadowType"
+default = "Cascaded"
+description = "Directional shadow technique."
+order = 10
+
+["classes"."DirectionalLight"."categories"."Shadow"."ShadowBlur"]
+type = "double"
+default = 4
+description = "Shadow blur radius for PCF (in shadow texels)."
+order = 11
+tags = ["VisibleIf:ShadowType=Cascaded"]
+
+["classes"."DirectionalLight"."categories"."Shadow"."ShadowTapCount"]
+type = "int"
+default = 64
+description = "Number of Poisson PCF taps."
+order = 12
+tags = ["VisibleIf:ShadowType=Cascaded"]
+
+["classes"."DirectionalLight"."categories"."Shadow"."ShadowDepthBias"]
+type = "double"
+default = 0
+description = "Directional shadow depth bias (in shadow texels). Higher reduces acne but may cause peter panning. Prefer normal offset."
+order = 13
+tags = ["VisibleIf:ShadowType=Cascaded"]
+
+["classes"."DirectionalLight"."categories"."Shadow"."ShadowNormalOffset"]
+type = "double"
+default = 4
+description = "Directional shadow normal offset (in shadow texels). Virtually pushes receivers along surface normal toward the light."
+order = 14
+tags = ["VisibleIf:ShadowType=Cascaded"]
+
+["classes"."DirectionalLight"."categories"."Shadow"."ShadowCascadeCount"]
+type = "int"
+default = 3
+description = "Directional shadow cascade count (1-3)."
+order = 15
+tags = ["VisibleIf:ShadowType=Cascaded"]
+
+["classes"."DirectionalLight"."categories"."Shadow"."ShadowMaxDistance"]
+type = "double"
+default = 1000
+description = "Maximum distance for shadows."
+order = 16
+
+["classes"."DirectionalLight"."categories"."Shadow"."ShadowMapResolution"]
+type = "int"
+default = 8192
+description = "Directional shadow map resolution."
+order = 17
+tags = ["VisibleIf:ShadowType=Cascaded"]
+
+["classes"."DirectionalLight"."categories"."Shadow"."ShadowCascadeResolutionScale"]
+type = "double"
+default = 0.9
+description = "Per-cascade resolution scale (0-1). Higher keeps farther cascades sharper."
+order = 18
+tags = ["VisibleIf:ShadowType=Cascaded"]
+
+["classes"."DirectionalLight"."categories"."Shadow"."ShadowCascadeSplitLambda"]
+type = "double"
+default = 0.75
+description = "Cascade split weighting (0 uniform, 1 logarithmic). Lower preserves near/mid detail."
+order = 19
+tags = ["VisibleIf:ShadowType=Cascaded"]
+
+["classes"."DirectionalLight"."categories"."Shadow"."ShadowVolumeBias"]
+type = "double"
+default = 0.01
+description = "Shadow volume bias (world units). Offsets the near cap/volume along the light direction to reduce acne/self-shadowing."
+order = 20
+tags = ["VisibleIf:ShadowType=Volumes"]
+
+["classes"."PostEffects"."categories"."Post-Process"."GammaCorrection"]
+type = "bool"
+default = true
+description = "Apply regular 2.2 gamma to lighting."
+order = 2
+
+["classes"."PostEffects"."categories"."Post-Process"."Dithering"]
+type = "bool"
+default = true
+description = "Apply post-process dithering to reduce visible color banding."
+order = 3
+
+["classes"."PostEffects"."categories"."Post-Process"."NeonEnabled"]
+type = "bool"
+default = true
+description = "Enable neon glow contribution in post-process composite."
+order = 4
+
+["classes"."PostEffects"."categories"."Post-Process"."InaccurateNeon"]
+type = "bool"
+default = true
+description = "Allow emissive parts with very dark colors to still emit glow."
+order = 5
+tags = ["VisibleIf:NeonEnabled=true"]
+
+["classes"."PostEffects"."categories"."Post-Process"."NeonBlur"]
+type = "double"
+default = 2
+description = "Dual Kawase blur amount for neon glow."
+order = 6
+tags = ["VisibleIf:NeonEnabled=true"]
+
+["classes"."PostEffects"."categories"."HBAO"."HBAOEnabled"]
+type = "bool"
+default = true
+description = "Enable Horizon-Based Ambient Occlusion post effect."
+order = 7
+
+["classes"."PostEffects"."categories"."HBAO"."HBAOStrength"]
+type = "double"
+default = 2.0
+description = "Ambient occlusion strength multiplier."
+order = 8
+
+["classes"."PostEffects"."categories"."HBAO"."HBAORadius"]
+type = "double"
+default = 0.3
+description = "AO sampling radius in view-space units."
+order = 9
+
+["classes"."PostEffects"."categories"."HBAO"."HBAOBiasDegrees"]
+type = "double"
+default = 30
+description = "Bias angle in degrees to reduce self-occlusion."
+order = 10
+
+["classes"."PostEffects"."categories"."HBAO"."HBAOMaxRadiusPixels"]
+type = "int"
+default = 96
+description = "Clamp AO kernel footprint in pixels."
+order = 11
+
+["classes"."PostEffects"."categories"."HBAO"."HBAODirections"]
+type = "int"
+default = 6
+description = "Number of sampling directions (higher is smoother, slower)."
+order = 12
+
+["classes"."PostEffects"."categories"."HBAO"."HBAOSamples"]
+type = "int"
+default = 4
+description = "Number of samples per direction (higher is smoother, slower)."
+order = 13
+
+["classes"."PostEffects"."categories"."HBAO"."HBAOPower"]
+type = "double"
+default = 1
+description = "Power curve applied to AO factor (higher increases contrast)."
+order = 14
+
+["classes"."PostEffects"."categories"."HBAO"."HBAOBlur"]
+type = "double"
+default = 1
+description = "Dual Kawase blur amount applied to AO output."
+order = 15
+
+["classes"."PostEffects"."categories"."HBAO"."AOTint"]
+type = "Color3"
+default = [0, 0, 0]
+description = "Tint applied to ambient occlusion contribution."
+order = 16
+
+["classes"."Skybox"."categories"."Textures"."RightTexture"]
+type = "string"
+default = "core://Sky/nullsky/RT.png"
+order = 2
+tags = ["IsPath", "VisibleIf:TextureLayout=Individual"]
+
+["classes"."Skybox"."categories"."Textures"."LeftTexture"]
+type = "string"
+default = "core://Sky/nullsky/LF.png"
+order = 3
+tags = ["IsPath", "VisibleIf:TextureLayout=Individual"]
+
+["classes"."Skybox"."categories"."Textures"."UpTexture"]
+type = "string"
+default = "core://Sky/nullsky/UP.png"
+order = 4
+tags = ["IsPath", "VisibleIf:TextureLayout=Individual"]
+
+["classes"."Skybox"."categories"."Textures"."DownTexture"]
+type = "string"
+default = "core://Sky/nullsky/DN.png"
+order = 5
+tags = ["IsPath", "VisibleIf:TextureLayout=Individual"]
+
+["classes"."Skybox"."categories"."Textures"."FrontTexture"]
+type = "string"
+default = "core://Sky/nullsky/FT.png"
+order = 6
+tags = ["IsPath", "VisibleIf:TextureLayout=Individual"]
+
+["classes"."Skybox"."categories"."Textures"."BackTexture"]
+type = "string"
+default = "core://Sky/nullsky/BK.png"
+order = 7
+tags = ["IsPath", "VisibleIf:TextureLayout=Individual"]
+
+["classes"."Skybox"."categories"."Textures"."CrossTexture"]
+type = "string"
+default = "core://Sky/nullcrosssky/sky512.png"
+order = 8
+tags = ["IsPath", "VisibleIf:TextureLayout=Cross"]
+
+["classes"."Skybox"."categories"."Textures"."TextureLayout"]
+type = "enum"
+enumType = "SkyboxTextureLayout"
+default = "Individual"
+order = 9
+
+["classes"."Skybox"."categories"."Appearance"."Tint"]
+type = "Color3"
+default = [1, 1, 1]
+order = 10
+
+["classes"."Skybox"."categories"."Appearance"."Filtering"]
+type = "enum"
+enumType = "TextureFiltering"
+default = "Linear"
+order = 11
+
+["classes"."Skybox"."categories"."Appearance"."ResolutionCap"]
+type = "int"
+default = 1024
+order = 12
+
+["classes"."Skybox"."categories"."Appearance"."Compression"]
+type = "bool"
+default = false
+order = 13
+
+["classes"."SelectionBox"."categories"."Data"."Adornee"]
+type = "InstanceRef"
+order = 2
+
+["classes"."SelectionBox"."categories"."Appearance"."Color"]
+type = "Color3"
+default = [0, 0.5, 1]
+order = 3
+
+["classes"."SelectionBox"."categories"."Appearance"."Transparency"]
+type = "double"
+default = 0
+order = 4
+
+["classes"."SelectionBox"."categories"."Appearance"."LineThickness"]
+type = "double"
+default = 0.05
+order = 5
+
+["classes"."SelectionBox"."categories"."Appearance"."Metalness"]
+type = "double"
+default = 0
+order = 6
+
+["classes"."SelectionBox"."categories"."Appearance"."Roughness"]
+type = "double"
+default = 1
+order = 7
+
+["classes"."SelectionBox"."categories"."Appearance"."Emissive"]
+type = "double"
+default = 1
+order = 8
+
+["classes"."SelectionBox"."categories"."Appearance"."IgnoreLighting"]
+type = "bool"
+default = true
+order = 9
+
+["classes"."SelectionBox"."categories"."Appearance"."AlwaysOnTop"]
+type = "bool"
+default = true
+order = 10
+
+["classes"."SelectionBox"."categories"."Appearance"."Visible"]
+type = "bool"
+default = true
+order = 11
+
+["classes"."SelectionBox"."categories"."Appearance"."ScaleWithDistance"]
+type = "bool"
+default = false
+order = 12
+
+["classes"."Model"."categories"."Appearance"."Renders"]
+type = "bool"
+default = true
+description = "When disabled, geometry within this model will not be rendered."
+order = 2
+
+["classes"."Model"."categories"."Data"."PrimaryPart"]
+type = "InstanceRef"
+order = 3
+
+["classes"."Workspace"."categories"."Data"."CurrentCamera"]
+type = "InstanceRef"
+readOnly = true
+order = 2
+
+["classes"."QualitySettings"."categories"."Quality"."MSAA"]
+type = "enum"
+enumType = "MSAA"
+default = "Off"
+description = "Multisample anti-aliasing sample count."
+order = 2
+
+["classes"."QualitySettings"."categories"."Quality"."SurfaceMipmapping"]
+type = "enum"
+enumType = "SurfaceMipmapping"
+default = "On"
+description = "Mipmapped filtering for surface atlas textures."
+order = 3
+
+["classes"."Lighting"."categories"."Rendering"."Ambient"]
+type = "Color3"
+default = [1, 1, 1]
+description = "Global ambient color."
+order = 2
+
+["classes"."Lighting"."categories"."Rendering"."AmbientStrength"]
+type = "double"
+default = 0.1
+description = "Global ambient strength."
+order = 3
+
+["classes"."Lighting"."categories"."Rendering"."Technology"]
+type = "enum"
+enumType = "LightingTechnology"
+default = "Default"
+description = "Controls the lighting style."
+order = 4
+
+["classes"."Lighting"."categories"."Rendering"."Shading"]
+type = "enum"
+enumType = "LightingComputationMode"
+default = "PerPixel"
+description = "Selects per-fragment or legacy per-vertex lighting."
+order = 5
+
+["classes"."Lighting"."categories"."Rendering"."FresnelAmount"]
+type = "double"
+default = 1
+description = "Scales Fresnel term contribution (0 disables angle-dependent Fresnel, 1 is default)."
+order = 6

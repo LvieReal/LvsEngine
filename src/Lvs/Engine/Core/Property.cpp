@@ -57,4 +57,35 @@ void Property::Set(const Variant& value) {
     Changed.Fire(oldValue, value_);
 }
 
+void Property::ReplaceDefinition(PropertyDefinition definition, const bool preserveValue) {
+    Variant previous = value_;
+    definition_ = std::move(definition);
+
+    if (!preserveValue) {
+        value_ = definition_.Default;
+        return;
+    }
+
+    if (!previous.IsValid() || previous.IsNull()) {
+        value_ = definition_.Default;
+        return;
+    }
+
+    if (definition_.IsInstanceReference) {
+        if (previous.Is<Variant::InstanceRef>()) {
+            value_ = previous;
+        } else {
+            value_ = Variant::From(Variant::InstanceRef{});
+        }
+        return;
+    }
+
+    Variant converted = previous;
+    if (!converted.Convert(definition_.Type)) {
+        value_ = definition_.Default;
+        return;
+    }
+    value_ = converted;
+}
+
 } // namespace Lvs::Engine::Core

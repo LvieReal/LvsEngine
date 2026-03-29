@@ -1,7 +1,7 @@
 #include "Lvs/Engine/Utils/Command.hpp"
 
 #include "Lvs/Engine/Core/Instance.hpp"
-#include "Lvs/Engine/Objects/BasePart.hpp"
+#include "Lvs/Engine/DataModel/Objects/BasePart.hpp"
 #include "Lvs/Engine/Math/CFrame.hpp"
 
 namespace Lvs::Engine::Utils {
@@ -39,7 +39,7 @@ void ReparentCommand::Do() {
     // Preserve world position during reparent for BaseParts
     Math::Vector3 worldPosition;
     bool isBasePart = false;
-    if (const auto part = std::dynamic_pointer_cast<Objects::BasePart>(instance_); 
+    if (const auto part = std::dynamic_pointer_cast<DataModel::Objects::BasePart>(instance_);
         part != nullptr) {
         worldPosition = part->GetWorldPosition();
         isBasePart = true;
@@ -49,9 +49,9 @@ void ReparentCommand::Do() {
     
     // Restore world position after reparenting by adjusting local position
     if (isBasePart) {
-        if (const auto part = std::dynamic_pointer_cast<Objects::BasePart>(instance_); 
+        if (const auto part = std::dynamic_pointer_cast<DataModel::Objects::BasePart>(instance_);
             part != nullptr) {
-            const auto newParentPart = std::dynamic_pointer_cast<Objects::BasePart>(newParent_);
+            const auto newParentPart = std::dynamic_pointer_cast<DataModel::Objects::BasePart>(newParent_);
             if (newParentPart != nullptr) {
                 // Convert world position to new parent's local space
                 const auto parentWorldCFrame = newParentPart->GetWorldCFrame();
@@ -70,7 +70,7 @@ void ReparentCommand::Undo() {
     // Preserve world position during undo reparent for BaseParts
     Math::Vector3 worldPosition;
     bool isBasePart = false;
-    if (const auto part = std::dynamic_pointer_cast<Objects::BasePart>(instance_); 
+    if (const auto part = std::dynamic_pointer_cast<DataModel::Objects::BasePart>(instance_);
         part != nullptr) {
         worldPosition = part->GetWorldPosition();
         isBasePart = true;
@@ -80,9 +80,9 @@ void ReparentCommand::Undo() {
     
     // Restore world position after reparenting by adjusting local position
     if (isBasePart) {
-        if (const auto part = std::dynamic_pointer_cast<Objects::BasePart>(instance_); 
+        if (const auto part = std::dynamic_pointer_cast<DataModel::Objects::BasePart>(instance_);
             part != nullptr) {
-            const auto oldParentPart = std::dynamic_pointer_cast<Objects::BasePart>(oldParent_);
+            const auto oldParentPart = std::dynamic_pointer_cast<DataModel::Objects::BasePart>(oldParent_);
             if (oldParentPart != nullptr) {
                 // Convert world position to old parent's local space
                 const auto parentWorldCFrame = oldParentPart->GetWorldCFrame();

@@ -13,11 +13,14 @@ QString DefaultUntitledFileName() {
 }
 
 QString FileDialogFilter() {
-    return QString("Lvs Place Files (*.%1);;XML Files (*.xml);;All Files (*)").arg(Extension());
+    return QString("Lvs Place Files (*.%1);;XML Place Files (*.xml);;All Files (*)").arg(Extension());
 }
 
 QString EnsureExtension(QString path) {
     QFileInfo info(path);
+    if (!info.suffix().isEmpty()) {
+        return path;
+    }
     if (info.suffix().compare(Extension(), Qt::CaseInsensitive) != 0) {
         path += QString(".%1").arg(Extension());
     }
@@ -25,4 +28,3 @@ QString EnsureExtension(QString path) {
 }
 
 } // namespace Lvs::Studio::Core::PlaceFileUtils
-

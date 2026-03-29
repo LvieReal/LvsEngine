@@ -3,7 +3,7 @@
 #include "Lvs/Engine/Context.hpp"
 #include "Lvs/Studio/Core/Viewport.hpp"
 #include "Lvs/Studio/Core/Window.hpp"
-#include "Lvs/Engine/Core/QtBridge.hpp"
+#include "Lvs/Qt/QtBridge.hpp"
 #include "Lvs/Engine/DataModel/Services/QualitySettings.hpp"
 #include "Lvs/Engine/Enums/MSAA.hpp"
 #include "Lvs/Engine/Enums/SurfaceMipmapping.hpp"

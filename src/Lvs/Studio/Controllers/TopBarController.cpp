@@ -1,6 +1,6 @@
 #include "Lvs/Studio/Controllers/TopBarController.hpp"
 
-#include "Lvs/Engine/Core/QtBridge.hpp"
+#include "Lvs/Qt/QtBridge.hpp"
 #include "Lvs/Engine/DataModel/Services/ChangeHistoryService.hpp"
 #include "Lvs/Engine/DataModel/Services/Selection.hpp"
 #include "Lvs/Studio/Core/RegularError.hpp"
@@ -10,12 +10,14 @@
 #include "Lvs/Studio/Core/DockManager.hpp"
 #include "Lvs/Studio/Core/IconPackManager.hpp"
 #include "Lvs/Studio/Core/PlaceFileUtils.hpp"
+#include "Lvs/Studio/Core/Settings.hpp"
 #include "Lvs/Studio/Core/StudioQuickActions.hpp"
 #include "Lvs/Studio/Core/StudioShortcutManager.hpp"
 #include "Lvs/Studio/Widgets/AboutStudioDialog.hpp"
 #include "Lvs/Studio/Widgets/Settings/SettingsWidget.hpp"
 
 #include <QAction>
+#include <QCheckBox>
 #include <QDockWidget>
 #include <QFileDialog>
 #include <QMenu>
@@ -137,6 +139,38 @@ void TopBarController::BuildFileMenu() {
             RefreshFileActions();
             RefreshViewActions();
             RefreshEditActions();
+
+            const auto place = placeManager_.GetCurrentPlace();
+            if (place != nullptr &&
+                place->GetLoadedFileFormat() == Engine::DataModel::Place::FileFormat::Xml &&
+                Core::Settings::Get("AskMigrateXmlPlaceToToml").toBool()) {
+
+                const QString suffix = QFileInfo(selectedPath).suffix();
+                if (suffix.compare("lvsx", Qt::CaseInsensitive) == 0) {
+                    QMessageBox box(&window_);
+                    box.setWindowTitle("Migrate Place to TOML");
+                    box.setIcon(QMessageBox::Question);
+                    box.setText("This place file uses legacy XML format.");
+                    box.setInformativeText("Convert it to TOML now? (Recommended)");
+                    box.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
+                    box.setDefaultButton(QMessageBox::Yes);
+
+                    QCheckBox dontAsk("Don't ask again");
+                    box.setCheckBox(&dontAsk);
+
+                    const int res = box.exec();
+                    if (dontAsk.isChecked()) {
+                        Core::Settings::Set("AskMigrateXmlPlaceToToml", false);
+                        Core::Settings::Save();
+                    }
+                    if (res == QMessageBox::Yes) {
+                        window_.ShowBusy("Migrating place...");
+                        place->SetPreferredSaveFormat(Engine::DataModel::Place::FileFormat::Toml);
+                        placeManager_.SaveCurrentPlaceToFile(place->GetFilePath());
+                        window_.HideBusy("Ready");
+                    }
+                }
+            }
         } catch (const std::exception& ex) {
             window_.HideBusy();
             Engine::Core::RegularError::ShowErrorFromException(ex);

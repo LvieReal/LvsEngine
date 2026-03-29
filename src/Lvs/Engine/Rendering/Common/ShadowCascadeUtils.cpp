@@ -2,7 +2,7 @@
 
 #include "Lvs/Engine/Math/CFrame.hpp"
 #include "Lvs/Engine/Math/Vector3.hpp"
-#include "Lvs/Engine/Objects/Camera.hpp"
+#include "Lvs/Engine/DataModel/Objects/Camera.hpp"
 
 #include <algorithm>
 #include <array>
@@ -105,7 +105,7 @@ Math::Matrix4 StabilizeProjection(
 }
 
 Math::Matrix4 ComputeCascadeLightViewProjection(
-    const Objects::Camera& camera,
+    const DataModel::Objects::Camera& camera,
     const Math::Vector3& direction,
     const float cameraAspect,
     const double rangeNear,
@@ -224,7 +224,7 @@ std::array<std::uint32_t, kMaxShadowCascades> ComputeCascadeResolutions(
 }
 
 bool ComputeShadowCascades(
-    const Objects::Camera& camera,
+    const DataModel::Objects::Camera& camera,
     const Math::Vector3& directionalLightDirection,
     const float cameraAspect,
     const ShadowSettings& settings,
@@ -235,7 +235,15 @@ bool ComputeShadowCascades(
         return false;
     }
 
-    const double nearPlane = std::max(0.01, camera.GetProperty("NearPlane").toDouble());
+    double nearPlane = 0.1;
+    try {
+        const auto& props = camera.GetProperties();
+        if (const auto it = props.find("NearPlane"); it != props.end()) {
+            nearPlane = it->second.Get().toDouble();
+        }
+    } catch (...) {
+    }
+    nearPlane = std::max(0.01, nearPlane);
     const double farPlane = std::max(nearPlane + 1.0, static_cast<double>(settings.MaxDistance));
     const auto splits = ComputeCascadeSplits(nearPlane, farPlane, settings.CascadeCount, settings.CascadeSplitLambda);
 

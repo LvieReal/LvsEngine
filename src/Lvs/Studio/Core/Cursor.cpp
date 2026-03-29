@@ -1,6 +1,6 @@
 #include "Lvs/Studio/Core/Cursor.hpp"
 
-#include "Lvs/Engine/Core/QtBridge.hpp"
+#include "Lvs/Qt/QtBridge.hpp"
 #include "Lvs/Engine/Utils/SourcePath.hpp"
 
 #include <QCursor>

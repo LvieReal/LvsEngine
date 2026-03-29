@@ -1,29 +1,20 @@
-#include "Lvs/Engine/Objects/Camera.hpp"
+#include "Lvs/Engine/DataModel/Objects/Camera.hpp"
 
 #include "Lvs/Engine/DataModel/ClassRegistry.hpp"
 #include "Lvs/Engine/Math/CFrame.hpp"
 #include "Lvs/Engine/Math/Projection.hpp"
 
-namespace Lvs::Engine::Objects {
+#include <mutex>
+
+namespace Lvs::Engine::DataModel::Objects {
 
 Core::ClassDescriptor& Camera::Descriptor() {
     static Core::ClassDescriptor descriptor("Camera", &Core::Instance::Descriptor());
-    static const bool initialized = []() {
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Math::CFrame>(
-            "CFrame", Math::CFrame::Identity(), true, "Transform", {}, false, {"IsSeparateBox"}
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
-            "FieldOfView", 70.0, true, "Camera"
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
-            "NearPlane", 0.1, true, "Camera"
-        ));
-
+    static std::once_flag registered;
+    std::call_once(registered, [&]() {
         Core::ClassDescriptor::RegisterClassDescriptor(&descriptor);
-        DataModel::ClassRegistry::RegisterClass<Camera>("Camera", "General", "Instance");
-        return true;
-    }();
-    static_cast<void>(initialized);
+        ClassRegistry::RegisterClass<Camera>("Camera", "General", "Instance");
+    });
     return descriptor;
 }
 
@@ -61,11 +52,23 @@ Math::Matrix4 Camera::GetProjectionMatrix() const {
 
 void Camera::UpdateProjectionMatrix(const double aspect) {
     lastAspect_ = aspect;
+    double fov = 70.0;
+    double nearPlane = 0.1;
+    try {
+        const auto& props = GetProperties();
+        if (const auto it = props.find("FieldOfView"); it != props.end()) {
+            fov = it->second.Get().toDouble();
+        }
+        if (const auto it = props.find("NearPlane"); it != props.end()) {
+            nearPlane = it->second.Get().toDouble();
+        }
+    } catch (...) {
+    }
     projectionMatrix_ = Math::Projection::ReversedInfinitePerspective(
-        GetProperty("FieldOfView").toDouble(),
+        fov,
         aspect,
-        GetProperty("NearPlane").toDouble()
+        nearPlane
     );
 }
 
-} // namespace Lvs::Engine::Objects
+} // namespace Lvs::Engine::DataModel::Objects

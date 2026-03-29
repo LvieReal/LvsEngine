@@ -55,4 +55,31 @@ const Property& ObjectBase::GetPropertyObject(const String& name) const {
     return it->second;
 }
 
+void ObjectBase::SyncPropertiesFromDescriptor(const bool preserveValues) {
+    if (classDescriptor_ == nullptr) {
+        return;
+    }
+
+    const auto& defs = classDescriptor_->PropertyDefinitions();
+
+    // Add/update properties declared in the descriptor.
+    for (const auto& [name, definition] : defs) {
+        const auto it = properties_.find(name);
+        if (it == properties_.end()) {
+            properties_.insert({name, Property(definition)});
+            continue;
+        }
+        it->second.ReplaceDefinition(definition, preserveValues);
+    }
+
+    // Remove properties no longer present.
+    for (auto it = properties_.begin(); it != properties_.end();) {
+        if (defs.find(it->first) == defs.end()) {
+            it = properties_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
 } // namespace Lvs::Engine::Core

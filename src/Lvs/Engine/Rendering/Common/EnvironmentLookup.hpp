@@ -7,13 +7,13 @@ class Place;
 class Lighting;
 }
 
-namespace Lvs::Engine::Objects {
+namespace Lvs::Engine::DataModel::Objects {
 class Skybox;
 }
 
 namespace Lvs::Engine::Rendering::Common {
 
 [[nodiscard]] std::shared_ptr<DataModel::Lighting> FindLightingService(const std::shared_ptr<DataModel::Place>& place);
-[[nodiscard]] std::shared_ptr<Objects::Skybox> FindSkyboxInstance(const std::shared_ptr<DataModel::Lighting>& lighting);
+[[nodiscard]] std::shared_ptr<DataModel::Objects::Skybox> FindSkyboxInstance(const std::shared_ptr<DataModel::Lighting>& lighting);
 
 } // namespace Lvs::Engine::Rendering::Common

@@ -1,6 +1,6 @@
 #include "Lvs/Studio/Widgets/Settings/SettingsWidget.hpp"
 
-#include "Lvs/Engine/Core/QtBridge.hpp"
+#include "Lvs/Qt/QtBridge.hpp"
 #include "Lvs/Engine/Enums/EnumMetadata.hpp"
 #include "Lvs/Engine/Utils/EngineDataPaths.hpp"
 #include "Lvs/Studio/Core/IconPackManager.hpp"

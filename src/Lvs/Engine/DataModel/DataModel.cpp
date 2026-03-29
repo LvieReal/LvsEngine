@@ -2,16 +2,17 @@
 
 #include "Lvs/Engine/DataModel/ClassRegistry.hpp"
 
+#include <mutex>
+
 namespace Lvs::Engine::DataModel {
 
 Core::ClassDescriptor& DataModel::Descriptor() {
     static Core::ClassDescriptor descriptor("DataModel", &Core::Instance::Descriptor());
-    static const bool initialized = []() {
+    static std::once_flag registered;
+    std::call_once(registered, [&]() {
         Core::ClassDescriptor::RegisterClassDescriptor(&descriptor);
         ClassRegistry::RegisterClass<DataModel>("DataModel", "DataModel", "Instance");
-        return true;
-    }();
-    static_cast<void>(initialized);
+    });
     return descriptor;
 }
 

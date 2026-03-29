@@ -1,6 +1,6 @@
 #include "Lvs/Studio/Configuration.hpp"
 #include "Lvs/AppInfo.hpp"
-#include "Lvs/Engine/Core/QtBridge.hpp"
+#include "Lvs/Qt/QtBridge.hpp"
 #include "Lvs/Engine/Utils/SourcePath.hpp"
 
 namespace Lvs::Studio::Configuration {

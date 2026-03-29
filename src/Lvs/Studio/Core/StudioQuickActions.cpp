@@ -3,7 +3,7 @@
 #include "Lvs/Engine/Context.hpp"
 #include "Lvs/Engine/Core/EditorToolState.hpp"
 #include "Lvs/Engine/Core/Instance.hpp"
-#include "Lvs/Engine/Core/QtBridge.hpp"
+#include "Lvs/Qt/QtBridge.hpp"
 #include "Lvs/Studio/Core/RegularError.hpp"
 #include "Lvs/Studio/Core/Viewport.hpp"
 #include "Lvs/Engine/DataModel/Services/ChangeHistoryService.hpp"
@@ -14,8 +14,8 @@
 #include "Lvs/Engine/DataModel/Services/Workspace.hpp"
 #include "Lvs/Engine/Math/AABB.hpp"
 #include "Lvs/Engine/Math/Vector3.hpp"
-#include "Lvs/Engine/Objects/BasePart.hpp"
-#include "Lvs/Engine/Objects/Camera.hpp"
+#include "Lvs/Engine/DataModel/Objects/BasePart.hpp"
+#include "Lvs/Engine/DataModel/Objects/Camera.hpp"
 #include "Lvs/Engine/Utils/Command.hpp"
 #include "Lvs/Engine/Utils/InstanceSelection.hpp"
 #include "Lvs/Engine/Utils/Raycast.hpp"
@@ -372,8 +372,8 @@ std::shared_ptr<Engine::DataModel::ChangeHistoryService> StudioQuickActions::Get
     return std::dynamic_pointer_cast<Engine::DataModel::ChangeHistoryService>(place->FindService("ChangeHistoryService"));
 }
 
-std::shared_ptr<Engine::Objects::BasePart> StudioQuickActions::GetSelectedBasePart() const {
-    return std::dynamic_pointer_cast<Engine::Objects::BasePart>(GetSelectedInstance());
+std::shared_ptr<Engine::DataModel::Objects::BasePart> StudioQuickActions::GetSelectedBasePart() const {
+    return std::dynamic_pointer_cast<Engine::DataModel::Objects::BasePart>(GetSelectedInstance());
 }
 
 bool StudioQuickActions::IsTextInputFocused() const {
@@ -914,14 +914,14 @@ void StudioQuickActions::InsertObject(
         const auto historyService = GetHistoryService(place);
         const auto selectionService = GetSelectionService(place);
 
-        if (const auto createdPart = std::dynamic_pointer_cast<Engine::Objects::BasePart>(created); createdPart != nullptr &&
+        if (const auto createdPart = std::dynamic_pointer_cast<Engine::DataModel::Objects::BasePart>(created); createdPart != nullptr &&
             viewport_ != nullptr && place != nullptr) {
             const auto workspace = std::dynamic_pointer_cast<Engine::DataModel::Workspace>(place->FindService("Workspace"));
-            std::shared_ptr<Engine::Objects::Camera> camera;
+            std::shared_ptr<Engine::DataModel::Objects::Camera> camera;
             if (workspace != nullptr) {
                 const auto cameraProp = workspace->GetProperty("CurrentCamera");
                 if (cameraProp.Is<Engine::Core::Variant::InstanceRef>()) {
-                    camera = std::dynamic_pointer_cast<Engine::Objects::Camera>(
+                    camera = std::dynamic_pointer_cast<Engine::DataModel::Objects::Camera>(
                         cameraProp.Get<Engine::Core::Variant::InstanceRef>().lock()
                     );
                 }
@@ -938,10 +938,10 @@ void StudioQuickActions::InsertObject(
                     camera
                 );
 
-                std::vector<std::shared_ptr<Engine::Objects::BasePart>> parts;
+                std::vector<std::shared_ptr<Engine::DataModel::Objects::BasePart>> parts;
                 if (workspace != nullptr) {
                     for (const auto& descendant : workspace->GetDescendants()) {
-                        const auto part = std::dynamic_pointer_cast<Engine::Objects::BasePart>(descendant);
+                        const auto part = std::dynamic_pointer_cast<Engine::DataModel::Objects::BasePart>(descendant);
                         if (part == nullptr || part->GetParent() == nullptr) {
                             continue;
                         }

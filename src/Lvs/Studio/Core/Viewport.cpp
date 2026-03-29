@@ -5,7 +5,7 @@
 #include "Lvs/Studio/Core/ViewportToolLayer.hpp"
 #include "Lvs/Engine/DataModel/Place.hpp"
 #include "Lvs/Engine/DataModel/Services/Workspace.hpp"
-#include "Lvs/Engine/Objects/Camera.hpp"
+#include "Lvs/Engine/DataModel/Objects/Camera.hpp"
 #include "Lvs/Engine/Rendering/IRenderContext.hpp"
 
 #include <Qt>
@@ -36,7 +36,7 @@ void Viewport::BindToPlace(const std::shared_ptr<DataModel::Place>& place) {
         const auto cameraVar = workspace_->GetProperty("CurrentCamera");
         if (cameraVar.Is<Core::Variant::InstanceRef>()) {
             if (const auto locked = cameraVar.Get<Core::Variant::InstanceRef>().lock()) {
-                if (const auto camera = std::dynamic_pointer_cast<Objects::Camera>(locked); camera != nullptr) {
+                if (const auto camera = std::dynamic_pointer_cast<DataModel::Objects::Camera>(locked); camera != nullptr) {
                     cameraController_ = std::make_unique<CameraController>(camera);
                     cameraController_->SetSpeed(cameraSpeed_);
                     cameraController_->SetShiftSpeed(cameraShiftSpeed_);

@@ -1,71 +1,20 @@
-#include "Lvs/Engine/Objects/BasePart.hpp"
+#include "Lvs/Engine/DataModel/Objects/BasePart.hpp"
 
 #include "Lvs/Engine/DataModel/ClassRegistry.hpp"
-#include "Lvs/Engine/Core/PropertyTags.hpp"
 #include "Lvs/Engine/Enums/MeshCullMode.hpp"
 #include "Lvs/Engine/Math/Color3.hpp"
 
-namespace Lvs::Engine::Objects {
+#include <mutex>
+
+namespace Lvs::Engine::DataModel::Objects {
 
 Core::ClassDescriptor& BasePart::Descriptor() {
     static Core::ClassDescriptor descriptor("BasePart", &Core::Instance::Descriptor());
-    static const bool initialized = []() {
-        const Core::String alwaysOnTopVisibleTag = Core::PropertyTags::BuildVisibleIfTag("AlwaysOnTop", "true");
-
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Math::Color3>(
-            "Color", Math::Color3{0.7, 0.7, 0.7}, true, "Appearance"
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
-            "Transparency", 0.0, true, "Appearance"
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
-            "Roughness", 0.75, true, "Appearance"
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
-            "Metalness", 0.0, true, "Appearance"
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
-            "Emissive", 0.0, true, "Appearance"
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
-            "Renders", true, true, "Appearance"
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
-            "Locked", false, true, "Behavior", "Locked parts cannot be selected."
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
-            "AlwaysOnTop", false, true, "Appearance"
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<int>(
-            "ZIndex", 0, true, "Appearance", {}, false, Core::StringList{alwaysOnTopVisibleTag}
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Enums::MeshCullMode>(
-            "CullMode", Enums::MeshCullMode::Back, true, "Appearance"
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
-            "Anchored", false, true, "Physics"
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<bool>(
-            "CanCollide", true, true, "Physics"
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Math::Vector3>(
-            "Position", {}, true, "Transform"
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Math::Vector3>(
-            "Rotation", {}, true, "Transform"
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Math::CFrame>(
-            "CFrame", Math::CFrame::Identity(), true, "Transform", {}, true, {"IsSeparateBox"}
-        ));
-        descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<Math::Vector3>(
-            "Size", {4.0, 1.0, 2.0}, true, "Transform"
-        ));
-
+    static std::once_flag registered;
+    std::call_once(registered, [&]() {
         Core::ClassDescriptor::RegisterClassDescriptor(&descriptor);
-        DataModel::ClassRegistry::RegisterClass<BasePart>("BasePart", "3D Objects", "Instance");
-        return true;
-    }();
-    static_cast<void>(initialized);
+        ClassRegistry::RegisterClass<BasePart>("BasePart", "3D Objects", "Instance");
+    });
     return descriptor;
 }
 
@@ -153,4 +102,4 @@ void BasePart::SetRotation(const Math::Vector3& rotation) {
     SetCFrame(next);
 }
 
-} // namespace Lvs::Engine::Objects
+} // namespace Lvs::Engine::DataModel::Objects

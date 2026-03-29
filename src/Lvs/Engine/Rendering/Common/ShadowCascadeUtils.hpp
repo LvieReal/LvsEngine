@@ -9,7 +9,7 @@ namespace Lvs::Engine::Math {
 struct Vector3;
 }
 
-namespace Lvs::Engine::Objects {
+namespace Lvs::Engine::DataModel::Objects {
 class Camera;
 }
 
@@ -47,7 +47,7 @@ struct ShadowCascadeComputation {
     float cascadeResolutionScale
 );
 [[nodiscard]] bool ComputeShadowCascades(
-    const Objects::Camera& camera,
+    const DataModel::Objects::Camera& camera,
     const Math::Vector3& directionalLightDirection,
     float cameraAspect,
     const ShadowSettings& settings,

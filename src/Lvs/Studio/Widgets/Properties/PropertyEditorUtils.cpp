@@ -1,12 +1,12 @@
 #include "Lvs/Studio/Widgets/Properties/PropertyEditorUtils.hpp"
 
 #include "Lvs/Engine/Core/Instance.hpp"
-#include "Lvs/Engine/Core/QtBridge.hpp"
+#include "Lvs/Qt/QtBridge.hpp"
 #include "Lvs/Engine/Math/Color3.hpp"
 #include "Lvs/Engine/Math/CFrame.hpp"
 #include "Lvs/Engine/Math/Vector3.hpp"
-#include "Lvs/Engine/Objects/Camera.hpp"
-#include "Lvs/Studio/Core/QtMetaTypes.hpp"
+#include "Lvs/Engine/DataModel/Objects/Camera.hpp"
+#include "Lvs/Qt/QtMetaTypes.hpp"
 #include "Lvs/Studio/Widgets/Properties/PathEditor.hpp"
 #include "Lvs/Studio/Widgets/Properties/PropertyValueUtils.hpp"
 
@@ -168,6 +168,30 @@ bool HasCustomTag(const Engine::Core::StringList& tags, const char* tag) {
         }
     }
     return false;
+}
+
+QString FormatInstancePathForEditor(const std::shared_ptr<Lvs::Engine::Core::Instance>& instance) {
+    if (instance == nullptr) {
+        return {};
+    }
+
+    std::vector<Lvs::Engine::Core::String> parts;
+    for (auto current = instance; current != nullptr; current = current->GetParent()) {
+        parts.push_back(current->GetClassName());
+    }
+    std::reverse(parts.begin(), parts.end());
+    if (!parts.empty() && parts.front() == "DataModel") {
+        parts.erase(parts.begin());
+    }
+
+    Lvs::Engine::Core::String joined;
+    for (std::size_t i = 0; i < parts.size(); ++i) {
+        if (i != 0) {
+            joined += ".";
+        }
+        joined += parts[i];
+    }
+    return Engine::Core::QtBridge::ToQString(joined);
 }
 
 class Color3Editor final : public QWidget {
@@ -464,7 +488,7 @@ QWidget* CreateEditor(
     }
     if (definition.IsInstanceReference) {
         if (const auto target = TryGetInstanceReference(value, definition); target != nullptr) {
-            editor->setText(Engine::Core::QtBridge::ToQString(target->GetFullPath()));
+            editor->setText(FormatInstancePathForEditor(target));
         } else {
             editor->setText({});
         }
@@ -530,7 +554,7 @@ void SetEditorValue(
         const QSignalBlocker blocker(line);
         if (definition.IsInstanceReference) {
             if (const auto target = TryGetInstanceReference(value, definition); target != nullptr) {
-                line->setText(Engine::Core::QtBridge::ToQString(target->GetFullPath()));
+                line->setText(FormatInstancePathForEditor(target));
             } else {
                 line->setText({});
             }

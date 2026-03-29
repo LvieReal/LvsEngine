@@ -1,6 +1,6 @@
 #include "Lvs/Engine/Rendering/Common/SkyboxSettingsResolver.hpp"
 
-#include "Lvs/Engine/Objects/Skybox.hpp"
+#include "Lvs/Engine/DataModel/Objects/Skybox.hpp"
 #include "Lvs/Engine/Rendering/Common/EnvironmentLookup.hpp"
 
 #include <cctype>
@@ -10,8 +10,8 @@ namespace Lvs::Engine::Rendering::Common {
 SkyboxSettingsSnapshot SkyboxSettingsResolver::Resolve(const std::shared_ptr<DataModel::Place>& place) const {
     SkyboxSettingsSnapshot snapshot{};
     snapshot.Source = FindSkyboxInstance(FindLightingService(place));
-    const auto defaults = std::make_shared<Objects::Skybox>();
-    const std::shared_ptr<Objects::Skybox> source = snapshot.Source != nullptr ? snapshot.Source : defaults;
+    const auto defaults = std::make_shared<DataModel::Objects::Skybox>();
+    const std::shared_ptr<DataModel::Objects::Skybox> source = snapshot.Source != nullptr ? snapshot.Source : defaults;
 
     const auto resolvePathOrDefault = [&source, &defaults](const char* propertyName) -> std::filesystem::path {
         auto trimCopy = [](const std::string& in) -> std::string {
