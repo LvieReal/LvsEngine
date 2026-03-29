@@ -520,9 +520,9 @@ void GizmoSystem::RefreshTransforms() {
 
         axis.MoveShaftModel = base.ToMatrix4() * Math::Matrix4::Scale({handleRadius_ * scale, handleLength_ * scale, handleRadius_ * scale});
 
-        const double offset = (handleLength_ * 0.5 + tipRadius_ * 0.5) * scale;
-        axis.MoveTipModel = base.ToMatrix4() * Math::Matrix4::Translation({0.0, offset, 0.0}) *
-                            Math::Matrix4::Scale({tipRadius_ * scale, tipRadius_ * scale  * 1.5, tipRadius_ * scale});
+        const double tipHeightMult = 1.5;
+        const double offset = (handleLength_ * 0.5 + (tipRadius_ * tipHeightMult) * 0.5) * scale;
+        axis.MoveTipModel = base.ToMatrix4() * Math::Matrix4::Translation({0.0, offset, 0.0}) * Math::Matrix4::Scale({tipRadius_ * scale, tipRadius_ * scale * tipHeightMult, tipRadius_ * scale});
 
         axis.SizeTipModel = base.ToMatrix4() * Math::Matrix4::Scale({tipRadius_ * scale, tipRadius_ * scale, tipRadius_ * scale});
     }
@@ -549,7 +549,7 @@ void GizmoSystem::RefreshRenderPrimitives() {
                 .Color = color,
                 .Alpha = 1.0F,
                 .Metalness = 0.0F,
-                .Roughness = 1.0F,
+                .Roughness = 0.5F,
                 .Emissive = emissive,
                 .IgnoreLighting = ignoreLighting,
                 .AlwaysOnTop = alwaysOnTop_
@@ -560,7 +560,7 @@ void GizmoSystem::RefreshRenderPrimitives() {
                 .Color = color,
                 .Alpha = 1.0F,
                 .Metalness = 0.0F,
-                .Roughness = 1.0F,
+                .Roughness = 0.5F,
                 .Emissive = emissive,
                 .IgnoreLighting = ignoreLighting,
                 .AlwaysOnTop = alwaysOnTop_
@@ -574,7 +574,7 @@ void GizmoSystem::RefreshRenderPrimitives() {
                 .Color = color,
                 .Alpha = 1.0F,
                 .Metalness = 0.0F,
-                .Roughness = 1.0F,
+                .Roughness = 0.5F,
                 .Emissive = emissive,
                 .IgnoreLighting = ignoreLighting,
                 .AlwaysOnTop = alwaysOnTop_

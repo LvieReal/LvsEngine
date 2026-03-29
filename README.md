@@ -19,7 +19,8 @@ Windows 10+ 64 Bit, and:
 - Optional: Clang toolchain for ASAN (`clang64`)
 - Vulkan SDK
   - `VULKAN_SDK` env var should point to your SDK install
-  - `glslangValidator` or `glslc` must be available (used for shader compilation)
+  - `glslangValidator` or `glslc` must be available as it is used for shader compilation
+  - `spirv-cross` must be available as it is used for OpenGL shader cross-compilation
 
 ## Suggested MSYS2 packages
 

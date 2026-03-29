@@ -19,7 +19,7 @@ Core::ClassDescriptor& BasePart::Descriptor() {
             "Transparency", 0.0, true, "Appearance"
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
-            "Roughness", 0.8, true, "Appearance"
+            "Roughness", 0.75, true, "Appearance"
         ));
         descriptor.RegisterProperty(Core::ObjectBase::MakePropertyDefinition<double>(
             "Metalness", 0.0, true, "Appearance"
