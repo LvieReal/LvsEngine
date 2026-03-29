@@ -10,6 +10,7 @@
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
 
+#include <cstring>
 #include <memory>
 
 namespace Lvs::Studio::IO {
@@ -30,6 +31,20 @@ public:
         return Engine::Core::QtBridge::ToStdString(QString::fromUtf8(file.readAll()));
     }
 
+    [[nodiscard]] std::optional<ByteBuffer> ReadAllBytes(const Engine::Core::String& path) const override {
+        QFile file(Engine::Core::QtBridge::ToQString(path));
+        if (!file.open(QIODevice::ReadOnly)) {
+            return std::nullopt;
+        }
+        const QByteArray bytes = file.readAll();
+        ByteBuffer out;
+        out.resize(static_cast<size_t>(bytes.size()));
+        if (!out.empty()) {
+            std::memcpy(out.data(), bytes.constData(), out.size());
+        }
+        return out;
+    }
+
     [[nodiscard]] bool WriteAllText(const Engine::Core::String& path, const Engine::Core::String& data) const override {
         QFileInfo info(Engine::Core::QtBridge::ToQString(path));
         QDir().mkpath(info.absolutePath());
@@ -39,6 +54,18 @@ public:
             return false;
         }
         const QByteArray bytes = QString::fromUtf8(data.c_str()).toUtf8();
+        return file.write(bytes) == bytes.size();
+    }
+
+    [[nodiscard]] bool WriteAllBytes(const Engine::Core::String& path, const ByteBuffer& data) const override {
+        QFileInfo info(Engine::Core::QtBridge::ToQString(path));
+        QDir().mkpath(info.absolutePath());
+
+        QFile file(info.filePath());
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            return false;
+        }
+        const QByteArray bytes(reinterpret_cast<const char*>(data.data()), static_cast<qsizetype>(data.size()));
         return file.write(bytes) == bytes.size();
     }
 
@@ -128,4 +155,3 @@ void RegisterQtIOProviders() {
 }
 
 } // namespace Lvs::Studio::IO
-

@@ -35,6 +35,13 @@ void PlaceManager::SaveCurrentPlaceToFile(const Core::String& filePath) const {
     currentPlace_->SaveToFile(filePath);
 }
 
+void PlaceManager::SaveCurrentPlaceToFileAs(const Core::String& filePath, const Place::FileFormat format) const {
+    if (currentPlace_ == nullptr) {
+        throw std::runtime_error("No active place to save.");
+    }
+    currentPlace_->SaveToFileAs(filePath, format);
+}
+
 void PlaceManager::ClosePlace() {
     if (currentPlace_ == nullptr) {
         return;

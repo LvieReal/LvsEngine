@@ -18,6 +18,7 @@ namespace Lvs::Engine::DataModel {
 class Place {
 public:
     enum class FileFormat {
+        Binary,
         Xml,
         Toml
     };
@@ -65,8 +66,8 @@ private:
     Core::Variant DecodeValue(const Core::PropertyDefinition& definition, const Core::String& rawValue) const;
 
     Core::String filePath_;
-    FileFormat loadedFormat_{FileFormat::Toml};
-    FileFormat preferredSaveFormat_{FileFormat::Toml};
+    FileFormat loadedFormat_{FileFormat::Binary};
+    FileFormat preferredSaveFormat_{FileFormat::Binary};
     bool dirty_{false};
     std::shared_ptr<DataModel> dataModel_;
     Core::HashMap<Core::String, std::shared_ptr<Service>> services_;

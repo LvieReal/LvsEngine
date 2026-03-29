@@ -9,12 +9,12 @@
 #include "Lvs/Engine/DataModel/PlaceManager.hpp"
 #include "Lvs/Studio/Core/DockManager.hpp"
 #include "Lvs/Studio/Core/IconPackManager.hpp"
-#include "Lvs/Studio/Core/PlaceFileUtils.hpp"
 #include "Lvs/Studio/Core/Settings.hpp"
 #include "Lvs/Studio/Core/StudioQuickActions.hpp"
 #include "Lvs/Studio/Core/StudioShortcutManager.hpp"
 #include "Lvs/Studio/Widgets/AboutStudioDialog.hpp"
 #include "Lvs/Studio/Widgets/Settings/SettingsWidget.hpp"
+#include "Lvs/Engine/Core/PlaceFileUtils.hpp"
 
 #include <QAction>
 #include <QCheckBox>
@@ -97,6 +97,7 @@ void TopBarController::BuildFileMenu() {
     newAction_ = fileMenu_->addAction("New");
     openAction_ = fileMenu_->addAction("Open from File");
     saveAction_ = fileMenu_->addAction("Save to File");
+    saveAsTomlAction_ = fileMenu_->addAction("Save to File as TOML");
 
     QObject::connect(newAction_, &QAction::triggered, &window_, [this]() {
         if (!CloseCurrentPlaceIfAllowed()) {
@@ -123,7 +124,7 @@ void TopBarController::BuildFileMenu() {
             &window_,
             "Open Place from File",
             defaultPath,
-            Core::PlaceFileUtils::FileDialogFilter()
+            Engine::Core::QtBridge::ToQString(Engine::Core::PlaceFileUtils::FileDialogOpenFilter())
         );
         if (selectedPath.isEmpty()) {
             return;
@@ -180,6 +181,16 @@ void TopBarController::BuildFileMenu() {
     QObject::connect(saveAction_, &QAction::triggered, &window_, [this]() {
         try {
             static_cast<void>(SaveCurrentPlaceWithDialog());
+            RefreshFileActions();
+        } catch (const std::exception& ex) {
+            window_.HideBusy();
+            Engine::Core::RegularError::ShowErrorFromException(ex);
+        }
+    });
+
+    QObject::connect(saveAsTomlAction_, &QAction::triggered, &window_, [this]() {
+        try {
+            static_cast<void>(SaveCurrentPlaceAsTomlWithDialog());
             RefreshFileActions();
         } catch (const std::exception& ex) {
             window_.HideBusy();
@@ -357,6 +368,9 @@ void TopBarController::RefreshFileActions() {
     if (saveAction_ != nullptr) {
         saveAction_->setEnabled(hasPlace);
     }
+    if (saveAsTomlAction_ != nullptr) {
+        saveAsTomlAction_->setEnabled(hasPlace);
+    }
     if (closeAction_ != nullptr) {
         closeAction_->setVisible(hasPlace);
         closeAction_->setEnabled(hasPlace);
@@ -436,19 +450,53 @@ QString TopBarController::PromptSavePath() const {
 
     QString defaultPath = Engine::Core::QtBridge::ToQString(currentPlace->GetFilePath());
     if (defaultPath.isEmpty()) {
-        defaultPath = Core::PlaceFileUtils::DefaultUntitledFileName();
+        defaultPath = Engine::Core::QtBridge::ToQString(Engine::Core::PlaceFileUtils::DefaultUntitledFileName());
     }
     QString selectedPath = QFileDialog::getSaveFileName(
         &window_,
         "Save Place to File",
         defaultPath,
-        Core::PlaceFileUtils::FileDialogFilter()
+        Engine::Core::QtBridge::ToQString(Engine::Core::PlaceFileUtils::FileDialogSaveBinaryFilter())
     );
     if (selectedPath.isEmpty()) {
         return {};
     }
 
-    return Core::PlaceFileUtils::EnsureExtension(std::move(selectedPath));
+    return Engine::Core::QtBridge::ToQString(
+        Engine::Core::PlaceFileUtils::EnsureExtension(
+            Engine::Core::QtBridge::ToStdString(std::move(selectedPath)),
+            Engine::Core::PlaceFileUtils::BinaryExtension()
+        )
+    );
+}
+
+QString TopBarController::PromptSaveTomlPath() const {
+    const auto currentPlace = placeManager_.GetCurrentPlace();
+    if (currentPlace == nullptr) {
+        return {};
+    }
+
+    QString defaultPath = Engine::Core::QtBridge::ToQString(currentPlace->GetFilePath());
+    if (defaultPath.isEmpty()) {
+        defaultPath = Engine::Core::QtBridge::ToQString(Engine::Core::PlaceFileUtils::DefaultUntitledTomlFileName());
+    }
+
+    QString selectedPath = QFileDialog::getSaveFileName(
+        &window_,
+        "Save Place to File (TOML)",
+        defaultPath,
+        Engine::Core::QtBridge::ToQString(Engine::Core::PlaceFileUtils::FileDialogSaveTomlFilter())
+    );
+    if (selectedPath.isEmpty()) {
+        return {};
+    }
+
+    return Engine::Core::QtBridge::ToQString(
+        Engine::Core::PlaceFileUtils::EnsureExtension(
+            Engine::Core::QtBridge::ToStdString(std::move(selectedPath)),
+            "toml"
+        )
+    );
 }
 
 void TopBarController::SaveCurrentPlaceToPath(const QString& path) const {
@@ -459,6 +507,21 @@ void TopBarController::SaveCurrentPlaceToPath(const QString& path) const {
     window_.ShowBusy("Saving place...");
     try {
         placeManager_.SaveCurrentPlaceToFile(Engine::Core::QtBridge::ToStdString(path));
+        window_.HideBusy("Ready");
+    } catch (...) {
+        window_.HideBusy();
+        throw;
+    }
+}
+
+void TopBarController::SaveCurrentPlaceToPathAs(const QString& path, const Engine::DataModel::Place::FileFormat format) const {
+    if (path.isEmpty()) {
+        return;
+    }
+
+    window_.ShowBusy("Saving place...");
+    try {
+        placeManager_.SaveCurrentPlaceToFileAs(Engine::Core::QtBridge::ToStdString(path), format);
         window_.HideBusy("Ready");
     } catch (...) {
         window_.HideBusy();
@@ -478,6 +541,21 @@ bool TopBarController::SaveCurrentPlaceWithDialog() const {
     }
 
     SaveCurrentPlaceToPath(outputPath);
+    return true;
+}
+
+bool TopBarController::SaveCurrentPlaceAsTomlWithDialog() const {
+    const auto currentPlace = placeManager_.GetCurrentPlace();
+    if (currentPlace == nullptr) {
+        return false;
+    }
+
+    const QString outputPath = PromptSaveTomlPath();
+    if (outputPath.isEmpty()) {
+        return false;
+    }
+
+    SaveCurrentPlaceToPathAs(outputPath, Engine::DataModel::Place::FileFormat::Toml);
     return true;
 }
 

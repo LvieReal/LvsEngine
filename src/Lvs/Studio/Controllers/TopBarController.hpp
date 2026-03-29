@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Lvs/Engine/DataModel/Place.hpp"
+
 #include <memory>
 
 class QAction;
@@ -55,10 +57,13 @@ private:
     void RefreshEditActions();
     void RefreshViewActions();
     bool SaveCurrentPlaceWithDialog() const;
+    bool SaveCurrentPlaceAsTomlWithDialog() const;
     bool CloseCurrentPlaceIfAllowed();
     bool CanCloseCurrentPlace();
     QString PromptSavePath() const;
+    QString PromptSaveTomlPath() const;
     void SaveCurrentPlaceToPath(const QString& path) const;
+    void SaveCurrentPlaceToPathAs(const QString& path, Engine::DataModel::Place::FileFormat format) const;
 
     Engine::Core::Window& window_;
     Core::DockManager& dockManager_;
@@ -75,6 +80,7 @@ private:
     QAction* newAction_{nullptr};
     QAction* openAction_{nullptr};
     QAction* saveAction_{nullptr};
+    QAction* saveAsTomlAction_{nullptr};
     QAction* closeAction_{nullptr};
     QAction* undoAction_{nullptr};
     QAction* redoAction_{nullptr};

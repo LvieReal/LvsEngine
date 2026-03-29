@@ -15,6 +15,7 @@ target_link_libraries(lvs_engine
     PUBLIC
         Vulkan::Vulkan
         assimp::assimp
+        ZLIB::ZLIB
 )
 
 if(WIN32)

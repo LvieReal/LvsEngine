@@ -35,20 +35,34 @@
 #include <array>
 #include <cctype>
 #include <cstdint>
+#include <cstddef>
 #include <filesystem>
 #include <functional>
 #include <iomanip>
 #include <limits>
 #include <sstream>
+#include <span>
 #include <stdexcept>
 #include <string_view>
 #include <variant>
 #include <vector>
 
+#include <zlib.h>
+
 namespace Lvs::Engine::DataModel {
 
 namespace {
 constexpr auto FILE_FORMAT_VERSION = "1";
+constexpr std::uint16_t LVSP_FORMAT_VERSION = 1;
+constexpr std::uint16_t LVSP_FLAG_ZLIB = 1u << 0;
+constexpr std::uint8_t LVSP_PAYLOAD_TOML = 1;
+constexpr std::array<std::byte, 4> LVSP_MAGIC{
+    std::byte{'L'},
+    std::byte{'V'},
+    std::byte{'S'},
+    std::byte{'P'},
+};
+constexpr size_t LVSP_HEADER_SIZE = 24;
 
 [[nodiscard]] std::string_view LTrim(std::string_view s) {
     while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front()))) {
@@ -63,6 +77,175 @@ constexpr auto FILE_FORMAT_VERSION = "1";
         return Place::FileFormat::Xml;
     }
     return Place::FileFormat::Toml;
+}
+
+[[nodiscard]] Core::String ToLowerCopy(Core::String s) {
+    for (char& ch : s) {
+        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    }
+    return s;
+}
+
+void AppendU16LE(IO::IFileSystem::ByteBuffer& out, std::uint16_t v) {
+    out.push_back(static_cast<std::byte>(v & 0xFFu));
+    out.push_back(static_cast<std::byte>((v >> 8) & 0xFFu));
+}
+
+void AppendU32LE(IO::IFileSystem::ByteBuffer& out, std::uint32_t v) {
+    out.push_back(static_cast<std::byte>(v & 0xFFu));
+    out.push_back(static_cast<std::byte>((v >> 8) & 0xFFu));
+    out.push_back(static_cast<std::byte>((v >> 16) & 0xFFu));
+    out.push_back(static_cast<std::byte>((v >> 24) & 0xFFu));
+}
+
+[[nodiscard]] std::uint16_t ReadU16LE(std::span<const std::byte> bytes, const size_t offset) {
+    if (offset + 2 > bytes.size()) {
+        throw std::runtime_error("Invalid LVSP header: unexpected EOF.");
+    }
+    const auto b0 = static_cast<std::uint16_t>(static_cast<std::uint8_t>(bytes[offset + 0]));
+    const auto b1 = static_cast<std::uint16_t>(static_cast<std::uint8_t>(bytes[offset + 1]));
+    return static_cast<std::uint16_t>(b0 | (b1 << 8));
+}
+
+[[nodiscard]] std::uint32_t ReadU32LE(std::span<const std::byte> bytes, const size_t offset) {
+    if (offset + 4 > bytes.size()) {
+        throw std::runtime_error("Invalid LVSP header: unexpected EOF.");
+    }
+    const auto b0 = static_cast<std::uint32_t>(static_cast<std::uint8_t>(bytes[offset + 0]));
+    const auto b1 = static_cast<std::uint32_t>(static_cast<std::uint8_t>(bytes[offset + 1]));
+    const auto b2 = static_cast<std::uint32_t>(static_cast<std::uint8_t>(bytes[offset + 2]));
+    const auto b3 = static_cast<std::uint32_t>(static_cast<std::uint8_t>(bytes[offset + 3]));
+    return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
+}
+
+[[nodiscard]] IO::IFileSystem::ByteBuffer ZlibCompress(std::span<const std::byte> input) {
+    if (input.empty()) {
+        return {};
+    }
+
+    const auto srcLen = static_cast<uLong>(input.size());
+    uLongf dstLen = compressBound(srcLen);
+
+    IO::IFileSystem::ByteBuffer out;
+    out.resize(static_cast<size_t>(dstLen));
+
+    const int res = compress2(
+        reinterpret_cast<Bytef*>(out.data()),
+        &dstLen,
+        reinterpret_cast<const Bytef*>(input.data()),
+        srcLen,
+        Z_BEST_COMPRESSION
+    );
+    if (res != Z_OK) {
+        throw std::runtime_error("zlib compress2 failed with code: " + std::to_string(res));
+    }
+
+    out.resize(static_cast<size_t>(dstLen));
+    return out;
+}
+
+[[nodiscard]] IO::IFileSystem::ByteBuffer ZlibDecompress(std::span<const std::byte> input, const size_t expectedSize) {
+    IO::IFileSystem::ByteBuffer out;
+    out.resize(expectedSize);
+
+    if (expectedSize == 0) {
+        return out;
+    }
+    if (input.empty()) {
+        throw std::runtime_error("Invalid LVSP payload: empty compressed stream.");
+    }
+
+    uLongf dstLen = static_cast<uLongf>(out.size());
+    const int res = uncompress(
+        reinterpret_cast<Bytef*>(out.data()),
+        &dstLen,
+        reinterpret_cast<const Bytef*>(input.data()),
+        static_cast<uLong>(input.size())
+    );
+    if (res != Z_OK) {
+        throw std::runtime_error("zlib uncompress failed with code: " + std::to_string(res));
+    }
+    if (dstLen != static_cast<uLongf>(expectedSize)) {
+        throw std::runtime_error("Invalid LVSP payload: decompressed size mismatch.");
+    }
+
+    return out;
+}
+
+[[nodiscard]] std::uint32_t ZlibCrc32(std::span<const std::byte> input) {
+    if (input.empty()) {
+        return static_cast<std::uint32_t>(::crc32(0u, Z_NULL, 0u));
+    }
+    return static_cast<std::uint32_t>(
+        ::crc32(0u, reinterpret_cast<const Bytef*>(input.data()), static_cast<uInt>(input.size()))
+    );
+}
+
+[[nodiscard]] IO::IFileSystem::ByteBuffer EncodeLvspFromToml(std::string_view toml) {
+    std::span<const std::byte> raw(reinterpret_cast<const std::byte*>(toml.data()), toml.size());
+    const auto compressed = ZlibCompress(raw);
+
+    const std::uint32_t uncompressedSize = static_cast<std::uint32_t>(toml.size());
+    const std::uint32_t compressedSize = static_cast<std::uint32_t>(compressed.size());
+    const std::uint32_t crc = ZlibCrc32(raw);
+
+    IO::IFileSystem::ByteBuffer out;
+    out.reserve(LVSP_HEADER_SIZE + compressed.size());
+    out.insert(out.end(), LVSP_MAGIC.begin(), LVSP_MAGIC.end());
+    AppendU16LE(out, LVSP_FORMAT_VERSION);
+    AppendU16LE(out, LVSP_FLAG_ZLIB);
+    out.push_back(static_cast<std::byte>(LVSP_PAYLOAD_TOML));
+    out.push_back(std::byte{0});
+    out.push_back(std::byte{0});
+    out.push_back(std::byte{0});
+    AppendU32LE(out, uncompressedSize);
+    AppendU32LE(out, compressedSize);
+    AppendU32LE(out, crc);
+    out.insert(out.end(), compressed.begin(), compressed.end());
+    return out;
+}
+
+[[nodiscard]] Core::String DecodeLvspToToml(std::span<const std::byte> bytes) {
+    if (bytes.size() < LVSP_HEADER_SIZE) {
+        throw std::runtime_error("Invalid LVSP file: truncated header.");
+    }
+    for (size_t i = 0; i < LVSP_MAGIC.size(); ++i) {
+        if (bytes[i] != LVSP_MAGIC[i]) {
+            throw std::runtime_error("Invalid LVSP file: bad magic.");
+        }
+    }
+
+    const std::uint16_t version = ReadU16LE(bytes, 4);
+    if (version != LVSP_FORMAT_VERSION) {
+        throw std::runtime_error("Unsupported LVSP version: " + std::to_string(version));
+    }
+
+    const std::uint16_t flags = ReadU16LE(bytes, 6);
+    if ((flags & LVSP_FLAG_ZLIB) == 0) {
+        throw std::runtime_error("Unsupported LVSP compression flags.");
+    }
+
+    const auto payloadFormat = static_cast<std::uint8_t>(bytes[8]);
+    if (payloadFormat != LVSP_PAYLOAD_TOML) {
+        throw std::runtime_error("Unsupported LVSP payload format: " + std::to_string(payloadFormat));
+    }
+
+    const std::uint32_t uncompressedSize = ReadU32LE(bytes, 12);
+    const std::uint32_t compressedSize = ReadU32LE(bytes, 16);
+    const std::uint32_t expectedCrc = ReadU32LE(bytes, 20);
+
+    if (bytes.size() != LVSP_HEADER_SIZE + static_cast<size_t>(compressedSize)) {
+        throw std::runtime_error("Invalid LVSP file: payload size mismatch.");
+    }
+
+    const auto payload = bytes.subspan(LVSP_HEADER_SIZE, compressedSize);
+    const auto decompressed = ZlibDecompress(payload, static_cast<size_t>(uncompressedSize));
+
+    if (ZlibCrc32(decompressed) != expectedCrc) {
+        throw std::runtime_error("Invalid LVSP file: CRC mismatch.");
+    }
+
+    return Core::String(reinterpret_cast<const char*>(decompressed.data()), decompressed.size());
 }
 
 [[nodiscard]] Core::String GetAttr(IO::IXmlReader& reader, const Core::String& name) {
@@ -308,31 +491,46 @@ std::shared_ptr<Place> Place::LoadFromFile(const Core::String& filePath) {
         throw std::runtime_error("Place::LoadFromFile requires an IO FileSystem provider to be registered.");
     }
 
-    const auto text = fs->ReadAllText(filePath);
-    if (!text) {
-        throw std::runtime_error("Failed to read place file: " + filePath);
-    }
-
     auto place = std::make_shared<Place>();
-    const FileFormat format = DetectFileFormat(*text);
-    place->loadedFormat_ = format;
-    place->preferredSaveFormat_ = format;
 
-    if (format == FileFormat::Xml) {
-        if (!xml) {
-            throw std::runtime_error("Place::LoadFromFile requires an IO Xml provider to open XML place files.");
+    const auto extLower = ToLowerCopy(std::filesystem::path(filePath).extension().string());
+    if (extLower == ".lvsp") {
+        const auto bytes = fs->ReadAllBytes(filePath);
+        if (!bytes) {
+            throw std::runtime_error("Failed to read place file: " + filePath);
         }
-        auto reader = xml->CreateReaderFromText(*text);
-        if (!reader || !reader->ReadNextStartElement() || reader->Name() != "Place") {
-            throw std::runtime_error("Invalid place file: expected root <Place>.");
-        }
-        if (reader->HasError()) {
-            throw std::runtime_error("Invalid place file: " + reader->ErrorString());
-        }
-        place->LoadFromXmlRoot(*reader);
+
+        const Core::String toml = DecodeLvspToToml(std::span<const std::byte>(*bytes));
+        place->loadedFormat_ = FileFormat::Binary;
+        place->preferredSaveFormat_ = FileFormat::Binary;
+        place->LoadFromTomlText(toml);
     } else {
-        place->LoadFromTomlText(*text);
+        const auto text = fs->ReadAllText(filePath);
+        if (!text) {
+            throw std::runtime_error("Failed to read place file: " + filePath);
+        }
+
+        const FileFormat format = DetectFileFormat(*text);
+        place->loadedFormat_ = format;
+        place->preferredSaveFormat_ = format;
+
+        if (format == FileFormat::Xml) {
+            if (!xml) {
+                throw std::runtime_error("Place::LoadFromFile requires an IO Xml provider to open XML place files.");
+            }
+            auto reader = xml->CreateReaderFromText(*text);
+            if (!reader || !reader->ReadNextStartElement() || reader->Name() != "Place") {
+                throw std::runtime_error("Invalid place file: expected root <Place>.");
+            }
+            if (reader->HasError()) {
+                throw std::runtime_error("Invalid place file: " + reader->ErrorString());
+            }
+            place->LoadFromXmlRoot(*reader);
+        } else {
+            place->LoadFromTomlText(*text);
+        }
     }
+
     place->SetFilePath(filePath);
     place->MarkDirty(false);
     return place;
@@ -342,12 +540,15 @@ void Place::SaveToFile(const Core::String& filePath) {
     const auto ext = std::filesystem::path(filePath).extension().string();
     FileFormat format = preferredSaveFormat_;
     if (!ext.empty()) {
-        Core::String lower(ext.data(), ext.size());
-        for (char& ch : lower) {
-            ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-        }
-        if (lower == ".xml") {
+        const auto lower = ToLowerCopy(Core::String(ext.data(), ext.size()));
+        if (lower == ".lvsp") {
+            format = FileFormat::Binary;
+        } else if (lower == ".xml") {
             format = FileFormat::Xml;
+        } else if (lower == ".toml") {
+            format = FileFormat::Toml;
+        } else if (lower == ".lvsx") {
+            format = preferredSaveFormat_ == FileFormat::Xml ? FileFormat::Xml : FileFormat::Toml;
         }
     }
     SaveToFileAs(filePath, format);
@@ -369,7 +570,15 @@ void Place::SaveToFileAs(const Core::String& filePath, const FileFormat format) 
         }
     }
 
-    if (format == FileFormat::Xml) {
+    if (format == FileFormat::Binary) {
+        Core::String toml;
+        SerializeToToml(toml);
+
+        const auto bytes = EncodeLvspFromToml(toml);
+        if (!fs->WriteAllBytes(filePath, bytes)) {
+            throw std::runtime_error("Failed to write place file: " + filePath);
+        }
+    } else if (format == FileFormat::Xml) {
         if (!xml) {
             throw std::runtime_error("Place::SaveToFile requires an IO Xml provider to save XML place files.");
         }

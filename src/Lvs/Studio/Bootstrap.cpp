@@ -121,7 +121,7 @@ void Run(QApplication& app, Engine::Core::Window& window, const Engine::EngineCo
         }
     });
 
-    // Optional CLI: `--place <path>` or `--place=<path>` or a bare `*.lvsx` path.
+    // Optional CLI: `--place <path>` or `--place=<path>` or a bare place-file path.
     const QStringList args = app.arguments();
     QString placePath;
     for (int i = 0; i < args.size(); ++i) {
@@ -141,7 +141,10 @@ void Run(QApplication& app, Engine::Core::Window& window, const Engine::EngineCo
             if (arg.startsWith("--")) {
                 continue;
             }
-            if (arg.endsWith(".lvsx", Qt::CaseInsensitive)) {
+            if (arg.endsWith(".lvsp", Qt::CaseInsensitive) ||
+                arg.endsWith(".lvsx", Qt::CaseInsensitive) ||
+                arg.endsWith(".toml", Qt::CaseInsensitive) ||
+                arg.endsWith(".xml", Qt::CaseInsensitive)) {
                 placePath = arg;
                 break;
             }

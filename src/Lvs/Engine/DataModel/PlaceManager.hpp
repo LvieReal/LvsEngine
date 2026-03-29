@@ -17,6 +17,7 @@ public:
     std::shared_ptr<Place> NewPlace();
     std::shared_ptr<Place> OpenPlaceFromFile(const Core::String& filePath);
     void SaveCurrentPlaceToFile(const Core::String& filePath) const;
+    void SaveCurrentPlaceToFileAs(const Core::String& filePath, Place::FileFormat format) const;
     void ClosePlace();
 
     Utils::Signal<const std::shared_ptr<Place>&> PlaceOpened;

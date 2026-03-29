@@ -16,6 +16,7 @@ Windows 10+ 64 Bit, and:
 - MinGW-w64 toolchain (`mingw64`)
 - Qt6 (MSYS2 `mingw-w64-x86_64-qt6-base`, `mingw-w64-x86_64-qt6-tools`)
 - Assimp (MSYS2 `mingw-w64-x86_64-assimp`)
+- zlib (MSYS2 `mingw-w64-x86_64-zlib`)
 - Optional: Clang toolchain for ASAN (`clang64`)
 - Vulkan SDK
   - `VULKAN_SDK` env var should point to your SDK install
@@ -30,6 +31,7 @@ Run from MSYS2 shell:
 pacman -S --needed mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja
 pacman -S --needed mingw-w64-x86_64-qt6-base mingw-w64-x86_64-qt6-tools
 pacman -S --needed mingw-w64-x86_64-assimp
+pacman -S --needed mingw-w64-x86_64-zlib
 ```
 
 Clang version (purely for ASAN support):
@@ -38,6 +40,7 @@ Clang version (purely for ASAN support):
 pacman -S --needed mingw-w64-clang-x86_64-toolchain
 pacman -S --needed mingw-w64-clang-x86_64-qt6-base mingw-w64-clang-x86_64-qt6-tools
 pacman -S --needed mingw-w64-clang-x86_64-assimp
+pacman -S --needed mingw-w64-clang-x86_64-zlib
 ```
 
 ## Build (CMake Presets)
