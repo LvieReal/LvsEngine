@@ -157,10 +157,7 @@ vec3 SpecularCookTorrance(vec3 N, vec3 V, vec3 L, vec3 H, vec3 F, float effectiv
 
 // --- include end: D:\VSCode\PROJECTS\LvsEngine\content\Shaders\Utils\LightingBRDF.glsl
 
-const float EMISSIVE_SCENE_BOOST = 4.0;
-const float EMISSIVE_GLOW_BOOST = 8.0;
 const float BLACK_NEON_GLOW_FLOOR = 1.0 / 255.0;
-const float BLACK_NEON_GLOW_EXTRA_BOOST = 2.0;
 const int SMOOTH = 0;
 
 int GetTopSurfaceType() { return int(inst.surfaceData0.x + 0.5); }
@@ -543,15 +540,24 @@ void main() {
     if (!allowBlackNeon && albedoL2 < 1e-6) {
         glowMask = 0.0;
     }
+    float whiteShift = allowBlackNeon ? 0.0 : smoothstep(1.0, 8.0, emissive);
+
+    vec3 emissionRaw = albedo * emissive;
+    float emissionMax = max(emissionRaw.r, max(emissionRaw.g, emissionRaw.b));
+    vec3 emissionChroma = emissionRaw / max(emissionMax, 1e-6);
+    vec3 emissionTint = mix(emissionChroma, vec3(1.0), whiteShift);
+    vec3 emissiveScene = emissionTint * emissionMax;
+
     vec3 glowBase = albedo;
-    float blackNeonGlowBoost = 1.0;
     if (allowBlackNeon && albedoL2 < 1e-6) {
         // Keep black-neon visible without turning the bloom source white.
         glowBase = vec3(BLACK_NEON_GLOW_FLOOR);
-        blackNeonGlowBoost = BLACK_NEON_GLOW_EXTRA_BOOST;
     }
-    vec3 emissiveScene = albedo * emissive * EMISSIVE_SCENE_BOOST;
-    vec3 glowColor = glowBase * emissive * EMISSIVE_GLOW_BOOST * blackNeonGlowBoost * glowMask;
+    vec3 glowRaw = glowBase * emissive;
+    float glowMax = max(glowRaw.r, max(glowRaw.g, glowRaw.b));
+    vec3 glowChroma = glowRaw / max(glowMax, 1e-6);
+    vec3 glowTint = mix(glowChroma, vec3(1.0), whiteShift);
+    vec3 glowColor = (glowTint * glowMax) * glowMask;
     vec2 neonUv = gl_FragCoord.xy / vec2(max(textureSize(neonTexture, 0), ivec2(1)));
     vec3 neonSample = neonEnabled ? texture(neonTexture, neonUv).rgb : vec3(0.0);
 
@@ -562,9 +568,8 @@ void main() {
         return;
     }
 
-    // With black-neon enabled, emissive parts behave like unlit neon.
-    // With black-neon disabled, keep physically plausible lit+emissive behavior.
-    if (allowBlackNeon && emissive > 0.0) {
+    // Emissive parts behave like unlit emitters (no diffuse/specular).
+    if (emissive > 1e-4) {
         outSceneColor = vec4(albedo + emissiveScene + ((neonSample * 0.1) * glowMask), alpha);
         outGlowColor = vec4(glowColor, glowMask);
         outDepthColor = vec4(hbaoDepth, 0.0, 0.0, 1.0);

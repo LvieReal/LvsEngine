@@ -7,8 +7,8 @@
 #include "Lvs/Engine/Math/CFrame.hpp"
 #include "Lvs/Engine/Math/Color3.hpp"
 #include "Lvs/Engine/Math/Vector3.hpp"
+#include "Lvs/Engine/Utils/Json.hpp"
 #include "Lvs/Engine/Utils/SourcePath.hpp"
-#include "Lvs/Engine/Utils/Toml.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -47,7 +47,7 @@ namespace {
     return Core::String(contents.data(), contents.size());
 }
 
-[[nodiscard]] TypeId ParseTypeId(const StringView typeName, bool& isInstanceRefOut) {
+ [[nodiscard]] TypeId ParseTypeId(const StringView typeName, bool& isInstanceRefOut) {
     auto toLower = [](StringView s) {
         String out;
         out.reserve(s.size());
@@ -92,36 +92,36 @@ namespace {
         return TypeId::ByteArray;
     }
 
-    return TypeId::Invalid;
-}
-
-[[nodiscard]] std::optional<Math::Vector3> ParseVector3(const Utils::Toml::Value& value) {
-    if (!value.IsArray()) {
-        return std::nullopt;
-    }
-    const auto& arr = value.AsArray();
-    if (arr.size() != 3) {
-        return std::nullopt;
-    }
-    return Math::Vector3{arr[0].AsDouble(), arr[1].AsDouble(), arr[2].AsDouble()};
-}
-
-[[nodiscard]] std::optional<Math::Color3> ParseColor3(const Utils::Toml::Value& value) {
-    if (!value.IsArray()) {
-        return std::nullopt;
-    }
-    const auto& arr = value.AsArray();
-    if (arr.size() != 3) {
-        return std::nullopt;
-    }
-    return Math::Color3{arr[0].AsDouble(), arr[1].AsDouble(), arr[2].AsDouble()};
-}
-
-[[nodiscard]] std::optional<Math::CFrame> ParseCFrame(const Utils::Toml::Value& value) {
-    if (value.IsString()) {
-        String lowered;
-        lowered.reserve(value.AsString().size());
-        for (const char ch : value.AsString()) {
+     return TypeId::Invalid;
+ }
+ 
+ [[nodiscard]] std::optional<Math::Vector3> ParseVector3(const Utils::Json::Value& value) {
+     if (!value.IsArray()) {
+         return std::nullopt;
+     }
+     const auto& arr = value.AsArray();
+     if (arr.size() != 3) {
+         return std::nullopt;
+     }
+     return Math::Vector3{arr[0].AsNumber(), arr[1].AsNumber(), arr[2].AsNumber()};
+ }
+ 
+ [[nodiscard]] std::optional<Math::Color3> ParseColor3(const Utils::Json::Value& value) {
+     if (!value.IsArray()) {
+         return std::nullopt;
+     }
+     const auto& arr = value.AsArray();
+     if (arr.size() != 3) {
+         return std::nullopt;
+     }
+     return Math::Color3{arr[0].AsNumber(), arr[1].AsNumber(), arr[2].AsNumber()};
+ }
+ 
+ [[nodiscard]] std::optional<Math::CFrame> ParseCFrame(const Utils::Json::Value& value) {
+     if (value.IsString()) {
+         String lowered;
+         lowered.reserve(value.AsString().size());
+         for (const char ch : value.AsString()) {
             lowered.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
         }
         if (lowered == "identity") {
@@ -129,20 +129,20 @@ namespace {
         }
         return std::nullopt;
     }
-
-    if (!value.IsArray()) {
-        return std::nullopt;
-    }
-    const auto& arr = value.AsArray();
-    if (arr.size() == 12) {
-        const Math::Vector3 p{arr[0].AsDouble(), arr[1].AsDouble(), arr[2].AsDouble()};
-        const Math::Vector3 r{arr[3].AsDouble(), arr[4].AsDouble(), arr[5].AsDouble()};
-        const Math::Vector3 u{arr[6].AsDouble(), arr[7].AsDouble(), arr[8].AsDouble()};
-        const Math::Vector3 b{arr[9].AsDouble(), arr[10].AsDouble(), arr[11].AsDouble()};
-        return Math::CFrame{p, r, u, b};
-    }
-    if (arr.size() == 4) {
-        const auto p = ParseVector3(arr[0]);
+ 
+     if (!value.IsArray()) {
+         return std::nullopt;
+     }
+     const auto& arr = value.AsArray();
+     if (arr.size() == 12) {
+         const Math::Vector3 p{arr[0].AsNumber(), arr[1].AsNumber(), arr[2].AsNumber()};
+         const Math::Vector3 r{arr[3].AsNumber(), arr[4].AsNumber(), arr[5].AsNumber()};
+         const Math::Vector3 u{arr[6].AsNumber(), arr[7].AsNumber(), arr[8].AsNumber()};
+         const Math::Vector3 b{arr[9].AsNumber(), arr[10].AsNumber(), arr[11].AsNumber()};
+         return Math::CFrame{p, r, u, b};
+     }
+     if (arr.size() == 4) {
+         const auto p = ParseVector3(arr[0]);
         const auto r = ParseVector3(arr[1]);
         const auto u = ParseVector3(arr[2]);
         const auto b = ParseVector3(arr[3]);
@@ -151,119 +151,114 @@ namespace {
         }
     }
 
-    return std::nullopt;
-}
-
-[[nodiscard]] Variant TomlToVariant(const Utils::Toml::Value& v) {
-    if (v.IsBool()) {
-        return Variant::From(v.AsBool());
-    }
-    if (v.IsInt()) {
-        return Variant::From(static_cast<int64_t>(v.AsInt()));
-    }
-    if (v.IsDouble()) {
-        return Variant::From(v.AsDouble());
-    }
-    if (v.IsString()) {
-        return Variant::From(v.AsString());
-    }
-    return Variant{};
-}
-
-[[nodiscard]] Variant ParseDefaultValue(
-    const TypeId type,
-    const bool isInstanceRef,
-    const String& enumType,
-    const Utils::Toml::Value& value
-) {
-    if (isInstanceRef) {
-        return Variant::From(Variant::InstanceRef{});
-    }
-
-    switch (type) {
-    case TypeId::Bool:
-        return Variant::From(value.AsBool());
-    case TypeId::Int:
-        return Variant::From(static_cast<int64_t>(value.AsInt()));
-    case TypeId::Double:
-        return Variant::From(value.AsDouble());
-    case TypeId::String:
-        return Variant::From(value.AsString());
-    case TypeId::Vector3: {
-        const auto v3 = ParseVector3(value);
-        return v3 ? Variant::From(*v3) : Variant::From(Math::Vector3{});
-    }
-    case TypeId::Color3: {
-        const auto c3 = ParseColor3(value);
-        return c3 ? Variant::From(*c3) : Variant::From(Math::Color3{});
-    }
-    case TypeId::CFrame: {
-        const auto cf = ParseCFrame(value);
-        return cf ? Variant::From(*cf) : Variant::From(Math::CFrame::Identity());
-    }
-    case TypeId::Enum: {
-        if (value.IsString()) {
-            if (!enumType.empty() && Enums::Metadata::IsRegisteredEnum(enumType)) {
-                return Enums::Metadata::VariantFromName(enumType, value.AsString());
-            }
-            // Enum names require enumType to be set; fall back to 0.
-            return Variant::From(0);
-        }
-        if (value.IsInt()) {
-            return Variant::From(static_cast<int>(value.AsInt()));
-        }
-        return Variant::From(static_cast<int>(value.AsDouble()));
-    }
-    case TypeId::InstanceRef:
-        return Variant::From(Variant::InstanceRef{});
-    case TypeId::ByteArray:
+     return std::nullopt;
+ }
+ 
+ [[nodiscard]] Variant JsonToVariant(const Utils::Json::Value& v) {
+     if (v.IsBool()) {
+         return Variant::From(v.AsBool());
+     }
+     if (v.IsNumber()) {
+         const double d = v.AsNumber();
+         if (std::isfinite(d) && std::floor(d) == d) {
+             return Variant::From(static_cast<int64_t>(d));
+         }
+         return Variant::From(d);
+     }
+     if (v.IsString()) {
+         return Variant::From(v.AsString());
+     }
+     return Variant{};
+ }
+ 
+ [[nodiscard]] Variant ParseDefaultValue(
+     const TypeId type,
+     const bool isInstanceRef,
+     const String& enumType,
+     const Utils::Json::Value& value
+ ) {
+     if (isInstanceRef) {
+         return Variant::From(Variant::InstanceRef{});
+     }
+ 
+     switch (type) {
+     case TypeId::Bool:
+         return Variant::From(value.AsBool());
+     case TypeId::Int:
+         return Variant::From(static_cast<int64_t>(value.AsNumber()));
+     case TypeId::Double:
+         return Variant::From(value.AsNumber());
+     case TypeId::String:
+         return Variant::From(value.AsString());
+     case TypeId::Vector3: {
+         const auto v3 = ParseVector3(value);
+         return v3 ? Variant::From(*v3) : Variant::From(Math::Vector3{});
+     }
+     case TypeId::Color3: {
+         const auto c3 = ParseColor3(value);
+         return c3 ? Variant::From(*c3) : Variant::From(Math::Color3{});
+     }
+     case TypeId::CFrame: {
+         const auto cf = ParseCFrame(value);
+         return cf ? Variant::From(*cf) : Variant::From(Math::CFrame::Identity());
+     }
+     case TypeId::Enum: {
+         if (value.IsString()) {
+             if (!enumType.empty() && Enums::Metadata::IsRegisteredEnum(enumType)) {
+                 return Enums::Metadata::VariantFromName(enumType, value.AsString());
+             }
+             // Enum names require enumType to be set; fall back to 0.
+             return Variant::From(0);
+         }
+         return Variant::From(static_cast<int>(value.AsNumber()));
+     }
+     case TypeId::InstanceRef:
+         return Variant::From(Variant::InstanceRef{});
+     case TypeId::ByteArray:
     case TypeId::Invalid:
         return Variant{};
-    }
-    return Variant{};
-}
-
-[[nodiscard]] StringList ParseTags(const Utils::Toml::Table& propTable) {
-    StringList out;
-
-    if (const auto* tagsV = Utils::Toml::FindValue(propTable, "tags"); tagsV && tagsV->IsArray()) {
-        for (const auto& t : tagsV->AsArray()) {
-            if (t.IsString()) {
-                out.push_back(t.AsString());
-            }
-        }
-    }
-
-    return out;
-}
-
-[[nodiscard]] HashMap<String, Variant> ParseAttributes(const Utils::Toml::Table& propTable) {
-    HashMap<String, Variant> out;
-    const auto* attrsTable = Utils::Toml::FindChild(propTable, "attributes");
-    if (attrsTable == nullptr) {
-        return out;
-    }
-
-    for (const auto& [k, v] : attrsTable->Values) {
-        out.insert_or_assign(k, TomlToVariant(v));
-    }
-    return out;
-}
-
-[[nodiscard]] int ParseIntOrDefault(const Utils::Toml::Value* value, const int fallback) {
-    if (value == nullptr) {
-        return fallback;
-    }
-    if (value->IsInt()) {
-        return static_cast<int>(value->AsInt(fallback));
-    }
-    if (value->IsDouble()) {
-        return static_cast<int>(value->AsDouble(fallback));
-    }
-    return fallback;
-}
-
-} // namespace
+     }
+     return Variant{};
+ }
+ 
+ [[nodiscard]] StringList ParseTags(const Utils::Json::Object& propObject) {
+     StringList out;
+ 
+     if (const auto* tagsV = Utils::Json::Find(propObject, "tags"); tagsV && tagsV->IsArray()) {
+         for (const auto& t : tagsV->AsArray()) {
+             if (t.IsString()) {
+                 out.push_back(t.AsString());
+             }
+         }
+     }
+ 
+     return out;
+ }
+ 
+ [[nodiscard]] HashMap<String, Variant> ParseAttributes(const Utils::Json::Object& propObject) {
+     HashMap<String, Variant> out;
+     const auto* attrsV = Utils::Json::Find(propObject, "attributes");
+     if (attrsV == nullptr || !attrsV->IsObject()) {
+         return out;
+     }
+ 
+     for (const auto& [k, v] : attrsV->AsObject()) {
+         out.insert_or_assign(k, JsonToVariant(v));
+     }
+     return out;
+ }
+ 
+ [[nodiscard]] int ParseIntOrDefault(const Utils::Json::Value* value, const int fallback) {
+     if (value == nullptr) {
+         return fallback;
+     }
+     if (value->IsNumber()) {
+         return static_cast<int>(value->AsNumber(fallback));
+     }
+     return fallback;
+ }
+ 
+ } // namespace
 
 ExternalMetadata& ExternalMetadata::Get() {
     static ExternalMetadata instance;
@@ -350,15 +345,15 @@ String ExternalMetadata::GetMetadataPath() const {
     return metadataPath_;
 }
 
-String ExternalMetadata::GetLastLoadedToml() const {
+String ExternalMetadata::GetLastLoadedMetadataText() const {
     std::lock_guard lock(mutex_);
-    return lastLoadedToml_;
+    return lastLoadedMetadataText_;
 }
 
 String ExternalMetadata::ResolveMetadataPath() const {
-    const String toml = Utils::SourcePath::GetSourcePath("config/reflection/Objects.toml");
-    if (QueryLastModified(toml).has_value()) {
-        return toml;
+    const String json = Utils::SourcePath::GetSourcePath("config/reflection/Objects.json");
+    if (QueryLastModified(json).has_value()) {
+        return json;
     }
     return {};
 }
@@ -385,46 +380,52 @@ bool ExternalMetadata::LoadFromDiskLocked() {
         return false;
     }
 
-    tomlText_ = *text;
-    lastLoadedToml_ = *text;
+    metadataText_ = *text;
+    lastLoadedMetadataText_ = *text;
     return true;
 }
 
 void ExternalMetadata::ApplyLocked() {
-    if (tomlText_.empty()) {
+    if (metadataText_.empty()) {
         return;
     }
 
-    Utils::Toml::Document doc;
+    Utils::Json::Value doc;
     try {
-        doc = Utils::Toml::Parse(tomlText_);
+        doc = Utils::Json::Parse(metadataText_);
     } catch (...) {
         return;
     }
-    const auto* classesTable = Utils::Toml::FindChild(doc.Root, "classes");
-    if (classesTable == nullptr) {
+    if (!doc.IsObject()) {
+        return;
+    }
+    const auto* classesV = Utils::Json::Find(doc.AsObject(), "classes");
+    if (classesV == nullptr || !classesV->IsObject()) {
         return;
     }
 
     struct PendingClass {
         String Name;
         const ClassDescriptor* Descriptor{nullptr};
-        const Utils::Toml::Table* Table{nullptr};
+        const Utils::Json::Object* Object{nullptr};
         int Depth{0};
     };
 
     std::vector<PendingClass> pending;
-    pending.reserve(classesTable->Children.size());
+    pending.reserve(classesV->AsObject().size());
 
-    for (const auto& [className, classT] : classesTable->Children) {
+    for (const auto& [className, classV] : classesV->AsObject()) {
         const auto* desc = ClassDescriptor::Get(className);
         if (desc == nullptr) {
+            continue;
+        }
+        if (!classV.IsObject()) {
             continue;
         }
         PendingClass entry;
         entry.Name = className;
         entry.Descriptor = desc;
-        entry.Table = &classT;
+        entry.Object = &classV.AsObject();
         pending.push_back(entry);
     }
 
@@ -446,46 +447,53 @@ void ExternalMetadata::ApplyLocked() {
 
     for (const auto& cls : pending) {
         auto* descriptor = const_cast<ClassDescriptor*>(cls.Descriptor);
-        if (descriptor == nullptr || cls.Table == nullptr) {
+        if (descriptor == nullptr || cls.Object == nullptr) {
             continue;
         }
 
         descriptor->ResetPropertiesToBase();
 
-        const auto* categoriesTable = Utils::Toml::FindChild(*cls.Table, "categories");
-        if (categoriesTable == nullptr) {
+        const auto* categoriesV = Utils::Json::Find(*cls.Object, "categories");
+        if (categoriesV == nullptr || !categoriesV->IsObject()) {
             continue;
         }
 
-        for (const auto& [categoryName, categoryT] : categoriesTable->Children) {
-            for (const auto& [propName, propT] : categoryT.Children) {
-                const auto* typeV = Utils::Toml::FindValue(propT, "type");
+        for (const auto& [categoryName, categoryV] : categoriesV->AsObject()) {
+            if (!categoryV.IsObject()) {
+                continue;
+            }
+            for (const auto& [propName, propV] : categoryV.AsObject()) {
+                if (!propV.IsObject()) {
+                    continue;
+                }
+                const auto& propObj = propV.AsObject();
+                const auto* typeV = Utils::Json::Find(propObj, "type");
                 if (typeV == nullptr || !typeV->IsString()) {
                     continue;
                 }
                 bool isInstanceRef = false;
                 const TypeId typeId = ParseTypeId(typeV->AsString(), isInstanceRef);
 
-                HashMap<String, Variant> attributes = ParseAttributes(propT);
+                HashMap<String, Variant> attributes = ParseAttributes(propObj);
 
                 String enumType;
                 if (typeId == TypeId::Enum) {
-                    const auto* enumTypeV = Utils::Toml::FindValue(propT, "enumType");
+                    const auto* enumTypeV = Utils::Json::Find(propObj, "enumType");
                     if (enumTypeV && enumTypeV->IsString()) {
                         enumType = enumTypeV->AsString();
                         attributes.insert_or_assign("EnumType", Variant::From(enumType));
                     }
                 }
 
-                const auto* serializableV = Utils::Toml::FindValue(propT, "serializable");
+                const auto* serializableV = Utils::Json::Find(propObj, "serializable");
                 const bool serializable = (serializableV && serializableV->IsBool()) ? serializableV->AsBool(true) : true;
-                const auto* descV = Utils::Toml::FindValue(propT, "description");
+                const auto* descV = Utils::Json::Find(propObj, "description");
                 const String description = (descV && descV->IsString()) ? descV->AsString() : String{};
-                const auto* readOnlyV = Utils::Toml::FindValue(propT, "readOnly");
+                const auto* readOnlyV = Utils::Json::Find(propObj, "readOnly");
                 const bool readOnly = (readOnlyV && readOnlyV->IsBool()) ? readOnlyV->AsBool(false) : false;
 
                 Variant defaultValue = Variant{};
-                if (const auto* defV = Utils::Toml::FindValue(propT, "default"); defV != nullptr) {
+                if (const auto* defV = Utils::Json::Find(propObj, "default"); defV != nullptr) {
                     defaultValue = ParseDefaultValue(typeId, isInstanceRef, enumType, *defV);
                 } else {
                     if (isInstanceRef) {
@@ -507,10 +515,10 @@ void ExternalMetadata::ApplyLocked() {
                 def.Category = categoryName;
                 def.Description = description;
                 def.ReadOnly = readOnly;
-                def.CustomTags = ParseTags(propT);
+                def.CustomTags = ParseTags(propObj);
                 def.CustomAttributes = std::move(attributes);
                 def.IsInstanceReference = isInstanceRef;
-                def.RegistrationOrder = ParseIntOrDefault(Utils::Toml::FindValue(propT, "order"), -1);
+                def.RegistrationOrder = ParseIntOrDefault(Utils::Json::Find(propObj, "order"), -1);
 
                 descriptor->RegisterProperty(def);
             }

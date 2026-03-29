@@ -17,6 +17,7 @@
 #include "Lvs/Engine/Enums/ShadowVolumeStencilMode.hpp"
 #include "Lvs/Engine/Enums/SpecularHighlightType.hpp"
 #include "Lvs/Engine/Enums/SurfaceMipmapping.hpp"
+#include "Lvs/Engine/Enums/Tonemapper.hpp"
 #include "Lvs/Engine/Enums/TextureFiltering.hpp"
 #include "Lvs/Engine/Enums/Theme.hpp"
 #include "Lvs/Engine/Rendering/IRenderContext.hpp"
@@ -43,6 +44,18 @@ struct EnumInfo {
     return out;
 }
 
+[[nodiscard]] std::string LowerAlnum(std::string_view text) {
+    std::string out;
+    out.reserve(text.size());
+    for (const char c : text) {
+        const unsigned char uc = static_cast<unsigned char>(c);
+        if (std::isalnum(uc)) {
+            out.push_back(static_cast<char>(std::tolower(uc)));
+        }
+    }
+    return out;
+}
+
 [[nodiscard]] bool IsAllowedValue(const EnumInfo& info, const int value) {
     for (const auto& entry : info.Entries) {
         if (entry.Value == value) {
@@ -54,15 +67,17 @@ struct EnumInfo {
 
 [[nodiscard]] std::optional<int> TryParseOptionName(const EnumInfo& info, const Core::String& nameOrNumber) {
     const std::string needle = LowerAscii(nameOrNumber);
+    const std::string needleFlat = LowerAlnum(nameOrNumber);
     if (needle.empty()) {
         return std::nullopt;
     }
 
     for (const auto& entry : info.Entries) {
-        if (entry.Name != nullptr && LowerAscii(entry.Name) == needle) {
+        if (entry.Name != nullptr && (LowerAscii(entry.Name) == needle || LowerAlnum(entry.Name) == needleFlat)) {
             return entry.Value;
         }
-        if (entry.DisplayName != nullptr && LowerAscii(entry.DisplayName) == needle) {
+        if (entry.DisplayName != nullptr
+            && (LowerAscii(entry.DisplayName) == needle || LowerAlnum(entry.DisplayName) == needleFlat)) {
             return entry.Value;
         }
     }
@@ -117,6 +132,7 @@ void AddEnum(Core::HashMap<Core::String, EnumInfo>& out) {
         AddEnum<PartShape>(out);
         AddEnum<PartSurface>(out);
         AddEnum<PartSurfaceType>(out);
+        AddEnum<Tonemapper>(out);
         AddEnum<Theme>(out);
         AddEnum<ShadowType>(out);
         AddEnum<RenderCullMode>(out);

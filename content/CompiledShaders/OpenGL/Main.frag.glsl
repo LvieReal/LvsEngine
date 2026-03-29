@@ -798,26 +798,42 @@ void main()
     {
         glowMask = 0.0;
     }
-    vec3 glowBase = albedo;
-    float blackNeonGlowBoost = 1.0;
-    if (allowBlackNeon && (albedoL2 < 9.9999999747524270787835121154785e-07))
+    float _1747;
+    if (allowBlackNeon)
     {
-        glowBase = vec3(0.0039215688593685626983642578125);
-        blackNeonGlowBoost = 2.0;
-    }
-    vec3 emissiveScene = (albedo * emissive) * 4.0;
-    vec3 glowColor = (((glowBase * emissive) * 8.0) * blackNeonGlowBoost) * glowMask;
-    vec2 neonUv = gl_FragCoord.xy / vec2(max(textureSize(neonTexture, 0), ivec2(1)));
-    vec3 _1782;
-    if (neonEnabled)
-    {
-        _1782 = texture(neonTexture, neonUv).xyz;
+        _1747 = 0.0;
     }
     else
     {
-        _1782 = vec3(0.0);
+        _1747 = smoothstep(1.0, 8.0, emissive);
     }
-    vec3 neonSample = _1782;
+    float whiteShift = _1747;
+    vec3 emissionRaw = albedo * emissive;
+    float emissionMax = max(emissionRaw.x, max(emissionRaw.y, emissionRaw.z));
+    vec3 emissionChroma = emissionRaw / vec3(max(emissionMax, 9.9999999747524270787835121154785e-07));
+    vec3 emissionTint = mix(emissionChroma, vec3(1.0), vec3(whiteShift));
+    vec3 emissiveScene = emissionTint * emissionMax;
+    vec3 glowBase = albedo;
+    if (allowBlackNeon && (albedoL2 < 9.9999999747524270787835121154785e-07))
+    {
+        glowBase = vec3(0.0039215688593685626983642578125);
+    }
+    vec3 glowRaw = glowBase * emissive;
+    float glowMax = max(glowRaw.x, max(glowRaw.y, glowRaw.z));
+    vec3 glowChroma = glowRaw / vec3(max(glowMax, 9.9999999747524270787835121154785e-07));
+    vec3 glowTint = mix(glowChroma, vec3(1.0), vec3(whiteShift));
+    vec3 glowColor = (glowTint * glowMax) * glowMask;
+    vec2 neonUv = gl_FragCoord.xy / vec2(max(textureSize(neonTexture, 0), ivec2(1)));
+    vec3 _1834;
+    if (neonEnabled)
+    {
+        _1834 = texture(neonTexture, neonUv).xyz;
+    }
+    else
+    {
+        _1834 = vec3(0.0);
+    }
+    vec3 neonSample = _1834;
     if (ignoreLighting)
     {
         outSceneColor = vec4((albedo + emissiveScene) + ((neonSample * 0.100000001490116119384765625) * glowMask), alpha);
@@ -825,7 +841,7 @@ void main()
         outDepthColor = vec4(hbaoDepth, 0.0, 0.0, 1.0);
         return;
     }
-    if (allowBlackNeon && (emissive > 0.0))
+    if (emissive > 9.9999997473787516355514526367188e-05)
     {
         outSceneColor = vec4((albedo + emissiveScene) + ((neonSample * 0.100000001490116119384765625) * glowMask), alpha);
         outGlowColor = vec4(glowColor, glowMask);
@@ -858,17 +874,17 @@ void main()
                 continue;
             }
             fresnelAmount = clamp(light.specular.z, 0.0, 1.0);
-            bool _1934 = light.type == 0u;
-            bool _1941;
-            if (_1934)
+            bool _1984 = light.type == 0u;
+            bool _1991;
+            if (_1984)
             {
-                _1941 = light.shadowIndex != 4294967295u;
+                _1991 = light.shadowIndex != 4294967295u;
             }
             else
             {
-                _1941 = _1934;
+                _1991 = _1984;
             }
-            if (_1941)
+            if (_1991)
             {
                 dl.direction = lightData.directionalLights[light.dataIndex].direction;
                 dl.shadowCascadeSplits = lightData.directionalLights[light.dataIndex].shadowCascadeSplits;

@@ -1,0 +1,784 @@
+{
+  "schemaVersion": 1,
+  "classes": {
+    "BasePart": {
+      "categories": {
+        "Appearance": {
+          "Color": {
+            "type": "Color3",
+            "default": [
+              0.7,
+              0.7,
+              0.7
+            ],
+            "order": 2
+          },
+          "Transparency": {
+            "type": "double",
+            "default": 0,
+            "order": 3
+          },
+          "Roughness": {
+            "type": "double",
+            "default": 0.75,
+            "order": 4
+          },
+          "Metalness": {
+            "type": "double",
+            "default": 0,
+            "order": 5
+          },
+          "Emissive": {
+            "type": "double",
+            "default": 0,
+            "order": 6
+          },
+          "Renders": {
+            "type": "bool",
+            "default": true,
+            "order": 7
+          },
+          "AlwaysOnTop": {
+            "type": "bool",
+            "default": false,
+            "order": 9
+          },
+          "ZIndex": {
+            "type": "int",
+            "default": 0,
+            "order": 10,
+            "tags": [
+              "VisibleIf:AlwaysOnTop=true"
+            ]
+          },
+          "CullMode": {
+            "type": "enum",
+            "enumType": "MeshCullMode",
+            "default": "Back",
+            "order": 11
+          }
+        },
+        "Behavior": {
+          "Locked": {
+            "type": "bool",
+            "default": false,
+            "description": "Locked parts cannot be selected.",
+            "order": 8
+          }
+        },
+        "Physics": {
+          "Anchored": {
+            "type": "bool",
+            "default": false,
+            "order": 12
+          },
+          "CanCollide": {
+            "type": "bool",
+            "default": true,
+            "order": 13
+          }
+        },
+        "Transform": {
+          "Position": {
+            "type": "Vector3",
+            "default": [
+              0,
+              0,
+              0
+            ],
+            "order": 14
+          },
+          "Rotation": {
+            "type": "Vector3",
+            "default": [
+              0,
+              0,
+              0
+            ],
+            "order": 15
+          },
+          "CFrame": {
+            "type": "CFrame",
+            "default": "identity",
+            "readOnly": true,
+            "order": 16,
+            "tags": [
+              "IsSeparateBox"
+            ]
+          },
+          "Size": {
+            "type": "Vector3",
+            "default": [
+              4,
+              1,
+              2
+            ],
+            "order": 17
+          }
+        }
+      }
+    },
+    "Part": {
+      "categories": {
+        "Appearance": {
+          "Shape": {
+            "type": "enum",
+            "enumType": "PartShape",
+            "default": "Cube",
+            "order": 18
+          },
+          "Beveled": {
+            "type": "bool",
+            "default": false,
+            "order": 19,
+            "tags": [
+              "VisibleIf:Shape=Cube"
+            ]
+          },
+          "BevelWidth": {
+            "type": "double",
+            "default": 0.05,
+            "description": "Bevel width in world units.",
+            "order": 20,
+            "tags": [
+              "VisibleIf:Shape=Cube",
+              "VisibleIf:Beveled=true"
+            ]
+          },
+          "BevelSmooth": {
+            "type": "bool",
+            "default": true,
+            "description": "Smooth normals across bevel faces.",
+            "order": 21,
+            "tags": [
+              "VisibleIf:Shape=Cube",
+              "VisibleIf:Beveled=true"
+            ]
+          }
+        },
+        "Surfaces": {
+          "RightSurface": {
+            "type": "enum",
+            "enumType": "PartSurfaceType",
+            "default": "Smooth",
+            "order": 22
+          },
+          "LeftSurface": {
+            "type": "enum",
+            "enumType": "PartSurfaceType",
+            "default": "Smooth",
+            "order": 23
+          },
+          "TopSurface": {
+            "type": "enum",
+            "enumType": "PartSurfaceType",
+            "default": "Studs",
+            "order": 24
+          },
+          "BottomSurface": {
+            "type": "enum",
+            "enumType": "PartSurfaceType",
+            "default": "Inlets",
+            "order": 25
+          },
+          "FrontSurface": {
+            "type": "enum",
+            "enumType": "PartSurfaceType",
+            "default": "Smooth",
+            "order": 26
+          },
+          "BackSurface": {
+            "type": "enum",
+            "enumType": "PartSurfaceType",
+            "default": "Smooth",
+            "order": 27
+          }
+        }
+      }
+    },
+    "MeshPart": {
+      "categories": {
+        "Appearance": {
+          "ContentId": {
+            "type": "string",
+            "default": "",
+            "order": 18,
+            "tags": [
+              "IsPath"
+            ],
+            "attributes": {
+              "FileExtensions": ".obj;.fbx;.gltf;.glb;.dae;.3ds;.blend;.stl;.ply"
+            }
+          },
+          "SmoothNormals": {
+            "type": "bool",
+            "default": true,
+            "order": 19
+          }
+        }
+      }
+    },
+    "Camera": {
+      "categories": {
+        "Transform": {
+          "CFrame": {
+            "type": "CFrame",
+            "default": "identity",
+            "order": 2,
+            "tags": [
+              "IsSeparateBox"
+            ]
+          }
+        },
+        "Camera": {
+          "FieldOfView": {
+            "type": "double",
+            "default": 70,
+            "order": 3
+          },
+          "NearPlane": {
+            "type": "double",
+            "default": 0.1,
+            "order": 4
+          }
+        }
+      }
+    },
+    "Light": {
+      "categories": {
+        "Appearance": {
+          "Color": {
+            "type": "Color3",
+            "default": [
+              1,
+              1,
+              1
+            ],
+            "order": 2
+          },
+          "Intensity": {
+            "type": "double",
+            "default": 1,
+            "order": 3
+          },
+          "SpecularStrength": {
+            "type": "double",
+            "default": 1,
+            "order": 4
+          },
+          "Shininess": {
+            "type": "double",
+            "default": 32,
+            "order": 5
+          },
+          "SpecularHighlightType": {
+            "type": "enum",
+            "enumType": "SpecularHighlightType",
+            "default": "CookTorrance",
+            "order": 6
+          },
+          "Enabled": {
+            "type": "bool",
+            "default": true,
+            "order": 7
+          }
+        }
+      }
+    },
+    "DirectionalLight": {
+      "categories": {
+        "Appearance": {
+          "Direction": {
+            "type": "Vector3",
+            "default": [
+              0.5,
+              -1,
+              0.5
+            ],
+            "description": "Direction of the light.",
+            "order": 8
+          }
+        },
+        "Shadow": {
+          "ShadowEnabled": {
+            "type": "bool",
+            "default": true,
+            "description": "Enable directional shadows for this light.",
+            "order": 9
+          },
+          "ShadowType": {
+            "type": "enum",
+            "enumType": "ShadowType",
+            "default": "Cascaded",
+            "description": "Directional shadow technique.",
+            "order": 10
+          },
+          "ShadowBlur": {
+            "type": "double",
+            "default": 4,
+            "description": "Shadow blur radius for PCF (in shadow texels).",
+            "order": 11,
+            "tags": [
+              "VisibleIf:ShadowType=Cascaded"
+            ]
+          },
+          "ShadowTapCount": {
+            "type": "int",
+            "default": 64,
+            "description": "Number of Poisson PCF taps.",
+            "order": 12,
+            "tags": [
+              "VisibleIf:ShadowType=Cascaded"
+            ]
+          },
+          "ShadowDepthBias": {
+            "type": "double",
+            "default": 0,
+            "description": "Directional shadow depth bias (in shadow texels). Higher reduces acne but may cause peter panning. Prefer normal offset.",
+            "order": 13,
+            "tags": [
+              "VisibleIf:ShadowType=Cascaded"
+            ]
+          },
+          "ShadowNormalOffset": {
+            "type": "double",
+            "default": 4,
+            "description": "Directional shadow normal offset (in shadow texels). Virtually pushes receivers along surface normal toward the light.",
+            "order": 14,
+            "tags": [
+              "VisibleIf:ShadowType=Cascaded"
+            ]
+          },
+          "ShadowCascadeCount": {
+            "type": "int",
+            "default": 3,
+            "description": "Directional shadow cascade count (1-3).",
+            "order": 15,
+            "tags": [
+              "VisibleIf:ShadowType=Cascaded"
+            ]
+          },
+          "ShadowMaxDistance": {
+            "type": "double",
+            "default": 1000,
+            "description": "Maximum distance for shadows.",
+            "order": 16
+          },
+          "ShadowMapResolution": {
+            "type": "int",
+            "default": 8192,
+            "description": "Directional shadow map resolution.",
+            "order": 17,
+            "tags": [
+              "VisibleIf:ShadowType=Cascaded"
+            ]
+          },
+          "ShadowCascadeResolutionScale": {
+            "type": "double",
+            "default": 0.9,
+            "description": "Per-cascade resolution scale (0-1). Higher keeps farther cascades sharper.",
+            "order": 18,
+            "tags": [
+              "VisibleIf:ShadowType=Cascaded"
+            ]
+          },
+          "ShadowCascadeSplitLambda": {
+            "type": "double",
+            "default": 0.75,
+            "description": "Cascade split weighting (0 uniform, 1 logarithmic). Lower preserves near/mid detail.",
+            "order": 19,
+            "tags": [
+              "VisibleIf:ShadowType=Cascaded"
+            ]
+          },
+          "ShadowVolumeBias": {
+            "type": "double",
+            "default": 0.01,
+            "description": "Shadow volume bias (world units). Offsets the near cap/volume along the light direction to reduce acne/self-shadowing.",
+            "order": 20,
+            "tags": [
+              "VisibleIf:ShadowType=Volumes"
+            ]
+          }
+        }
+      }
+    },
+    "PostEffects": {
+      "categories": {
+        "Post-Process": {
+          "Tonemapper": {
+            "type": "enum",
+            "enumType": "Tonemapper",
+            "default": "ACES",
+            "description": "Tonemapping operator applied in post-process composite.",
+            "order": 2
+          },
+          "Dithering": {
+            "type": "bool",
+            "default": true,
+            "description": "Apply post-process dithering to reduce visible color banding.",
+            "order": 3
+          },
+          "NeonEnabled": {
+            "type": "bool",
+            "default": true,
+            "description": "Enable neon glow contribution in post-process composite.",
+            "order": 4
+          },
+          "InaccurateNeon": {
+            "type": "bool",
+            "default": true,
+            "description": "Allow emissive parts with very dark colors to still emit glow.",
+            "order": 5,
+            "tags": [
+              "VisibleIf:NeonEnabled=true"
+            ]
+          },
+          "NeonBlur": {
+            "type": "double",
+            "default": 2,
+            "description": "Dual Kawase blur amount for neon glow.",
+            "order": 6,
+            "tags": [
+              "VisibleIf:NeonEnabled=true"
+            ]
+          },
+          "NeonAttenuation": {
+            "type": "double",
+            "default": 1,
+            "description": "Controls neon glow tail falloff (1 = neutral, >1 = sharper/shorter, <1 = softer/longer).",
+            "order": 7,
+            "tags": [
+              "VisibleIf:NeonEnabled=true"
+            ]
+          }
+        },
+        "HBAO": {
+          "HBAOEnabled": {
+            "type": "bool",
+            "default": true,
+            "description": "Enable Horizon-Based Ambient Occlusion post effect.",
+            "order": 7
+          },
+          "HBAOStrength": {
+            "type": "double",
+            "default": 2.0,
+            "description": "Ambient occlusion strength multiplier.",
+            "order": 8
+          },
+          "HBAORadius": {
+            "type": "double",
+            "default": 0.25,
+            "description": "AO sampling radius in view-space units.",
+            "order": 9
+          },
+          "HBAOBiasDegrees": {
+            "type": "double",
+            "default": 30,
+            "description": "Bias angle in degrees to reduce self-occlusion.",
+            "order": 10
+          },
+          "HBAOMaxRadiusPixels": {
+            "type": "int",
+            "default": 96,
+            "description": "Clamp AO kernel footprint in pixels.",
+            "order": 11
+          },
+          "HBAODirections": {
+            "type": "int",
+            "default": 6,
+            "description": "Number of sampling directions (higher is smoother, slower).",
+            "order": 12
+          },
+          "HBAOSamples": {
+            "type": "int",
+            "default": 4,
+            "description": "Number of samples per direction (higher is smoother, slower).",
+            "order": 13
+          },
+          "HBAOPower": {
+            "type": "double",
+            "default": 1,
+            "description": "Power curve applied to AO factor (higher increases contrast).",
+            "order": 14
+          },
+          "HBAOBlur": {
+            "type": "double",
+            "default": 1,
+            "description": "Dual Kawase blur amount applied to AO output.",
+            "order": 15
+          },
+          "AOTint": {
+            "type": "Color3",
+            "default": [
+              0,
+              0,
+              0
+            ],
+            "description": "Tint applied to ambient occlusion contribution.",
+            "order": 16
+          }
+        }
+      }
+    },
+    "Skybox": {
+      "categories": {
+        "Textures": {
+          "RightTexture": {
+            "type": "string",
+            "default": "core://Sky/nullsky/RT.png",
+            "order": 2,
+            "tags": [
+              "IsPath",
+              "VisibleIf:TextureLayout=Individual"
+            ]
+          },
+          "LeftTexture": {
+            "type": "string",
+            "default": "core://Sky/nullsky/LF.png",
+            "order": 3,
+            "tags": [
+              "IsPath",
+              "VisibleIf:TextureLayout=Individual"
+            ]
+          },
+          "UpTexture": {
+            "type": "string",
+            "default": "core://Sky/nullsky/UP.png",
+            "order": 4,
+            "tags": [
+              "IsPath",
+              "VisibleIf:TextureLayout=Individual"
+            ]
+          },
+          "DownTexture": {
+            "type": "string",
+            "default": "core://Sky/nullsky/DN.png",
+            "order": 5,
+            "tags": [
+              "IsPath",
+              "VisibleIf:TextureLayout=Individual"
+            ]
+          },
+          "FrontTexture": {
+            "type": "string",
+            "default": "core://Sky/nullsky/FT.png",
+            "order": 6,
+            "tags": [
+              "IsPath",
+              "VisibleIf:TextureLayout=Individual"
+            ]
+          },
+          "BackTexture": {
+            "type": "string",
+            "default": "core://Sky/nullsky/BK.png",
+            "order": 7,
+            "tags": [
+              "IsPath",
+              "VisibleIf:TextureLayout=Individual"
+            ]
+          },
+          "CrossTexture": {
+            "type": "string",
+            "default": "core://Sky/nullcrosssky/sky512.png",
+            "order": 8,
+            "tags": [
+              "IsPath",
+              "VisibleIf:TextureLayout=Cross"
+            ]
+          },
+          "TextureLayout": {
+            "type": "enum",
+            "enumType": "SkyboxTextureLayout",
+            "default": "Individual",
+            "order": 9
+          }
+        },
+        "Appearance": {
+          "Tint": {
+            "type": "Color3",
+            "default": [
+              1,
+              1,
+              1
+            ],
+            "order": 10
+          },
+          "Filtering": {
+            "type": "enum",
+            "enumType": "TextureFiltering",
+            "default": "Linear",
+            "order": 11
+          },
+          "ResolutionCap": {
+            "type": "int",
+            "default": 1024,
+            "order": 12
+          },
+          "Compression": {
+            "type": "bool",
+            "default": false,
+            "order": 13
+          }
+        }
+      }
+    },
+    "SelectionBox": {
+      "categories": {
+        "Data": {
+          "Adornee": {
+            "type": "InstanceRef",
+            "order": 2
+          }
+        },
+        "Appearance": {
+          "Color": {
+            "type": "Color3",
+            "default": [
+              0,
+              0.5,
+              1
+            ],
+            "order": 3
+          },
+          "Transparency": {
+            "type": "double",
+            "default": 0,
+            "order": 4
+          },
+          "LineThickness": {
+            "type": "double",
+            "default": 0.05,
+            "order": 5
+          },
+          "Metalness": {
+            "type": "double",
+            "default": 0,
+            "order": 6
+          },
+          "Roughness": {
+            "type": "double",
+            "default": 1,
+            "order": 7
+          },
+          "Emissive": {
+            "type": "double",
+            "default": 1,
+            "order": 8
+          },
+          "IgnoreLighting": {
+            "type": "bool",
+            "default": true,
+            "order": 9
+          },
+          "AlwaysOnTop": {
+            "type": "bool",
+            "default": true,
+            "order": 10
+          },
+          "Visible": {
+            "type": "bool",
+            "default": true,
+            "order": 11
+          },
+          "ScaleWithDistance": {
+            "type": "bool",
+            "default": false,
+            "order": 12
+          }
+        }
+      }
+    },
+    "Model": {
+      "categories": {
+        "Appearance": {
+          "Renders": {
+            "type": "bool",
+            "default": true,
+            "description": "When disabled, geometry within this model will not be rendered.",
+            "order": 2
+          }
+        },
+        "Data": {
+          "PrimaryPart": {
+            "type": "InstanceRef",
+            "order": 3
+          }
+        }
+      }
+    },
+    "Workspace": {
+      "categories": {
+        "Data": {
+          "CurrentCamera": {
+            "type": "InstanceRef",
+            "readOnly": true,
+            "order": 2
+          }
+        }
+      }
+    },
+    "QualitySettings": {
+      "categories": {
+        "Quality": {
+          "MSAA": {
+            "type": "enum",
+            "enumType": "MSAA",
+            "default": "Off",
+            "description": "Multisample anti-aliasing sample count.",
+            "order": 2
+          },
+          "SurfaceMipmapping": {
+            "type": "enum",
+            "enumType": "SurfaceMipmapping",
+            "default": "On",
+            "description": "Mipmapped filtering for surface atlas textures.",
+            "order": 3
+          }
+        }
+      }
+    },
+    "Lighting": {
+      "categories": {
+        "Rendering": {
+          "Ambient": {
+            "type": "Color3",
+            "default": [
+              1,
+              1,
+              1
+            ],
+            "description": "Global ambient color.",
+            "order": 2
+          },
+          "AmbientStrength": {
+            "type": "double",
+            "default": 0.1,
+            "description": "Global ambient strength.",
+            "order": 3
+          },
+          "Technology": {
+            "type": "enum",
+            "enumType": "LightingTechnology",
+            "default": "Default",
+            "description": "Controls the lighting style.",
+            "order": 4
+          },
+          "Shading": {
+            "type": "enum",
+            "enumType": "LightingComputationMode",
+            "default": "PerPixel",
+            "description": "Selects per-fragment or legacy per-vertex lighting.",
+            "order": 5
+          },
+          "FresnelAmount": {
+            "type": "double",
+            "default": 1,
+            "description": "Scales Fresnel term contribution (0 disables angle-dependent Fresnel, 1 is default).",
+            "order": 6
+          }
+        }
+      }
+    }
+  }
+}

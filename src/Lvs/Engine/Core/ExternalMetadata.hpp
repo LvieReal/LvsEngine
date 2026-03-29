@@ -24,7 +24,7 @@ public:
     void UnregisterRoot(const std::shared_ptr<Instance>& root);
 
     [[nodiscard]] String GetMetadataPath() const;
-    [[nodiscard]] String GetLastLoadedToml() const;
+    [[nodiscard]] String GetLastLoadedMetadataText() const;
 
     Utils::Signal<> Reloaded;
 
@@ -42,8 +42,8 @@ private:
     bool loaded_{false};
     String metadataPath_;
     std::optional<std::filesystem::file_time_type> lastModified_;
-    String tomlText_;
-    String lastLoadedToml_;
+    String metadataText_;
+    String lastLoadedMetadataText_;
     std::vector<std::weak_ptr<Instance>> roots_;
 };
 

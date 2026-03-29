@@ -5,6 +5,7 @@
 #include "Lvs/Engine/DataModel/Services/Workspace.hpp"
 #include "Lvs/Engine/Enums/LightingComputationMode.hpp"
 #include "Lvs/Engine/Enums/PartSurfaceType.hpp"
+#include "Lvs/Engine/Enums/Tonemapper.hpp"
 #include "Lvs/Engine/Math/CFrame.hpp"
 #include "Lvs/Engine/DataModel/Objects/BasePart.hpp"
 #include "Lvs/Engine/DataModel/Objects/Camera.hpp"
@@ -25,7 +26,7 @@ Common::CameraUniformData RenderContext::BuildCameraUniforms() {
     uniforms.CameraPosition = {0.0F, 0.0F, 0.0F, 1.0F};
     uniforms.Ambient = {0.15F, 0.15F, 0.15F, 1.0F};
     uniforms.SkyTint = {1.0F, 1.0F, 1.0F, 1.0F};
-    uniforms.RenderSettings = {1.0F, 0.0F, 1.0F, 0.0F};
+    uniforms.RenderSettings = {static_cast<float>(static_cast<int>(Enums::Tonemapper::Compression)), 0.0F, 1.0F, 0.0F};
     uniforms.LightingSettings = {0.0F, 0.0F, 0.0F, 0.0F};
     uniforms.CameraForward = {0.0F, 0.0F, -1.0F, 0.0F};
 
@@ -54,18 +55,13 @@ Common::CameraUniformData RenderContext::BuildCameraUniforms() {
         }
 
         if (postEffects != nullptr) {
+            const int tonemapper =
+                static_cast<int>(postEffects->GetProperty("Tonemapper").value<Enums::Tonemapper>());
             uniforms.RenderSettings = {
-                postEffects->GetProperty("GammaCorrection").toBool() ? 1.0F : 0.0F,
+                static_cast<float>(tonemapper),
                 postEffects->GetProperty("Dithering").toBool() ? 1.0F : 0.0F,
                 postEffects->GetProperty("NeonEnabled").toBool() ? 1.0F : 0.0F,
                 postEffects->GetProperty("InaccurateNeon").toBool() ? 1.0F : 0.0F
-            };
-        } else {
-            uniforms.RenderSettings = {
-                lightingService->GetProperty("GammaCorrection").toBool() ? 1.0F : 0.0F,
-                lightingService->GetProperty("Dithering").toBool() ? 1.0F : 0.0F,
-                lightingService->GetProperty("NeonEnabled").toBool() ? 1.0F : 0.0F,
-                lightingService->GetProperty("InaccurateNeon").toBool() ? 1.0F : 0.0F
             };
         }
         const auto shadingMode =

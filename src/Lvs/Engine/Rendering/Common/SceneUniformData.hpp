@@ -12,7 +12,7 @@ struct CameraUniformData {
     std::array<float, 4> Ambient{};
     std::array<float, 4> SkyTint{};
     std::array<float, 4> RenderSettings{};
-    std::array<float, 4> LightingSettings{}; // x: perVertexShadingEnabled
+    std::array<float, 4> LightingSettings{}; // x: perVertexShadingEnabled, yzw: shadow-volume range config
     std::array<float, 4> CameraForward{};
 };
 
@@ -61,12 +61,12 @@ struct SkyboxPushConstants {
 };
 
 struct PostProcessPushConstants {
-    std::array<float, 4> Settings{}; // x: gamma, y: dithering, z: neonEnabled, w: frameSeed
+    std::array<float, 4> Settings{}; // x: tonemapper, y: dithering, z: neonEnabled, w: frameSeed
 };
 
 struct PostCompositePushConstants {
-    std::array<float, 4> Settings{}; // x: gamma, y: dithering, z: neonEnabled, w: frameSeed
-    std::array<float, 4> AoTint{};   // rgb: tint, a: reserved
+    std::array<float, 4> Settings{}; // x: tonemapper, y: dithering, z: neonEnabled, w: frameSeed
+    std::array<float, 4> AoTint{};   // rgb: AO tint, a: neonAttenuation
 };
 
 struct HbaoPushConstants {

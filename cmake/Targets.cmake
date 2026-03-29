@@ -45,7 +45,7 @@ qt_add_resources(lvs_qt_common lvs_config_resource
     BASE "${CMAKE_CURRENT_SOURCE_DIR}/config"
     FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/config/AppInfo.toml"
-        "${CMAKE_CURRENT_SOURCE_DIR}/config/reflection/Objects.toml"
+        "${CMAKE_CURRENT_SOURCE_DIR}/config/reflection/Objects.json"
 )
 
 function(lvs_apply_runtime_linking target)
@@ -100,4 +100,3 @@ add_custom_target(lvs_dist
     DEPENDS lvs_app_dist lvs_studio_dist
     COMMENT "Assembling distributable bundles for all executables"
 )
-

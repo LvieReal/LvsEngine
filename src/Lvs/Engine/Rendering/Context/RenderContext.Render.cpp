@@ -1083,10 +1083,13 @@ void RenderContext::Render() {
         scene.PostCompositeResources = postCompositeResourceSet_.get();
         const Math::Color3 aoTint =
             postEffects != nullptr ? postEffects->GetProperty("AOTint").value<Math::Color3>() : Math::Color3{0.0, 0.0, 0.0};
+        const float neonAttenuation = postEffects != nullptr
+            ? static_cast<float>(std::clamp(postEffects->GetProperty("NeonAttenuation").toDouble(), 0.25, 4.0))
+            : 1.0F;
         scene.PostCompositePush = Common::PostCompositePushConstants{
             .Settings = {cameraUniforms.RenderSettings[0], cameraUniforms.RenderSettings[1], cameraUniforms.RenderSettings[2],
                          static_cast<float>(postProcessFrameSeed_)},
-            .AoTint = Context::ToVec4(aoTint, 1.0F)
+            .AoTint = Context::ToVec4(aoTint, neonAttenuation)
         };
     } else {
         scene.PostCompositePush = {};
