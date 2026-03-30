@@ -56,6 +56,19 @@ void RenderContext::ReleaseGpuResources() {
         skyboxCubemap_ = {};
         hasSkyboxCubemap_ = false;
     }
+    if (!imageTextureCache_.empty() && (vkBackend_ != nullptr || glBackend_ != nullptr)) {
+        for (auto& [key, entry] : imageTextureCache_) {
+            static_cast<void>(key);
+            if (entry.HasTexture) {
+                GetRhiContext().DestroyTexture(entry.Texture);
+                entry.Texture = {};
+                entry.HasTexture = false;
+            }
+            entry.Resources.reset();
+        }
+    }
+    imageTextureCache_.clear();
+    quadMesh_.reset();
     frameResourceSet_.reset();
     for (auto& set : postBlurDownLevelResourceSets_) {
         set.reset();

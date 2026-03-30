@@ -24,6 +24,7 @@ public:
     [[nodiscard]] QStringList GetAvailablePacks() const;
     [[nodiscard]] QPixmap GetPixmapForInstance(const std::shared_ptr<Engine::Core::Instance>& instance);
     [[nodiscard]] QIcon GetIcon(const QString& iconName);
+    [[nodiscard]] QString GetIconPath(const QString& iconName) const;
 
 private:
     [[nodiscard]] QStringList GetPackRoots() const;

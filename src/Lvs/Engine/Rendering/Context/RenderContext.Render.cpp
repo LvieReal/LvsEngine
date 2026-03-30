@@ -437,6 +437,11 @@ void RenderContext::Render() {
         scene.GeometryDraw = {};
     }
 
+    {
+        LVS_BENCH_SCOPE("RenderContext::BuildImage3DDraws");
+        scene.Image3DDraws = BuildImage3DDraws();
+    }
+
     scene.ShadowCasters.clear();
     bool needsShadowCasters = scene.EnableShadowVolumes;
     if (!needsShadowCasters) {

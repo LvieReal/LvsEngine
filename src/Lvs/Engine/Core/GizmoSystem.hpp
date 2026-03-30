@@ -21,6 +21,7 @@ class Selection;
 namespace Lvs::Engine::DataModel::Objects {
 class BasePart;
 class Camera;
+class DirectionalLight;
 }
 
 namespace Lvs::Engine::Core {
@@ -89,6 +90,11 @@ private:
         Math::Vector3 StartSize;
     };
 
+    struct LightDragSnapshot {
+        std::shared_ptr<DataModel::Objects::DirectionalLight> Light;
+        Math::Vector3 StartPosition;
+    };
+
     Tool activeTool_{Tool::SelectTool};
     bool visible_{false};
     bool alwaysOnTop_{true};
@@ -98,11 +104,15 @@ private:
     double snapIncrement_{1.0};
     std::shared_ptr<DataModel::Objects::BasePart> targetPart_;
     std::vector<std::shared_ptr<DataModel::Objects::BasePart>> selectedParts_;
+    std::shared_ptr<DataModel::Objects::DirectionalLight> targetDirectionalLight_;
+    std::vector<std::shared_ptr<DataModel::Objects::DirectionalLight>> selectedDirectionalLights_;
     std::vector<const Instance*> lastSelectionRaw_;
     const Instance* lastSelectionPrimaryRaw_{nullptr};
     bool selectionDirty_{true};
     std::vector<Core::Instance::PropertyChangedConnection> selectedPartPropertyChanged_;
     std::vector<Core::Instance::InstanceConnection> selectedPartAncestryChanged_;
+    std::vector<Core::Instance::PropertyChangedConnection> selectedLightPropertyChanged_;
+    std::vector<Core::Instance::InstanceConnection> selectedLightAncestryChanged_;
     String hoveredAxis_;
     String activeAxis_;
     Math::Vector3 activeAxisDirection_{};
@@ -110,12 +120,13 @@ private:
     Math::Vector3 dragCenter_{};
     bool hasDragCenter_{false};
     std::vector<DragSnapshot> dragSnapshots_;
+    std::vector<LightDragSnapshot> lightDragSnapshots_;
     Math::AABB dragStartBounds_{};
     bool hasDragStartBounds_{false};
     std::optional<Math::Vector3> startPosition_;
     std::optional<Math::Vector3> startSize_;
     double handleLength_{1.0};
-    double handleRadius_{0.08};
+    double handleRadius_{0.075};
     double tipRadius_{0.2};
 
     bool hasSelectionBounds_{false};

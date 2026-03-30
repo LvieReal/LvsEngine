@@ -118,12 +118,11 @@ void AppendSelectionBoxOutlinePrimitives(
     std::vector<Rendering::Common::OverlayPrimitive>& out,
     double distanceFromCamera
 ) {
-    // Push the box slightly outside the target bounds to avoid z-fighting when depth-tested.
     double thickness = std::max(0.001, style.Thickness);
     if (style.ScaleWithDistance) {
         thickness *= std::max(0.1, distanceFromCamera);
     }
-    const Math::Vector3 pad{(thickness * 0.5) + 0.001, (thickness * 0.5) + 0.001, (thickness * 0.5) + 0.001};
+    const Math::Vector3 pad{thickness * 0.01, thickness * 0.01, thickness * 0.01};
     const Math::Vector3 min = bounds.Min - pad;
     const Math::Vector3 max = bounds.Max + pad;
 
@@ -161,7 +160,7 @@ void AppendSelectionBoxOutlinePrimitivesRotated(
     if (style.ScaleWithDistance) {
         thickness *= std::max(0.1, distanceFromCamera);
     }
-    const Math::Vector3 pad{(thickness * 0.5) + 0.001, (thickness * 0.5) + 0.001, (thickness * 0.5) + 0.001};
+    const Math::Vector3 pad{thickness * 0.01, thickness * 0.01, thickness * 0.01};
     const Math::Vector3 paddedSize = {size.x + pad.x * 2.0, size.y + pad.y * 2.0, size.z + pad.z * 2.0};
     const Math::Vector3 half = paddedSize * 0.5;
 

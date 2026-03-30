@@ -59,6 +59,14 @@ struct SceneData {
         bool HasSortBounds{false};
     };
 
+    struct Image3DDrawPacket {
+        const MeshRef* Mesh{nullptr};
+        const RHI::IResourceSet* TextureResources{nullptr}; // descriptor set 1
+        Common::Image3DPushConstants Push{};
+        float SortDepth{0.0F};
+        bool AlwaysOnTop{false};
+    };
+
     bool EnableShadows{true};
     bool EnableShadowVolumes{false};
     RHI::DepthCompare ShadowVolumeDepthCompare{RHI::DepthCompare::GreaterOrEqual};
@@ -89,6 +97,7 @@ struct SceneData {
     DrawPacket PostProcessDraw{};
     DrawPacket GeometryDraw{};
     std::vector<DrawPacket> GeometryDraws{};
+    std::vector<Image3DDrawPacket> Image3DDraws{};
     Common::SkyboxPushConstants SkyboxPush{};
     Common::PostCompositePushConstants PostCompositePush{};
     float NeonBlur{1.0F};
@@ -256,6 +265,25 @@ private:
     Phase phase_{Phase::All};
 };
 
+class Image3DPassRenderer {
+public:
+    void RecordCommands(RHI::IContext& ctx, RHI::ICommandBuffer& cmd);
+
+private:
+    friend class Renderer;
+    void SetInputs(
+        const RenderSurface* surface,
+        const SceneData* scene,
+        Renderer* renderer,
+        const RHI::IResourceSet* globalResources
+    );
+
+    const RenderSurface* surface_{nullptr};
+    const SceneData* scene_{nullptr};
+    Renderer* renderer_{nullptr};
+    const RHI::IResourceSet* globalResources_{nullptr};
+};
+
 class Renderer {
 public:
     void Initialize(RHI::IContext& ctx, const RenderSurface& surface);
@@ -270,6 +298,7 @@ public:
 private:
     friend class GeometryPassRenderer;
     friend class ShadowPassRenderer;
+    friend class Image3DPassRenderer;
 
     enum class PassKey : std::size_t {
         Shadow = 1,
@@ -282,7 +311,8 @@ private:
         Geometry = 4,
         PostBlurDown = 5,
         PostBlurUp = 6,
-        Hbao = 7
+        Hbao = 7,
+        Image3D = 12
     };
 
     [[nodiscard]] Pipeline* GetOrCreatePipeline(
@@ -297,6 +327,10 @@ private:
         RHI::IContext& ctx,
         RHI::CullMode cullMode,
         bool transparent,
+        bool alwaysOnTop
+    );
+    [[nodiscard]] Pipeline* GetOrCreateImage3DPipeline(
+        RHI::IContext& ctx,
         bool alwaysOnTop
     );
     [[nodiscard]] const RHI::IResourceSet* GetOrCreateGlobalResources(RHI::IContext& ctx, const SceneData& scene);
@@ -315,6 +349,7 @@ private:
     HbaoPassRenderer hbaoPass_{};
     PostProcessPassRenderer postProcessPass_{};
     GeometryPassRenderer geometryPass_{};
+    Image3DPassRenderer image3dPass_{};
     void* sceneRenderPassHandle_{nullptr};
     RHI::u32 sceneColorAttachmentCount_{1};
     RHI::u32 sceneSampleCount_{1};

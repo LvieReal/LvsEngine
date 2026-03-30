@@ -5,6 +5,7 @@
 #include "Lvs/Engine/Math/CFrame.hpp"
 #include "Lvs/Engine/DataModel/Objects/BasePart.hpp"
 #include "Lvs/Engine/DataModel/Objects/Camera.hpp"
+#include "Lvs/Engine/DataModel/Objects/DirectionalLight.hpp"
 #include "Lvs/Engine/Utils/InstanceSelection.hpp"
 #include "Lvs/Engine/Utils/BlockCast.hpp"
 #include "Lvs/Engine/Utils/Raycast.hpp"
@@ -70,6 +71,8 @@ void GizmoSystem::Unbind() {
     renderPrimitives_.clear();
     targetPart_.reset();
     selectedParts_.clear();
+    targetDirectionalLight_.reset();
+    selectedDirectionalLights_.clear();
     lastSelectionRaw_.clear();
     lastSelectionPrimaryRaw_ = nullptr;
     selectionDirty_ = true;
@@ -80,6 +83,7 @@ void GizmoSystem::Unbind() {
     hasDragCenter_ = false;
     dragCenter_ = {};
     dragSnapshots_.clear();
+    lightDragSnapshots_.clear();
     hasDragStartBounds_ = false;
     startPosition_.reset();
     startSize_.reset();
@@ -108,10 +112,16 @@ void GizmoSystem::Update(const std::shared_ptr<DataModel::Selection>& selection,
         selectionBounds_ = {};
         selectionCenter_ = {};
         selectedParts_.clear();
+        selectedDirectionalLights_.clear();
         DisconnectSelectedPartSignals();
 
         const auto topLevelSelected = Utils::FilterTopLevelInstances(selectedInstances);
         selectedParts_ = Utils::CollectBasePartsFromInstances(topLevelSelected);
+        for (const auto& inst : topLevelSelected) {
+            if (const auto dl = std::dynamic_pointer_cast<DataModel::Objects::DirectionalLight>(inst); dl != nullptr) {
+                selectedDirectionalLights_.push_back(dl);
+            }
+        }
 
         selectedPartPropertyChanged_.reserve(selectedParts_.size());
         selectedPartAncestryChanged_.reserve(selectedParts_.size());
@@ -129,6 +139,22 @@ void GizmoSystem::Update(const std::shared_ptr<DataModel::Selection>& selection,
             }));
         }
 
+        selectedLightPropertyChanged_.reserve(selectedDirectionalLights_.size());
+        selectedLightAncestryChanged_.reserve(selectedDirectionalLights_.size());
+        for (const auto& light : selectedDirectionalLights_) {
+            if (light == nullptr) {
+                continue;
+            }
+            selectedLightPropertyChanged_.push_back(light->PropertyChanged.Connect([this](const String& name, const Variant&) {
+                if (name == "Position") {
+                    selectionDirty_ = true;
+                }
+            }));
+            selectedLightAncestryChanged_.push_back(light->AncestryChanged.Connect([this](const std::shared_ptr<Instance>&) {
+                selectionDirty_ = true;
+            }));
+        }
+
         selectionDirty_ = true;
     }
 
@@ -140,14 +166,60 @@ void GizmoSystem::Update(const std::shared_ptr<DataModel::Selection>& selection,
             selectionBounds_ = bounds.value();
             hasSelectionBounds_ = true;
             selectionCenter_ = selectionBounds_.Centroid();
+        } else if (!selectedDirectionalLights_.empty()) {
+            Math::AABB bounds{};
+            bool hasAny = false;
+            for (const auto& light : selectedDirectionalLights_) {
+                if (light == nullptr) {
+                    continue;
+                }
+                const Math::Vector3 p = light->GetProperty("Position").value<Math::Vector3>();
+                if (!hasAny) {
+                    bounds.Min = p;
+                    bounds.Max = p;
+                    hasAny = true;
+                } else {
+                    bounds.Min.x = std::min(bounds.Min.x, p.x);
+                    bounds.Min.y = std::min(bounds.Min.y, p.y);
+                    bounds.Min.z = std::min(bounds.Min.z, p.z);
+                    bounds.Max.x = std::max(bounds.Max.x, p.x);
+                    bounds.Max.y = std::max(bounds.Max.y, p.y);
+                    bounds.Max.z = std::max(bounds.Max.z, p.z);
+                }
+            }
+
+            if (hasAny) {
+                // Give point selections a small extent so distance calculations remain stable.
+                const Math::Vector3 pad{0.05, 0.05, 0.05};
+                bounds.Min = bounds.Min - pad;
+                bounds.Max = bounds.Max + pad;
+                selectionBounds_ = bounds;
+                hasSelectionBounds_ = true;
+                selectionCenter_ = selectionBounds_.Centroid();
+            }
         }
         selectionDirty_ = false;
     }
 
     if (selectionChanged) {
         targetPart_ = Utils::ResolveLocalSpaceTargetPart(selectionPrimary, selectedParts_);
+        targetDirectionalLight_.reset();
+        if (targetPart_ == nullptr && selectedParts_.empty()) {
+            if (const auto primaryLight = std::dynamic_pointer_cast<DataModel::Objects::DirectionalLight>(selectionPrimary);
+                primaryLight != nullptr) {
+                targetDirectionalLight_ = primaryLight;
+            } else if (!selectedDirectionalLights_.empty()) {
+                targetDirectionalLight_ = selectedDirectionalLights_.front();
+            }
+        }
     }
-    visible_ = targetPart_ != nullptr && (activeTool_ == Tool::MoveTool || activeTool_ == Tool::SizeTool);
+
+    visible_ = false;
+    if (targetPart_ != nullptr) {
+        visible_ = (activeTool_ == Tool::MoveTool || activeTool_ == Tool::SizeTool);
+    } else if (targetDirectionalLight_ != nullptr) {
+        visible_ = (activeTool_ == Tool::MoveTool);
+    }
 
     if (!visible_) {
         hoveredAxis_.clear();
@@ -171,7 +243,7 @@ void GizmoSystem::UpdateHover(const Utils::Ray& ray) {
 }
 
 bool GizmoSystem::TryBeginDrag(const Utils::Ray& ray) {
-    if (!visible_ || targetPart_ == nullptr) {
+    if (!visible_ || (targetPart_ == nullptr && targetDirectionalLight_ == nullptr)) {
         return false;
     }
 
@@ -182,21 +254,46 @@ bool GizmoSystem::TryBeginDrag(const Utils::Ray& ray) {
 
     activeAxis_ = axis.value();
     activeAxisDirection_ = AxisDirection(axisByName_.at(activeAxis_));
-    startPosition_ = targetPart_->GetProperty("Position").value<Math::Vector3>();
-    startSize_ = targetPart_->GetProperty("Size").value<Math::Vector3>();
 
     dragSnapshots_.clear();
-    dragSnapshots_.reserve(selectedParts_.size());
-    for (const auto& part : selectedParts_) {
-        if (part == nullptr || part->GetParent() == nullptr) {
-            continue;
+    lightDragSnapshots_.clear();
+
+    if (targetPart_ != nullptr) {
+        startPosition_ = targetPart_->GetProperty("Position").value<Math::Vector3>();
+        startSize_ = targetPart_->GetProperty("Size").value<Math::Vector3>();
+
+        dragSnapshots_.reserve(selectedParts_.size());
+        for (const auto& part : selectedParts_) {
+            if (part == nullptr || part->GetParent() == nullptr) {
+                continue;
+            }
+            DragSnapshot snap{
+                .Part = part,
+                .StartWorldCFrame = part->GetWorldCFrame(),
+                .StartSize = part->GetProperty("Size").value<Math::Vector3>()
+            };
+            dragSnapshots_.push_back(snap);
         }
-        DragSnapshot snap{
-            .Part = part,
-            .StartWorldCFrame = part->GetWorldCFrame(),
-            .StartSize = part->GetProperty("Size").value<Math::Vector3>()
-        };
-        dragSnapshots_.push_back(snap);
+    } else if (targetDirectionalLight_ != nullptr) {
+        startPosition_ = targetDirectionalLight_->GetProperty("Position").value<Math::Vector3>();
+        startSize_.reset();
+
+        lightDragSnapshots_.reserve(selectedDirectionalLights_.size());
+        for (const auto& light : selectedDirectionalLights_) {
+            if (light == nullptr || light->GetParent() == nullptr) {
+                continue;
+            }
+            lightDragSnapshots_.push_back(LightDragSnapshot{
+                .Light = light,
+                .StartPosition = light->GetProperty("Position").value<Math::Vector3>()
+            });
+        }
+        if (lightDragSnapshots_.empty()) {
+            lightDragSnapshots_.push_back(LightDragSnapshot{
+                .Light = targetDirectionalLight_,
+                .StartPosition = targetDirectionalLight_->GetProperty("Position").value<Math::Vector3>()
+            });
+        }
     }
 
     hasDragStartBounds_ = hasSelectionBounds_;
@@ -219,7 +316,7 @@ void GizmoSystem::UpdateDragWithCollisions(
     const bool enableMoveCollisions,
     const bool enableSizeCollisions
 ) {
-    if (targetPart_ == nullptr || activeAxis_.empty() || !dragStartPoint_.has_value() || !hasDragCenter_) {
+    if ((targetPart_ == nullptr && targetDirectionalLight_ == nullptr) || activeAxis_.empty() || !dragStartPoint_.has_value() || !hasDragCenter_) {
         return;
     }
 
@@ -233,6 +330,17 @@ void GizmoSystem::UpdateDragWithCollisions(
     amount = SnapToStep(amount, snapIncrement_);
 
     if (activeTool_ == Tool::MoveTool) {
+        if (targetPart_ == nullptr && targetDirectionalLight_ != nullptr) {
+            const Math::Vector3 translation = activeAxisDirection_ * amount;
+            for (const auto& snap : lightDragSnapshots_) {
+                if (snap.Light == nullptr || snap.Light->GetParent() == nullptr) {
+                    continue;
+                }
+                snap.Light->SetProperty("Position", Variant::From(snap.StartPosition + translation));
+            }
+            return;
+        }
+
         if (enableMoveCollisions && bvh != nullptr && amount != 0.0) {
             Math::Vector3 dir = activeAxisDirection_.Unit();
             double maxAmount = amount;
@@ -455,6 +563,7 @@ void GizmoSystem::EndDrag() {
     hasDragCenter_ = false;
     dragCenter_ = {};
     dragSnapshots_.clear();
+    lightDragSnapshots_.clear();
     hasDragStartBounds_ = false;
     startPosition_.reset();
     startSize_.reset();
@@ -501,6 +610,16 @@ void GizmoSystem::DisconnectSelectedPartSignals() {
         conn.Disconnect();
     }
     selectedPartAncestryChanged_.clear();
+
+    for (auto& conn : selectedLightPropertyChanged_) {
+        conn.Disconnect();
+    }
+    selectedLightPropertyChanged_.clear();
+
+    for (auto& conn : selectedLightAncestryChanged_) {
+        conn.Disconnect();
+    }
+    selectedLightAncestryChanged_.clear();
 }
 
 void GizmoSystem::RefreshTransforms() {

@@ -52,6 +52,7 @@ public:
     void BindToPlace(const std::shared_ptr<DataModel::Place>& place) override;
     void Unbind() override;
     void SetOverlayPrimitives(std::vector<Common::OverlayPrimitive> primitives) override;
+    void SetImage3DPrimitives(std::vector<Common::Image3DPrimitive> primitives) override;
     void RefreshShaders() override;
     void Render() override;
 
@@ -157,6 +158,9 @@ private:
     void UpdateTransparentSortDepths();
     void UpdateAlwaysOnTopSortDepths();
     [[nodiscard]] std::vector<SceneData::DrawPacket> BuildGeometryDraws();
+    [[nodiscard]] std::vector<SceneData::Image3DDrawPacket> BuildImage3DDraws();
+    [[nodiscard]] const RHI::IResourceSet* GetOrCreateImageTextureResources(const std::string& contentId, int resolutionCap);
+    GpuMesh* GetOrCreateQuadMesh();
     [[nodiscard]] Common::CameraUniformData BuildCameraUniforms();
     [[nodiscard]] Common::SkyboxPushConstants BuildSkyboxPushConstants() const;
 
@@ -177,6 +181,18 @@ private:
     std::vector<Common::OverlayPrimitive> overlayPrimitives_{};
     std::size_t overlayCacheKey_{0};
     bool overlayDirty_{true};
+
+    std::vector<Common::Image3DPrimitive> image3dPrimitives_{};
+    std::size_t image3dCacheKey_{0};
+    bool image3dDirty_{true};
+
+    struct ImageTextureEntry {
+        RHI::Texture Texture{};
+        std::unique_ptr<RHI::IResourceSet> Resources{};
+        bool HasTexture{false};
+    };
+    std::unordered_map<std::string, ImageTextureEntry> imageTextureCache_{};
+    std::optional<GpuMesh> quadMesh_{};
 
     std::unordered_map<Enums::PartShape, GpuMesh> primitiveMeshCache_{};
     std::unordered_map<std::string, GpuMesh> beveledCubeMeshCache_{};

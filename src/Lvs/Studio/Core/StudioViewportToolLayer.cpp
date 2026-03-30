@@ -4,19 +4,23 @@
 #include "Lvs/Engine/Core/EditorToolState.hpp"
 #include "Lvs/Studio/Core/CriticalError.hpp"
 #include "Lvs/Engine/Core/SelectionBoxPrimitives.hpp"
+#include "Lvs/Engine/Rendering/Common/Image3DPrimitive.hpp"
 #include "Lvs/Studio/Core/Viewport.hpp"
 #include "Lvs/Engine/DataModel/Services/ChangeHistoryService.hpp"
+#include "Lvs/Engine/DataModel/Services/Lighting.hpp"
 #include "Lvs/Engine/DataModel/Place.hpp"
 #include "Lvs/Engine/DataModel/Services/Selection.hpp"
 #include "Lvs/Engine/DataModel/Services/Workspace.hpp"
 #include "Lvs/Engine/Math/CFrame.hpp"
 #include "Lvs/Engine/DataModel/Objects/BasePart.hpp"
 #include "Lvs/Engine/DataModel/Objects/Camera.hpp"
+#include "Lvs/Engine/DataModel/Objects/DirectionalLight.hpp"
 #include "Lvs/Engine/DataModel/Objects/SelectionBox.hpp"
 #include "Lvs/Engine/Utils/Command.hpp"
 #include "Lvs/Engine/Utils/InstanceSelection.hpp"
 #include "Lvs/Engine/Utils/Raycast.hpp"
 #include "Lvs/Engine/Utils/Benchmark.hpp"
+#include "Lvs/Studio/Core/IconPackManager.hpp"
 
 #include <QMouseEvent>
 #include <QRubberBand>
@@ -513,7 +517,7 @@ void StudioViewportToolLayer::OnMousePress(QMouseEvent* event, const std::option
     }
 
     const auto previousSelection = selection_ != nullptr ? selection_->GetPrimary() : nullptr;
-    PickSelection(ray.value(), event->modifiers());
+    PickSelection(ray.value(), event->position().toPoint(), event->modifiers());
 
     const auto currentSelection = selection_ != nullptr ? selection_->GetPrimary() : nullptr;
     if (currentSelection != nullptr && currentSelection != previousSelection && CanDragPart() && TryBeginPartDrag(ray.value())) {
@@ -627,7 +631,49 @@ void StudioViewportToolLayer::AppendOverlay(std::vector<Engine::Rendering::Commo
     AppendSelectionBoxInstances(overlay);
 }
 
-void StudioViewportToolLayer::PickSelection(const Engine::Utils::Ray& ray, const Qt::KeyboardModifiers modifiers) {
+void StudioViewportToolLayer::AppendImage3D(std::vector<Engine::Rendering::Common::Image3DPrimitive>& images) {
+    if (workspace_ == nullptr) {
+        return;
+    }
+
+    const auto place = place_.lock();
+    if (place == nullptr) {
+        return;
+    }
+
+    const auto lighting = std::dynamic_pointer_cast<Engine::DataModel::Lighting>(place->FindService("Lighting"));
+    if (lighting == nullptr) {
+        return;
+    }
+
+    const QString sunIconName = QStringLiteral("weather_sun.png");
+    const QString sunIconPath = Core::GetIconPackManager().GetIconPath(sunIconName);
+    if (sunIconPath.isEmpty()) {
+        return;
+    }
+
+    lighting->ForEachDescendant([&](const std::shared_ptr<Engine::Core::Instance>& child) {
+        const auto dl = std::dynamic_pointer_cast<Engine::DataModel::Objects::DirectionalLight>(child);
+        if (dl == nullptr || dl->GetParent() == nullptr) {
+            return;
+        }
+
+        Engine::Rendering::Common::Image3DPrimitive img{};
+        img.Position = dl->GetProperty("Position").value<Engine::Math::Vector3>();
+        img.Size = 1.0;
+        img.Tint = {1.0, 1.0, 1.0};
+        img.Alpha = 1.0F;
+        img.ContentId = sunIconPath.toStdString();
+        img.ResolutionCap = 1024;
+        img.FollowCamera = true;
+        img.ConstantSize = true;
+        img.MaxDistance = 1000.0;
+        img.AlwaysOnTop = true;
+        images.push_back(std::move(img));
+    });
+}
+
+void StudioViewportToolLayer::PickSelection(const Engine::Utils::Ray& ray, const QPoint& mousePos, const Qt::KeyboardModifiers modifiers) {
     if (selection_ == nullptr) {
         return;
     }
@@ -638,17 +684,64 @@ void StudioViewportToolLayer::PickSelection(const Engine::Utils::Ray& ray, const
         : std::pair<std::shared_ptr<Engine::DataModel::Objects::BasePart>, double>{nullptr, std::numeric_limits<double>::infinity()};
     static_cast<void>(distance);
 
-    if (hitPart == nullptr) {
+    std::shared_ptr<Engine::Core::Instance> selectTarget{};
+    if (hitPart != nullptr) {
+        const auto hitModel = FindAncestorModel(hitPart);
+        selectTarget = hitModel != nullptr
+            ? hitModel
+            : std::static_pointer_cast<Engine::Core::Instance>(hitPart);
+    } else {
+        // No part hit; fall back to light billboard picking (DirectionalLight).
+        const auto camera = GetWorkspaceCamera(workspace_);
+        if (camera != nullptr && viewport_ != nullptr) {
+            const int viewportWidth = viewport_->width();
+            const int viewportHeight = viewport_->height();
+
+            const auto place = place_.lock();
+            const auto lighting = place != nullptr
+                ? std::dynamic_pointer_cast<Engine::DataModel::Lighting>(place->FindService("Lighting"))
+                : nullptr;
+
+            if (lighting != nullptr) {
+                constexpr double kPickRadiusPixels = 12.0;
+                const double mx = static_cast<double>(mousePos.x());
+                const double my = static_cast<double>(mousePos.y());
+
+                double bestDist2 = kPickRadiusPixels * kPickRadiusPixels;
+                std::shared_ptr<Engine::Core::Instance> best{};
+
+                lighting->ForEachDescendant([&](const std::shared_ptr<Engine::Core::Instance>& child) {
+                    const auto dl = std::dynamic_pointer_cast<Engine::DataModel::Objects::DirectionalLight>(child);
+                    if (dl == nullptr || dl->GetParent() == nullptr) {
+                        return;
+                    }
+
+                    const Engine::Math::Vector3 world = dl->GetProperty("Position").value<Engine::Math::Vector3>();
+                    QPointF screen;
+                    if (!ProjectWorldToScreen(camera, world, viewportWidth, viewportHeight, screen)) {
+                        return;
+                    }
+
+                    const double dx = screen.x() - mx;
+                    const double dy = screen.y() - my;
+                    const double d2 = dx * dx + dy * dy;
+                    if (d2 <= bestDist2) {
+                        bestDist2 = d2;
+                        best = dl;
+                    }
+                });
+
+                selectTarget = best;
+            }
+        }
+    }
+
+    if (selectTarget == nullptr) {
         if (!(modifiers & (Qt::ControlModifier | Qt::ShiftModifier))) {
             selection_->Clear();
         }
         return;
     }
-
-    const auto hitModel = FindAncestorModel(hitPart);
-    const std::shared_ptr<Engine::Core::Instance> selectTarget = hitModel != nullptr
-        ? hitModel
-        : std::static_pointer_cast<Engine::Core::Instance>(hitPart);
 
     if (modifiers & (Qt::ControlModifier | Qt::ShiftModifier)) {
         auto current = selection_->Get();
@@ -1099,20 +1192,19 @@ void StudioViewportToolLayer::AppendGizmoSelectionBox(
     }
 
     const bool localSpace = context_ != nullptr && context_->EditorToolState != nullptr && context_->EditorToolState->GetLocalSpace();
-    const Engine::Math::Color3 selectionColor{0.0, 0.5, 1.0};
+    const Engine::Math::Color3 selectionColor{0.0, 0.25, 1.0};
 
     if (!cachedTopLevelSelection_.empty()) {
-        const bool ignoreLighting = gizmoIgnoreDiffuseSpecular_;
         const Engine::Core::SelectionBoxStyle style{
             .Color = selectionColor,
             .Alpha = 1.0F,
             .Metalness = 0.0F,
-            .Roughness = 1.0F,
-            .Emissive = ignoreLighting ? 1.0F : 0.0F,
-            .IgnoreLighting = ignoreLighting,
-            .AlwaysOnTop = true,
-            .Thickness = 0.001,
-            .ScaleWithDistance = true
+            .Roughness = 0.5F,
+            .Emissive = 0.0F,
+            .IgnoreLighting = gizmoIgnoreDiffuseSpecular_,
+            .AlwaysOnTop = false,
+            .Thickness = 0.05,
+            .ScaleWithDistance = false
         };
 
         for (const auto& entry : cachedTopLevelSelection_) {
@@ -1170,17 +1262,16 @@ void StudioViewportToolLayer::AppendGizmoSelectionBox(
             const Engine::Math::AABB bounds = hoveredBoundsCache_.value();
             const double distance = DistanceToAabb(cameraPos, bounds);
 
-            const bool ignoreLighting = gizmoIgnoreDiffuseSpecular_;
             const Engine::Core::SelectionBoxStyle style{
                 .Color = selectionColor,
                 .Alpha = 1.0F,
                 .Metalness = 0.0F,
-                .Roughness = 1.0F,
-                .Emissive = ignoreLighting ? 1.0F : 0.0F,
-                .IgnoreLighting = ignoreLighting,
-                .AlwaysOnTop = true,
-                .Thickness = 0.001,
-                .ScaleWithDistance = true
+                .Roughness = 0.5F,
+                .Emissive = 0.0F,
+                .IgnoreLighting = gizmoIgnoreDiffuseSpecular_,
+                .AlwaysOnTop = false,
+                .Thickness = 0.05,
+                .ScaleWithDistance = false
             };
 
             if (localSpace && hoveredModel == nullptr) {
@@ -1323,9 +1414,21 @@ void StudioViewportToolLayer::BeginGizmoHistory(const std::shared_ptr<Engine::Da
                 .Size = part->GetProperty("Size").value<Engine::Math::Vector3>()
             });
         }
+
+        snapshot.Lights.reserve(topLevelSelected.size());
+        for (const auto& inst : topLevelSelected) {
+            const auto dl = std::dynamic_pointer_cast<Engine::DataModel::Objects::DirectionalLight>(inst);
+            if (dl == nullptr || dl->GetParent() == nullptr) {
+                continue;
+            }
+            snapshot.Lights.push_back(GizmoHistorySnapshot::LightSnapshot{
+                .Instance = dl,
+                .Position = dl->GetProperty("Position").value<Engine::Math::Vector3>()
+            });
+        }
     }
 
-    if (snapshot.Instances.empty()) {
+    if (snapshot.Instances.empty() && snapshot.Lights.empty()) {
         std::shared_ptr<Engine::DataModel::Objects::BasePart> target = targetOverride;
         if (target == nullptr && gizmoSystem_ != nullptr) {
             target = gizmoSystem_->GetTargetPart();
@@ -1337,9 +1440,19 @@ void StudioViewportToolLayer::BeginGizmoHistory(const std::shared_ptr<Engine::Da
                 .Size = target->GetProperty("Size").value<Engine::Math::Vector3>()
             });
         }
+
+        if (selection_ != nullptr) {
+            if (const auto primary = std::dynamic_pointer_cast<Engine::DataModel::Objects::DirectionalLight>(selection_->GetPrimary());
+                primary != nullptr && primary->GetParent() != nullptr) {
+                snapshot.Lights.push_back(GizmoHistorySnapshot::LightSnapshot{
+                    .Instance = primary,
+                    .Position = primary->GetProperty("Position").value<Engine::Math::Vector3>()
+                });
+            }
+        }
     }
 
-    if (snapshot.Instances.empty()) {
+    if (snapshot.Instances.empty() && snapshot.Lights.empty()) {
         gizmoHistorySnapshot_.reset();
         return;
     }
@@ -1478,7 +1591,6 @@ void StudioViewportToolLayer::CommitGizmoHistory() {
     const auto snapshot = gizmoHistorySnapshot_.value();
     gizmoHistorySnapshot_.reset();
 
-    bool anyChanged = false;
     struct Change {
         std::shared_ptr<Engine::DataModel::Objects::BasePart> Instance;
         Engine::Math::CFrame OldCFrame;
@@ -1500,7 +1612,6 @@ void StudioViewportToolLayer::CommitGizmoHistory() {
         if (entry.CFrame == newCFrame && entry.Size == newSize) {
             continue;
         }
-        anyChanged = true;
         changes.push_back(Change{
             .Instance = instance,
             .OldCFrame = entry.CFrame,
@@ -1509,7 +1620,32 @@ void StudioViewportToolLayer::CommitGizmoHistory() {
             .NewSize = newSize
         });
     }
-    if (!anyChanged) {
+
+    struct LightChange {
+        std::shared_ptr<Engine::DataModel::Objects::DirectionalLight> Instance;
+        Engine::Math::Vector3 OldPosition;
+        Engine::Math::Vector3 NewPosition;
+    };
+    std::vector<LightChange> lightChanges;
+    lightChanges.reserve(snapshot.Lights.size());
+
+    for (const auto& entry : snapshot.Lights) {
+        const auto instance = entry.Instance;
+        if (instance == nullptr || instance->GetParent() == nullptr) {
+            continue;
+        }
+        const auto newPos = instance->GetProperty("Position").value<Engine::Math::Vector3>();
+        if (entry.Position == newPos) {
+            continue;
+        }
+        lightChanges.push_back(LightChange{
+            .Instance = instance,
+            .OldPosition = entry.Position,
+            .NewPosition = newPos
+        });
+    }
+
+    if (changes.empty() && lightChanges.empty()) {
         return;
     }
 
@@ -1543,6 +1679,19 @@ void StudioViewportToolLayer::CommitGizmoHistory() {
                     )
                 );
             }
+        }
+        for (const auto& change : lightChanges) {
+            if (change.Instance == nullptr) {
+                continue;
+            }
+            historyService_->Record(
+                std::make_shared<Engine::Utils::SetPropertyCommand>(
+                    change.Instance,
+                    "Position",
+                    Engine::Core::Variant::From(change.OldPosition),
+                    Engine::Core::Variant::From(change.NewPosition)
+                )
+            );
         }
     } catch (const std::exception& ex) {
         Engine::Core::CriticalError::ShowUnexpectedNoReturnError(QString::fromUtf8(ex.what()));

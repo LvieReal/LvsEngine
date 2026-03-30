@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Lvs/Engine/Rendering/Common/Image3DPrimitive.hpp"
 #include "Lvs/Engine/Rendering/Common/OverlayPrimitive.hpp"
 #include "Lvs/Engine/Utils/Raycast.hpp"
 
@@ -29,6 +30,7 @@ public:
     virtual void OnFocusOut() = 0;
 
     virtual void AppendOverlay(std::vector<Rendering::Common::OverlayPrimitive>& overlay) = 0;
+    virtual void AppendImage3D(std::vector<Rendering::Common::Image3DPrimitive>& images) = 0;
 };
 
 } // namespace Lvs::Engine::Core

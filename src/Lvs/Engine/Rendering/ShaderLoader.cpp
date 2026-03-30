@@ -22,6 +22,7 @@ struct PipelineShaderPaths {
 
 const std::unordered_map<std::string, PipelineShaderPaths> kPipelineShaderTable{
     {"main", {.Vert = "CompiledShaders/Vulkan/Main.vert.spv", .Frag = "CompiledShaders/Vulkan/Main.frag.spv"}},
+    {"image3d", {.Vert = "CompiledShaders/Vulkan/Image3D.vert.spv", .Frag = "CompiledShaders/Vulkan/Image3D.frag.spv"}},
     {"shadow", {.Vert = "CompiledShaders/Vulkan/Shadow.vert.spv", .Frag = "CompiledShaders/Vulkan/Shadow.frag.spv"}},
     {"shadow_volume",
      {.Vert = "CompiledShaders/Vulkan/ShadowVolume.vert.spv",
@@ -42,6 +43,7 @@ const std::unordered_map<std::string, PipelineShaderPaths> kPipelineShaderTable{
 
 const std::unordered_map<std::string, PipelineShaderPaths> kOpenGLPipelineShaderTable{
     {"main", {.Vert = "CompiledShaders/OpenGL/Main.vert.glsl", .Frag = "CompiledShaders/OpenGL/Main.frag.glsl"}},
+    {"image3d", {.Vert = "CompiledShaders/OpenGL/Image3D.vert.glsl", .Frag = "CompiledShaders/OpenGL/Image3D.frag.glsl"}},
     {"shadow", {.Vert = "CompiledShaders/OpenGL/Shadow.vert.glsl", .Frag = "CompiledShaders/OpenGL/Shadow.frag.glsl"}},
     {"shadow_volume",
      {.Vert = "CompiledShaders/OpenGL/ShadowVolume.vert.glsl",

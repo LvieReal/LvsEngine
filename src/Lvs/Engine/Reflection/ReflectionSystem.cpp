@@ -13,6 +13,7 @@
 #include "Lvs/Engine/DataModel/Objects/Camera.hpp"
 #include "Lvs/Engine/DataModel/Objects/DirectionalLight.hpp"
 #include "Lvs/Engine/DataModel/Objects/Folder.hpp"
+#include "Lvs/Engine/DataModel/Objects/Image3D.hpp"
 #include "Lvs/Engine/DataModel/Objects/Light.hpp"
 #include "Lvs/Engine/DataModel/Objects/MeshPart.hpp"
 #include "Lvs/Engine/DataModel/Objects/Model.hpp"
@@ -49,6 +50,7 @@ void EnsureInitialized() {
         (void)DataModel::Objects::DirectionalLight::Descriptor();
         (void)DataModel::Objects::PostEffects::Descriptor();
         (void)DataModel::Objects::Skybox::Descriptor();
+        (void)DataModel::Objects::Image3D::Descriptor();
         (void)DataModel::Objects::SelectionBox::Descriptor();
         (void)DataModel::Objects::Model::Descriptor();
         (void)DataModel::Objects::Folder::Descriptor();

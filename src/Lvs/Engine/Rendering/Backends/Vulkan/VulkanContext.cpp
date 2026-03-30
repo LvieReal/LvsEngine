@@ -917,12 +917,16 @@ void VulkanContext::InitializeBackendObjects() {
             .offset = 0,
             .size = static_cast<std::uint32_t>(sizeof(Common::DrawPushConstants))
         };
+        const std::array<VkDescriptorSetLayout, 2> setLayouts{
+            api_.DescriptorSetLayout,
+            api_.DescriptorSetLayout
+        };
         const VkPipelineLayoutCreateInfo layoutInfo{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
             .pNext = nullptr,
             .flags = 0,
-            .setLayoutCount = 1,
-            .pSetLayouts = &api_.DescriptorSetLayout,
+            .setLayoutCount = static_cast<std::uint32_t>(setLayouts.size()),
+            .pSetLayouts = setLayouts.data(),
             .pushConstantRangeCount = 1,
             .pPushConstantRanges = &pushConstantRange
         };

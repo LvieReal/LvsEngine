@@ -94,6 +94,7 @@ void RenderContext::Unbind() {
     }
     place_.reset();
     overlayPrimitives_.clear();
+    image3dPrimitives_.clear();
     ClearGeometryCache();
 }
 
@@ -157,6 +158,46 @@ void RenderContext::SetOverlayPrimitives(std::vector<Common::OverlayPrimitive> p
         overlayCacheKey_ = key;
         overlayDirty_ = true;
         instanceBufferDirty_ = true;
+    }
+}
+
+void RenderContext::SetImage3DPrimitives(std::vector<Common::Image3DPrimitive> primitives) {
+    LVS_BENCH_SCOPE("RenderContext::SetImage3DPrimitives");
+    image3dPrimitives_ = std::move(primitives);
+
+    auto hashCombine = [](std::size_t& seed, const std::size_t value) {
+        seed ^= value + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U);
+    };
+
+    auto hashFloat = [&hashCombine](std::size_t& seed, const float v) {
+        std::uint32_t bits = 0U;
+        static_assert(sizeof(bits) == sizeof(v));
+        std::memcpy(&bits, &v, sizeof(bits));
+        hashCombine(seed, static_cast<std::size_t>(bits));
+    };
+
+    std::size_t key = 0U;
+    hashCombine(key, image3dPrimitives_.size());
+    for (const auto& img : image3dPrimitives_) {
+        hashFloat(key, static_cast<float>(img.Position.x));
+        hashFloat(key, static_cast<float>(img.Position.y));
+        hashFloat(key, static_cast<float>(img.Position.z));
+        hashFloat(key, static_cast<float>(img.Size));
+        hashFloat(key, static_cast<float>(img.Tint.r));
+        hashFloat(key, static_cast<float>(img.Tint.g));
+        hashFloat(key, static_cast<float>(img.Tint.b));
+        hashFloat(key, img.Alpha);
+        hashCombine(key, std::hash<std::string>{}(img.ContentId));
+        hashCombine(key, static_cast<std::size_t>(img.ResolutionCap));
+        hashCombine(key, img.FollowCamera ? 1U : 0U);
+        hashCombine(key, img.ConstantSize ? 1U : 0U);
+        hashCombine(key, img.AlwaysOnTop ? 1U : 0U);
+        hashFloat(key, static_cast<float>(img.MaxDistance));
+    }
+
+    if (key != image3dCacheKey_) {
+        image3dCacheKey_ = key;
+        image3dDirty_ = true;
     }
 }
 

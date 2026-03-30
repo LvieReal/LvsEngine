@@ -52,15 +52,24 @@ void Viewport::paintEvent(QPaintEvent* event) {
 
     if (context_ != nullptr && context_->RenderContext != nullptr) {
         std::vector<Rendering::Common::OverlayPrimitive> overlay;
+        std::vector<Rendering::Common::Image3DPrimitive> images;
         if (toolLayer_ != nullptr) {
             {
                 LVS_BENCH_SCOPE("Viewport::ToolLayer::AppendOverlay");
                 toolLayer_->AppendOverlay(overlay);
             }
+            {
+                LVS_BENCH_SCOPE("Viewport::ToolLayer::AppendImage3D");
+                toolLayer_->AppendImage3D(images);
+            }
         }
         {
             LVS_BENCH_SCOPE("Viewport::RenderContext::SetOverlayPrimitives");
             context_->RenderContext->SetOverlayPrimitives(std::move(overlay));
+        }
+        {
+            LVS_BENCH_SCOPE("Viewport::RenderContext::SetImage3DPrimitives");
+            context_->RenderContext->SetImage3DPrimitives(std::move(images));
         }
     }
 

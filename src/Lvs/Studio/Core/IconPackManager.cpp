@@ -114,6 +114,17 @@ QIcon IconPackManager::GetIcon(const QString& iconName) {
     return QIcon(pixmap);
 }
 
+QString IconPackManager::GetIconPath(const QString& iconName) const {
+    if (packPath_.isEmpty()) {
+        return {};
+    }
+    const QString name = iconName.trimmed();
+    if (name.isEmpty()) {
+        return {};
+    }
+    return QDir(packPath_).filePath(name);
+}
+
 QStringList IconPackManager::GetPackRoots() const {
     return {
         Engine::Core::QtBridge::ToQString(Engine::Utils::SourcePath::GetResourcePath("IconPacks")),

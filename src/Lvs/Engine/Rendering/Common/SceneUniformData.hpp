@@ -75,4 +75,9 @@ struct HbaoPushConstants {
     std::array<float, 4> Params2{}; // x: aoResX, y: aoResY, z: invResX, w: invResY
 };
 
+struct Image3DPushConstants {
+    std::array<float, 16> Model{};
+    std::array<float, 4> Color{}; // rgb: tint, a: alpha
+};
+
 } // namespace Lvs::Engine::Rendering::Common

@@ -5,6 +5,7 @@
 #include "Lvs/Engine/Core/Instance.hpp"
 #include "Lvs/Engine/Core/GizmoSystem.hpp"
 #include "Lvs/Engine/Math/AABB.hpp"
+#include "Lvs/Engine/Rendering/Common/Image3DPrimitive.hpp"
 #include "Lvs/Engine/Rendering/Common/OverlayPrimitive.hpp"
 #include "Lvs/Engine/Utils/Signal.hpp"
 
@@ -39,6 +40,7 @@ class Workspace;
 namespace Lvs::Engine::DataModel::Objects {
 class BasePart;
 class SelectionBox;
+class DirectionalLight;
 }
 
 namespace Lvs::Studio::Core {
@@ -58,6 +60,7 @@ public:
     void OnFocusOut() override;
 
     void AppendOverlay(std::vector<Engine::Rendering::Common::OverlayPrimitive>& overlay) override;
+    void AppendImage3D(std::vector<Engine::Rendering::Common::Image3DPrimitive>& images) override;
 
     void SetGizmoAlwaysOnTop(bool value);
     void SetGizmoIgnoreDiffuseSpecular(bool value);
@@ -78,7 +81,7 @@ private:
     void InvalidateSelectionBoxCache();
     void RescanSelectionBoxCache();
 
-    void PickSelection(const Engine::Utils::Ray& ray, Qt::KeyboardModifiers modifiers = Qt::NoModifier);
+    void PickSelection(const Engine::Utils::Ray& ray, const QPoint& mousePos, Qt::KeyboardModifiers modifiers = Qt::NoModifier);
     void UpdateViewportBoxSelection(const QRect& rect);
     bool CanDragGizmo() const;
     void EnsureGizmoSystem();
@@ -176,7 +179,12 @@ private:
             Engine::Math::CFrame CFrame;
             Engine::Math::Vector3 Size;
         };
+        struct LightSnapshot {
+            std::shared_ptr<Engine::DataModel::Objects::DirectionalLight> Instance;
+            Engine::Math::Vector3 Position;
+        };
         std::vector<TransformSnapshot> Instances;
+        std::vector<LightSnapshot> Lights;
     };
     std::optional<GizmoHistorySnapshot> gizmoHistorySnapshot_;
     bool gizmoAlwaysOnTop_{true};

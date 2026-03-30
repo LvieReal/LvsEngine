@@ -246,6 +246,18 @@
     },
     "Light": {
       "categories": {
+        "Transform": {
+          "Position": {
+            "type": "Vector3",
+            "default": [
+              0,
+              0,
+              0
+            ],
+            "description": "Cosmetic position for the scene billboard and gizmo.",
+            "order": 1
+          }
+        },
         "Appearance": {
           "Color": {
             "type": "Color3",
@@ -623,6 +635,82 @@
         }
       }
     },
+    "Image3D": {
+      "categories": {
+        "Transform": {
+          "Position": {
+            "type": "Vector3",
+            "default": [
+              0,
+              0,
+              0
+            ],
+            "order": 1
+          }
+        },
+        "Data": {
+          "ContentId": {
+            "type": "string",
+            "default": "",
+            "description": "Image path (supports core:// and local:// prefixes).",
+            "order": 2,
+            "tags": [
+              "IsPath"
+            ]
+          },
+          "ResolutionCap": {
+            "type": "int",
+            "default": 1024,
+            "description": "Maximum texture side length.",
+            "order": 3
+          }
+        },
+        "Appearance": {
+          "FollowCamera": {
+            "type": "bool",
+            "default": true,
+            "description": "When enabled, the image behaves like a billboard.",
+            "order": 4
+          },
+          "ConstantSize": {
+            "type": "bool",
+            "default": true,
+            "description": "When enabled, the image keeps an approximately constant size on screen.",
+            "order": 5
+          },
+          "Tint": {
+            "type": "Color3",
+            "default": [
+              1,
+              1,
+              1
+            ],
+            "description": "Tint color multiplied with the image.",
+            "order": 6
+          },
+          "Transparency": {
+            "type": "double",
+            "default": 0,
+            "description": "0 = opaque, 1 = invisible.",
+            "order": 7
+          },
+          "AlwaysOnTop": {
+            "type": "bool",
+            "default": false,
+            "description": "When enabled, the image renders without depth testing.",
+            "order": 8
+          }
+        },
+        "Behavior": {
+          "MaxDistance": {
+            "type": "double",
+            "default": 1000,
+            "description": "Distance at which the image fades out.",
+            "order": 6
+          }
+        }
+      }
+    },
     "SelectionBox": {
       "categories": {
         "Data": {
@@ -636,7 +724,7 @@
             "type": "Color3",
             "default": [
               0,
-              0.5,
+              0.25,
               1
             ],
             "order": 3
@@ -658,12 +746,12 @@
           },
           "Roughness": {
             "type": "double",
-            "default": 1,
+            "default": 0.5,
             "order": 7
           },
           "Emissive": {
             "type": "double",
-            "default": 1,
+            "default": 0,
             "order": 8
           },
           "IgnoreLighting": {
@@ -673,7 +761,7 @@
           },
           "AlwaysOnTop": {
             "type": "bool",
-            "default": true,
+            "default": false,
             "order": 10
           },
           "Visible": {

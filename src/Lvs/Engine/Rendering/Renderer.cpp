@@ -162,6 +162,7 @@ void Renderer::RecordFrameCommands(
         globalResources
     );
     skyboxPass_.SetInputs(&surface_, &scene, skyboxPipeline, globalResources);
+    image3dPass_.SetInputs(&surface_, &scene, this, globalResources);
     hbaoPass_.SetInputs(&surface_, &scene, hbaoPipeline, hbaoBlurDownPipeline, hbaoBlurUpPipeline);
     postProcessPass_.SetInputs(
         &surface_,
@@ -184,6 +185,7 @@ void Renderer::RecordFrameCommands(
         geometryPass_.SetPhase(GeometryPassRenderer::Phase::All);
         geometryPass_.RecordCommands(ctx, cmd);
     }
+    image3dPass_.RecordCommands(ctx, cmd);
     hbaoPass_.RecordCommands(ctx, cmd);
     postProcessPass_.RecordCommands(ctx, cmd);
 }
@@ -475,6 +477,48 @@ Pipeline* Renderer::GetOrCreateGeometryPipeline(
         desc.useColorWriteMasks = true;
         desc.colorWriteMasks = {{0xFU, 0xFU, 0x0U, 0x0U, 0x0U, 0x0U, 0x0U, 0x0U}};
     }
+
+    auto pipeline = ctx.CreatePipeline(desc);
+    Pipeline* ptr = pipeline.get();
+    pipelineCache_.emplace(cacheKey, std::move(pipeline));
+    return ptr;
+}
+
+Pipeline* Renderer::GetOrCreateImage3DPipeline(RHI::IContext& ctx, const bool alwaysOnTop) {
+    const std::size_t modeBits = (alwaysOnTop ? 1ULL : 0ULL);
+    const std::size_t renderPassBits = reinterpret_cast<std::size_t>(sceneRenderPassHandle_) >> 3U;
+    const std::size_t cacheKey = (static_cast<std::size_t>(PassKey::Image3D) << 8U) | (modeBits << 16U) | (renderPassBits << 24U) |
+                                 (static_cast<std::size_t>(sceneColorAttachmentCount_) << 4U) |
+                                 (static_cast<std::size_t>(sceneSampleCount_) << 12U);
+    const auto it = pipelineCache_.find(cacheKey);
+    if (it != pipelineCache_.end()) {
+        return it->second.get();
+    }
+
+    RHI::PipelineDesc desc{};
+    desc.pipelineId = "image3d";
+    desc.vertexLayout = RHI::VertexLayout::P3N3;
+    desc.topology = RHI::PrimitiveTopology::TriangleList;
+    desc.renderPassHandle = sceneRenderPassHandle_;
+    desc.colorAttachmentCount = sceneColorAttachmentCount_;
+    desc.sampleCount = sceneSampleCount_;
+    desc.cullMode = RHI::CullMode::None;
+    desc.blendMode = RHI::BlendMode::Alpha;
+    desc.colorWrite = true;
+
+    if (alwaysOnTop) {
+        desc.depthTest = false;
+        desc.depthWrite = false;
+        desc.depthCompare = RHI::DepthCompare::Always;
+    } else {
+        desc.depthTest = true;
+        desc.depthWrite = false;
+        desc.depthCompare = RHI::DepthCompare::GreaterOrEqual;
+    }
+
+    desc.useColorWriteMasks = true;
+    // Image3D is composited into scene color only; avoid touching glow/depth MRT attachments.
+    desc.colorWriteMasks = {{0xFU, 0x0U, 0x0U, 0x0U, 0x0U, 0x0U, 0x0U, 0x0U}};
 
     auto pipeline = ctx.CreatePipeline(desc);
     Pipeline* ptr = pipeline.get();
