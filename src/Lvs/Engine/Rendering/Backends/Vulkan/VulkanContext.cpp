@@ -1681,6 +1681,14 @@ std::unique_ptr<RHI::IPipeline> VulkanContext::CreatePipeline(const RHI::Pipelin
                     srcAlpha = VK_BLEND_FACTOR_ONE;
                     dstAlpha = VK_BLEND_FACTOR_ZERO;
                     break;
+                case RHI::BlendMode::Invert:
+                    // Masked invert: out.rgb = (1 - dst.rgb) * src.rgb + dst.rgb * (1 - src.a)
+                    srcColor = VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;
+                    dstColor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+                    // Preserve destination alpha.
+                    srcAlpha = VK_BLEND_FACTOR_ZERO;
+                    dstAlpha = VK_BLEND_FACTOR_ONE;
+                    break;
                 case RHI::BlendMode::Multiply:
                     // out.rgb = dst.rgb * src.rgb
                     srcColor = VK_BLEND_FACTOR_ZERO;
@@ -2876,9 +2884,9 @@ RHI::Texture VulkanContext::CreateTexture2D(const RHI::Texture2DDesc& desc) {
         .magFilter = desc.linearFiltering ? VK_FILTER_LINEAR : VK_FILTER_NEAREST,
         .minFilter = desc.linearFiltering ? VK_FILTER_LINEAR : VK_FILTER_NEAREST,
         .mipmapMode = desc.linearFiltering ? VK_SAMPLER_MIPMAP_MODE_LINEAR : VK_SAMPLER_MIPMAP_MODE_NEAREST,
-        .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-        .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-        .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .addressModeU = desc.repeat ? VK_SAMPLER_ADDRESS_MODE_REPEAT : VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+        .addressModeV = desc.repeat ? VK_SAMPLER_ADDRESS_MODE_REPEAT : VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+        .addressModeW = desc.repeat ? VK_SAMPLER_ADDRESS_MODE_REPEAT : VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
         .mipLodBias = 0.0F,
         .anisotropyEnable = VK_FALSE,
         .maxAnisotropy = 1.0F,

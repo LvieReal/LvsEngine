@@ -120,6 +120,7 @@ const RHI::IResourceSet* RenderContext::GetOrCreateImageTextureResources(const s
     desc.height = image.Height;
     desc.format = RHI::Format::R8G8B8A8_UNorm;
     desc.linearFiltering = true;
+    desc.repeat = false;
     desc.generateMipmaps = true;
     desc.pixels = std::move(image.Pixels);
 
@@ -184,6 +185,11 @@ std::vector<SceneData::Image3DDrawPacket> RenderContext::BuildImage3DDraws() {
             img.ConstantSize = obj->GetProperty("ConstantSize").toBool();
             img.MaxDistance = obj->GetProperty("MaxDistance").toDouble();
             img.AlwaysOnTop = obj->GetProperty("AlwaysOnTop").toBool();
+            img.NegateMask = obj->GetProperty("NegateMask").toBool();
+            img.OutlineEnabled = obj->GetProperty("OutlineEnabled").toBool();
+            img.OutlineColor = obj->GetProperty("OutlineColor").value<Math::Color3>();
+            img.OutlineTransparency = obj->GetProperty("OutlineTransparency").toDouble();
+            img.OutlineThickness = obj->GetProperty("OutlineThickness").toDouble();
             primitives.push_back(std::move(img));
         });
     }
@@ -249,8 +255,25 @@ std::vector<SceneData::Image3DDrawPacket> RenderContext::BuildImage3DDraws() {
         packet.TextureResources = resources;
         packet.Push.Model = Context::ToFloatMat4ColumnMajor(model);
         packet.Push.Color = Context::ToVec4(img.Tint, alpha);
+        const float outlineAlpha = static_cast<float>(
+            std::clamp(1.0 - std::clamp(img.OutlineTransparency, 0.0, 1.0), 0.0, 1.0)
+        );
+        packet.Push.Options = {
+            img.NegateMask ? 1.0F : 0.0F,
+            0.0F,
+            img.OutlineEnabled ? 1.0F : 0.0F,
+            0.0F
+        };
+        packet.Push.OutlineColor = Context::ToVec4(img.OutlineColor, outlineAlpha);
+        packet.Push.OutlineParams = {
+            static_cast<float>(std::max(0.0, img.OutlineThickness)),
+            0.5F,
+            0.0F,
+            0.0F
+        };
         packet.SortDepth = static_cast<float>(distance * distance);
         packet.AlwaysOnTop = img.AlwaysOnTop;
+        packet.NegateMask = img.NegateMask;
         draws.push_back(packet);
     }
 

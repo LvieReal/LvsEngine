@@ -26,6 +26,7 @@ enum class CullMode {
 enum class BlendMode {
     None,
     Alpha,
+    Invert,
     Multiply
 };
 

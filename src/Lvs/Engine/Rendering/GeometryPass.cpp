@@ -70,6 +70,60 @@ void GeometryPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBuffe
         cmd.Draw(RHI::ICommandBuffer::DrawInfo{.vertexCount = 0, .indexCount = mesh->IndexCount, .instanceCount = draw.InstanceCount});
     };
 
+    const auto recordImage3DDraw = [this, &ctx, &cmd](const SceneData::Image3DDrawPacket& draw) {
+        const auto* mesh = draw.Mesh;
+        if (mesh == nullptr || mesh->VertexBuffer == nullptr || mesh->IndexBuffer == nullptr || mesh->IndexCount == 0 ||
+            draw.TextureResources == nullptr) {
+            return;
+        }
+        if (draw.AlwaysOnTop) {
+            return;
+        }
+        Pipeline* pipeline = renderer_->GetOrCreateImage3DPipeline(ctx, false, draw.NegateMask);
+        if (pipeline == nullptr) {
+            return;
+        }
+        cmd.BindPipeline(*pipeline);
+        cmd.BindVertexBuffer(0, *mesh->VertexBuffer, mesh->VertexOffset);
+        cmd.BindIndexBuffer(*mesh->IndexBuffer, mesh->IndexBufferType, mesh->IndexOffset);
+        cmd.BindResourceSet(1, *draw.TextureResources);
+
+        const std::array<RHI::ICommandBuffer::PushConstantField, 5> fields{
+            RHI::ICommandBuffer::PushConstantField{
+                .name = "pushData.model",
+                .type = RHI::ICommandBuffer::PushConstantFieldType::Matrix4x4,
+                .data = draw.Push.Model.data()
+            },
+            RHI::ICommandBuffer::PushConstantField{
+                .name = "pushData.color",
+                .type = RHI::ICommandBuffer::PushConstantFieldType::Float4,
+                .data = draw.Push.Color.data()
+            },
+            RHI::ICommandBuffer::PushConstantField{
+                .name = "pushData.options",
+                .type = RHI::ICommandBuffer::PushConstantFieldType::Float4,
+                .data = draw.Push.Options.data()
+            },
+            RHI::ICommandBuffer::PushConstantField{
+                .name = "pushData.outlineColor",
+                .type = RHI::ICommandBuffer::PushConstantFieldType::Float4,
+                .data = draw.Push.OutlineColor.data()
+            },
+            RHI::ICommandBuffer::PushConstantField{
+                .name = "pushData.outlineParams",
+                .type = RHI::ICommandBuffer::PushConstantFieldType::Float4,
+                .data = draw.Push.OutlineParams.data()
+            }
+        };
+        cmd.PushConstants(RHI::ICommandBuffer::PushConstantsInfo{
+            .data = &draw.Push,
+            .size = sizeof(draw.Push),
+            .fields = fields.data(),
+            .fieldCount = fields.size()
+        });
+        cmd.Draw(RHI::ICommandBuffer::DrawInfo{.vertexCount = 0, .indexCount = mesh->IndexCount, .instanceCount = 1U});
+    };
+
     std::vector<const SceneData::DrawPacket*> opaqueDraws{};
     std::vector<const SceneData::DrawPacket*> transparentDraws{};
     std::vector<const SceneData::DrawPacket*> alwaysOnTopDraws{};
@@ -107,8 +161,43 @@ void GeometryPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBuffe
         }
     }
     if (phase_ == Phase::All || phase_ == Phase::TransparentOnly) {
+        struct TransparentItem {
+            float SortDepth{0.0F};
+            const SceneData::DrawPacket* Geometry{nullptr};
+            const SceneData::Image3DDrawPacket* Image{nullptr};
+        };
+        std::vector<TransparentItem> items{};
+        items.reserve(transparentDraws.size() + scene_->Image3DDraws.size());
+
         for (const auto* draw : transparentDraws) {
-            recordDraw(*draw);
+            if (draw == nullptr) {
+                continue;
+            }
+            items.push_back(TransparentItem{.SortDepth = draw->SortDepth, .Geometry = draw, .Image = nullptr});
+        }
+        for (const auto& img : scene_->Image3DDraws) {
+            if (img.Mesh == nullptr || img.TextureResources == nullptr || img.AlwaysOnTop) {
+                continue;
+            }
+            items.push_back(TransparentItem{.SortDepth = img.SortDepth, .Geometry = nullptr, .Image = &img});
+        }
+
+        std::sort(items.begin(), items.end(), [](const TransparentItem& lhs, const TransparentItem& rhs) {
+            if (lhs.SortDepth != rhs.SortDepth) {
+                return lhs.SortDepth > rhs.SortDepth;
+            }
+            // Stable-ish tie-breaker to reduce flicker when depths match closely.
+            const int lhsKind = lhs.Geometry != nullptr ? 0 : 1;
+            const int rhsKind = rhs.Geometry != nullptr ? 0 : 1;
+            return lhsKind < rhsKind;
+        });
+
+        for (const auto& item : items) {
+            if (item.Geometry != nullptr) {
+                recordDraw(*item.Geometry);
+            } else if (item.Image != nullptr) {
+                recordImage3DDraw(*item.Image);
+            }
         }
         for (const auto* draw : alwaysOnTopDraws) {
             recordDraw(*draw);

@@ -65,6 +65,7 @@ struct SceneData {
         Common::Image3DPushConstants Push{};
         float SortDepth{0.0F};
         bool AlwaysOnTop{false};
+        bool NegateMask{false};
     };
 
     bool EnableShadows{true};
@@ -268,6 +269,12 @@ private:
 class Image3DPassRenderer {
 public:
     void RecordCommands(RHI::IContext& ctx, RHI::ICommandBuffer& cmd);
+    enum class Phase {
+        All,
+        DepthTestedOnly,
+        AlwaysOnTopOnly
+    };
+    void SetPhase(Phase phase) { phase_ = phase; }
 
 private:
     friend class Renderer;
@@ -282,6 +289,7 @@ private:
     const SceneData* scene_{nullptr};
     Renderer* renderer_{nullptr};
     const RHI::IResourceSet* globalResources_{nullptr};
+    Phase phase_{Phase::All};
 };
 
 class Renderer {
@@ -331,7 +339,8 @@ private:
     );
     [[nodiscard]] Pipeline* GetOrCreateImage3DPipeline(
         RHI::IContext& ctx,
-        bool alwaysOnTop
+        bool alwaysOnTop,
+        bool negateMask
     );
     [[nodiscard]] const RHI::IResourceSet* GetOrCreateGlobalResources(RHI::IContext& ctx, const SceneData& scene);
 

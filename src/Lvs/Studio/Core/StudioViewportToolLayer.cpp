@@ -20,8 +20,6 @@
 #include "Lvs/Engine/Utils/InstanceSelection.hpp"
 #include "Lvs/Engine/Utils/Raycast.hpp"
 #include "Lvs/Engine/Utils/Benchmark.hpp"
-#include "Lvs/Studio/Core/IconPackManager.hpp"
-
 #include <QMouseEvent>
 #include <QRubberBand>
 #include <Qt>
@@ -646,11 +644,7 @@ void StudioViewportToolLayer::AppendImage3D(std::vector<Engine::Rendering::Commo
         return;
     }
 
-    const QString sunIconName = QStringLiteral("weather_sun.png");
-    const QString sunIconPath = Core::GetIconPackManager().GetIconPath(sunIconName);
-    if (sunIconPath.isEmpty()) {
-        return;
-    }
+    const std::string sunIconContentId = "Gizmos/sun.png";
 
     lighting->ForEachDescendant([&](const std::shared_ptr<Engine::Core::Instance>& child) {
         const auto dl = std::dynamic_pointer_cast<Engine::DataModel::Objects::DirectionalLight>(child);
@@ -663,12 +657,17 @@ void StudioViewportToolLayer::AppendImage3D(std::vector<Engine::Rendering::Commo
         img.Size = 1.0;
         img.Tint = {1.0, 1.0, 1.0};
         img.Alpha = 1.0F;
-        img.ContentId = sunIconPath.toStdString();
+        img.ContentId = sunIconContentId;
         img.ResolutionCap = 1024;
         img.FollowCamera = true;
         img.ConstantSize = true;
         img.MaxDistance = 1000.0;
         img.AlwaysOnTop = true;
+        img.NegateMask = true;
+        img.OutlineEnabled = true;
+        img.OutlineColor = {0.0, 0.0, 0.0};
+        img.OutlineTransparency = 0;
+        img.OutlineThickness = 2;
         images.push_back(std::move(img));
     });
 }

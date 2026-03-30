@@ -51,45 +51,68 @@ void Image3DPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBuffer
         if (draw == nullptr || draw->Mesh == nullptr || draw->TextureResources == nullptr) {
             continue;
         }
+        if (phase_ == Phase::DepthTestedOnly && draw->AlwaysOnTop) {
+            continue;
+        }
+        if (phase_ == Phase::AlwaysOnTopOnly && !draw->AlwaysOnTop) {
+            continue;
+        }
         const auto* mesh = draw->Mesh;
         if (mesh->VertexBuffer == nullptr || mesh->IndexBuffer == nullptr || mesh->IndexCount == 0) {
             continue;
         }
 
-        Pipeline* pipeline = renderer_->GetOrCreateImage3DPipeline(ctx, draw->AlwaysOnTop);
-        if (pipeline == nullptr) {
-            continue;
-        }
+        const auto pushDraw = [&](const Common::Image3DPushConstants& push) {
+            const std::array<RHI::ICommandBuffer::PushConstantField, 5> fields{
+                RHI::ICommandBuffer::PushConstantField{
+                    .name = "pushData.model",
+                    .type = RHI::ICommandBuffer::PushConstantFieldType::Matrix4x4,
+                    .data = push.Model.data()
+                },
+                RHI::ICommandBuffer::PushConstantField{
+                    .name = "pushData.color",
+                    .type = RHI::ICommandBuffer::PushConstantFieldType::Float4,
+                    .data = push.Color.data()
+                },
+                RHI::ICommandBuffer::PushConstantField{
+                    .name = "pushData.options",
+                    .type = RHI::ICommandBuffer::PushConstantFieldType::Float4,
+                    .data = push.Options.data()
+                },
+                RHI::ICommandBuffer::PushConstantField{
+                    .name = "pushData.outlineColor",
+                    .type = RHI::ICommandBuffer::PushConstantFieldType::Float4,
+                    .data = push.OutlineColor.data()
+                },
+                RHI::ICommandBuffer::PushConstantField{
+                    .name = "pushData.outlineParams",
+                    .type = RHI::ICommandBuffer::PushConstantFieldType::Float4,
+                    .data = push.OutlineParams.data()
+                }
+            };
+            cmd.PushConstants(RHI::ICommandBuffer::PushConstantsInfo{
+                .data = &push,
+                .size = sizeof(push),
+                .fields = fields.data(),
+                .fieldCount = fields.size()
+            });
+            cmd.Draw(RHI::ICommandBuffer::DrawInfo{.vertexCount = 0, .indexCount = mesh->IndexCount, .instanceCount = 1U});
+        };
 
-        cmd.BindPipeline(*pipeline);
         cmd.BindVertexBuffer(0, *mesh->VertexBuffer, mesh->VertexOffset);
         cmd.BindIndexBuffer(*mesh->IndexBuffer, mesh->IndexBufferType, mesh->IndexOffset);
         cmd.BindResourceSet(1, *draw->TextureResources);
 
-        const std::array<RHI::ICommandBuffer::PushConstantField, 2> fields{
-            RHI::ICommandBuffer::PushConstantField{
-                .name = "pushData.model",
-                .type = RHI::ICommandBuffer::PushConstantFieldType::Matrix4x4,
-                .data = draw->Push.Model.data()
-            },
-            RHI::ICommandBuffer::PushConstantField{
-                .name = "pushData.color",
-                .type = RHI::ICommandBuffer::PushConstantFieldType::Float4,
-                .data = draw->Push.Color.data()
-            }
-        };
-        cmd.PushConstants(RHI::ICommandBuffer::PushConstantsInfo{
-            .data = &draw->Push,
-            .size = sizeof(draw->Push),
-            .fields = fields.data(),
-            .fieldCount = fields.size()
-        });
-
-        cmd.Draw(RHI::ICommandBuffer::DrawInfo{.vertexCount = 0, .indexCount = mesh->IndexCount, .instanceCount = 1U});
+        Pipeline* pipeline = renderer_->GetOrCreateImage3DPipeline(ctx, draw->AlwaysOnTop, draw->NegateMask);
+        if (pipeline == nullptr) {
+            continue;
+        }
+        cmd.BindPipeline(*pipeline);
+        auto push = draw->Push;
+        pushDraw(push);
     }
 
     cmd.EndRenderPass();
 }
 
 } // namespace Lvs::Engine::Rendering
-

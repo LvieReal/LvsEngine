@@ -553,8 +553,9 @@ RHI::Texture GLContext::CreateTexture2D(const RHI::Texture2DDesc& desc) {
         GL_UNSIGNED_BYTE,
         desc.pixels.data()
     );
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    const GLint wrap2D = desc.repeat ? static_cast<GLint>(GL_REPEAT) : static_cast<GLint>(GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrap2D);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrap2D);
     const GLint minFilter = desc.generateMipmaps
                                 ? (desc.linearFiltering ? static_cast<GLint>(GL_LINEAR_MIPMAP_LINEAR)
                                                         : static_cast<GLint>(GL_NEAREST_MIPMAP_NEAREST))
@@ -1055,6 +1056,12 @@ void GLContext::BindPipeline(const RHI::IPipeline& pipeline) {
             case RHI::BlendMode::Alpha:
                 glEnable(GL_BLEND);
                 glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+                glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+                break;
+            case RHI::BlendMode::Invert:
+                glEnable(GL_BLEND);
+                // Masked invert: out.rgb = (1 - dst.rgb) * src.rgb + dst.rgb * (1 - src.a), preserve dst alpha.
+                glBlendFuncSeparate(GL_ONE_MINUS_DST_COLOR, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
                 glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
                 break;
             case RHI::BlendMode::Multiply:

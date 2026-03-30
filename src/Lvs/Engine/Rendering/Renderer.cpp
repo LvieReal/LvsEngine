@@ -180,12 +180,20 @@ void Renderer::RecordFrameCommands(
         shadowVolumePass_.RecordCommands(ctx, cmd);
         geometryPass_.SetPhase(GeometryPassRenderer::Phase::TransparentOnly);
         geometryPass_.RecordCommands(ctx, cmd);
+        image3dPass_.SetPhase(Image3DPassRenderer::Phase::AlwaysOnTopOnly);
+        image3dPass_.RecordCommands(ctx, cmd);
         geometryPass_.SetPhase(GeometryPassRenderer::Phase::All);
+        image3dPass_.SetPhase(Image3DPassRenderer::Phase::All);
     } else {
-        geometryPass_.SetPhase(GeometryPassRenderer::Phase::All);
+        geometryPass_.SetPhase(GeometryPassRenderer::Phase::OpaqueOnly);
         geometryPass_.RecordCommands(ctx, cmd);
+        geometryPass_.SetPhase(GeometryPassRenderer::Phase::TransparentOnly);
+        geometryPass_.RecordCommands(ctx, cmd);
+        image3dPass_.SetPhase(Image3DPassRenderer::Phase::AlwaysOnTopOnly);
+        image3dPass_.RecordCommands(ctx, cmd);
+        geometryPass_.SetPhase(GeometryPassRenderer::Phase::All);
+        image3dPass_.SetPhase(Image3DPassRenderer::Phase::All);
     }
-    image3dPass_.RecordCommands(ctx, cmd);
     hbaoPass_.RecordCommands(ctx, cmd);
     postProcessPass_.RecordCommands(ctx, cmd);
 }
@@ -484,8 +492,12 @@ Pipeline* Renderer::GetOrCreateGeometryPipeline(
     return ptr;
 }
 
-Pipeline* Renderer::GetOrCreateImage3DPipeline(RHI::IContext& ctx, const bool alwaysOnTop) {
-    const std::size_t modeBits = (alwaysOnTop ? 1ULL : 0ULL);
+Pipeline* Renderer::GetOrCreateImage3DPipeline(
+    RHI::IContext& ctx,
+    const bool alwaysOnTop,
+    const bool negateMask
+) {
+    const std::size_t modeBits = (alwaysOnTop ? 1ULL : 0ULL) | (negateMask ? 2ULL : 0ULL);
     const std::size_t renderPassBits = reinterpret_cast<std::size_t>(sceneRenderPassHandle_) >> 3U;
     const std::size_t cacheKey = (static_cast<std::size_t>(PassKey::Image3D) << 8U) | (modeBits << 16U) | (renderPassBits << 24U) |
                                  (static_cast<std::size_t>(sceneColorAttachmentCount_) << 4U) |
@@ -503,7 +515,7 @@ Pipeline* Renderer::GetOrCreateImage3DPipeline(RHI::IContext& ctx, const bool al
     desc.colorAttachmentCount = sceneColorAttachmentCount_;
     desc.sampleCount = sceneSampleCount_;
     desc.cullMode = RHI::CullMode::None;
-    desc.blendMode = RHI::BlendMode::Alpha;
+    desc.blendMode = negateMask ? RHI::BlendMode::Invert : RHI::BlendMode::Alpha;
     desc.colorWrite = true;
 
     if (alwaysOnTop) {

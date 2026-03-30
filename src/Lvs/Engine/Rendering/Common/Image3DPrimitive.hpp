@@ -3,6 +3,7 @@
 #include "Lvs/Engine/Math/Color3.hpp"
 #include "Lvs/Engine/Math/Vector3.hpp"
 
+#include <array>
 #include <string>
 
 namespace Lvs::Engine::Rendering::Common {
@@ -21,7 +22,12 @@ struct Image3DPrimitive {
     double MaxDistance{1000.0};
 
     bool AlwaysOnTop{false};
+    bool NegateMask{false};
+
+    bool OutlineEnabled{false};
+    Math::Color3 OutlineColor{0.0, 0.0, 0.0};
+    double OutlineTransparency{0.0};
+    double OutlineThickness{1.0};
 };
 
 } // namespace Lvs::Engine::Rendering::Common
-

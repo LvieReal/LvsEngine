@@ -16,6 +16,9 @@ struct PushConstants
 {
     mat4 model;
     vec4 color;
+    vec4 options;
+    vec4 outlineColor;
+    vec4 outlineParams;
 };
 
 uniform PushConstants pushData;

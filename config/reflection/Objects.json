@@ -699,6 +699,12 @@
             "default": false,
             "description": "When enabled, the image renders without depth testing.",
             "order": 8
+          },
+          "NegateMask": {
+            "type": "bool",
+            "default": false,
+            "description": "When enabled, the image negates (inverts) what is behind it using a mask.",
+            "order": 9
           }
         },
         "Behavior": {
@@ -707,6 +713,36 @@
             "default": 1000,
             "description": "Distance at which the image fades out.",
             "order": 6
+          }
+        },
+        "Outline": {
+          "OutlineEnabled": {
+            "type": "bool",
+            "default": false,
+            "description": "Enable a screen-space outline based on image alpha edges.",
+            "order": 10
+          },
+          "OutlineColor": {
+            "type": "Color3",
+            "default": [
+              0,
+              0,
+              0
+            ],
+            "description": "Outline color.",
+            "order": 11
+          },
+          "OutlineTransparency": {
+            "type": "double",
+            "default": 0,
+            "description": "0 = opaque, 1 = invisible.",
+            "order": 12
+          },
+          "OutlineThickness": {
+            "type": "double",
+            "default": 1,
+            "description": "Outline thickness in texture pixels.",
+            "order": 13
           }
         }
       }

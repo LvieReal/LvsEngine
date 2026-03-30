@@ -17,6 +17,9 @@ layout(set = 0, binding = 0) uniform CameraUBO {
 layout(push_constant) uniform PushConstants {
     mat4 model;
     vec4 color;
+    vec4 options; // x: negateMask, y: depthOnly, z: outlineEnabled
+    vec4 outlineColor; // rgb color, a alpha
+    vec4 outlineParams; // x thicknessPixels, y alphaThreshold
 } pushData;
 
 layout(location = 0) out vec2 fragUv;
