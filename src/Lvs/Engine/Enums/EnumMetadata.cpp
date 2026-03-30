@@ -10,11 +10,8 @@
 #include "Lvs/Engine/Enums/PartSurface.hpp"
 #include "Lvs/Engine/Enums/PartSurfaceType.hpp"
 #include "Lvs/Engine/Enums/SkyboxTextureLayout.hpp"
-#include "Lvs/Engine/Enums/ShadowType.hpp"
 #include "Lvs/Engine/Enums/RenderCullMode.hpp"
 #include "Lvs/Engine/Enums/RenderDepthCompare.hpp"
-#include "Lvs/Engine/Enums/ShadowVolumeCapMode.hpp"
-#include "Lvs/Engine/Enums/ShadowVolumeStencilMode.hpp"
 #include "Lvs/Engine/Enums/SpecularHighlightType.hpp"
 #include "Lvs/Engine/Enums/SurfaceMipmapping.hpp"
 #include "Lvs/Engine/Enums/Tonemapper.hpp"
@@ -134,11 +131,8 @@ void AddEnum(Core::HashMap<Core::String, EnumInfo>& out) {
         AddEnum<PartSurfaceType>(out);
         AddEnum<Tonemapper>(out);
         AddEnum<Theme>(out);
-        AddEnum<ShadowType>(out);
         AddEnum<RenderCullMode>(out);
         AddEnum<RenderDepthCompare>(out);
-        AddEnum<ShadowVolumeCapMode>(out);
-        AddEnum<ShadowVolumeStencilMode>(out);
         AddEnum<RenderApi>(out);
 
         return out;

@@ -14,6 +14,7 @@ struct RenderTargetDesc {
     bool hasDepth{true};
     bool depthTexture{false};
     bool depthCompare{true};
+    bool depthFilterLinear{true};
     Format depthFormat{Format::D32_Float};
 };
 

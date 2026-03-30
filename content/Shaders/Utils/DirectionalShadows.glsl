@@ -13,9 +13,123 @@ vec2 GetDirectionalShadowTexelSize(int shadowMapBase, int cascadeIndex) {
     return 1.0 / vec2(size);
 }
 
+ivec2 GetDirectionalShadowMapSize(int shadowMapBase, int cascadeIndex) {
+    int idx = clamp(shadowMapBase + cascadeIndex, 0, 5);
+    return max(textureSize(directionalShadowMaps[idx], 0), ivec2(1));
+}
+
 float SampleDirectionalShadowMap(int shadowMapBase, int cascadeIndex, vec3 shadowCoord) {
     int idx = clamp(shadowMapBase + cascadeIndex, 0, 5);
     return texture(directionalShadowMaps[idx], shadowCoord);
+}
+
+float SampleDirectionalShadowHard(int shadowMapBase, int cascadeIndex, vec2 uv, float compareDepth) {
+    vec2 cuv = clamp(uv, vec2(0.0), vec2(1.0));
+    return SampleDirectionalShadowMap(shadowMapBase, cascadeIndex, vec3(cuv, compareDepth)) > 0.5 ? 1.0 : 0.0;
+}
+
+float SampleDirectionalShadowHardTexel(int shadowMapBase, int cascadeIndex, ivec2 texel, ivec2 shadowSize, float compareDepth) {
+    ivec2 clamped = clamp(texel, ivec2(0), shadowSize - ivec2(1));
+    vec2 uv = (vec2(clamped) + 0.5) / vec2(shadowSize);
+    return SampleDirectionalShadowHard(shadowMapBase, cascadeIndex, uv, compareDepth);
+}
+
+float ShadowTestRBSM(int shadowMapBase, int cascadeIndex, vec3 p) {
+    return SampleDirectionalShadowHard(shadowMapBase, cascadeIndex, p.xy, p.z);
+}
+
+vec4 ComputeDiscontinuity4_RBSM(int shadowMapBase, int cascadeIndex, vec3 p, vec2 o) {
+    float center = ShadowTestRBSM(shadowMapBase, cascadeIndex, p);
+    float left = ShadowTestRBSM(shadowMapBase, cascadeIndex, vec3(p.x - o.x, p.y, p.z));
+    float right = ShadowTestRBSM(shadowMapBase, cascadeIndex, vec3(p.x + o.x, p.y, p.z));
+    float bottom = ShadowTestRBSM(shadowMapBase, cascadeIndex, vec3(p.x, p.y - o.y, p.z));
+    float top = ShadowTestRBSM(shadowMapBase, cascadeIndex, vec3(p.x, p.y + o.y, p.z));
+    return abs(vec4(left, right, bottom, top) - center);
+}
+
+float ComputeRelativeDistance1_RBSM(int shadowMapBase, int cascadeIndex, vec3 p, vec2 dir, float c, vec2 o) {
+    const int maxSize = 16;
+    vec3 np = p;
+    float foundSilhouetteEnd = 0.0;
+    float distance = 0.0;
+    vec2 stepUv = dir * o;
+
+    for (int it = 0; it < maxSize; ++it) {
+        np.xy += stepUv;
+        if (np.x < 0.0 || np.x > 1.0 || np.y < 0.0 || np.y > 1.0) {
+            break;
+        }
+
+        float center = ShadowTestRBSM(shadowMapBase, cascadeIndex, np);
+        bool isCenterUmbra = center < 0.5;
+        if (isCenterUmbra) {
+            foundSilhouetteEnd = 1.0;
+            break;
+        }
+
+        vec4 d = ComputeDiscontinuity4_RBSM(shadowMapBase, cascadeIndex, np, o);
+        if ((d.x + d.y + d.z + d.w) == 0.0) {
+            break;
+        }
+
+        distance += 1.0;
+    }
+
+    distance = distance + (1.0 - c);
+    return mix(-distance, distance, foundSilhouetteEnd);
+}
+
+vec4 ComputeRelativeDistance4_RBSM(int shadowMapBase, int cascadeIndex, vec3 p, vec2 c, vec2 o) {
+    float dl = ComputeRelativeDistance1_RBSM(shadowMapBase, cascadeIndex, p, vec2(-1.0, 0.0), (1.0 - c.x), o);
+    float dr = ComputeRelativeDistance1_RBSM(shadowMapBase, cascadeIndex, p, vec2(1.0, 0.0), c.x, o);
+    vec2 bottomDir = vec2(0.0, -1.0);
+    vec2 topDir = vec2(0.0, 1.0);
+    float db = ComputeRelativeDistance1_RBSM(shadowMapBase, cascadeIndex, p, bottomDir, (1.0 - c.y), o);
+    float dt = ComputeRelativeDistance1_RBSM(shadowMapBase, cascadeIndex, p, topDir, c.y, o);
+    return vec4(dl, dr, db, dt);
+}
+
+float NormalizeRelativeDistance1_RBSM(vec2 dist) {
+    const int maxSize = 16;
+    float T = 1.0;
+    if (dist.x < 0.0 && dist.y < 0.0) T = 0.0;
+    if (dist.x > 0.0 && dist.y > 0.0) T = -2.0;
+    float len = min(abs(dist.x) + abs(dist.y), float(maxSize));
+    return (len > 1e-6) ? (abs(max(T * dist.x, T * dist.y)) / len) : 0.0;
+}
+
+vec2 NormalizeRelativeDistance2_RBSM(vec4 dist) {
+    return vec2(
+        NormalizeRelativeDistance1_RBSM(vec2(dist.x, dist.y)),
+        NormalizeRelativeDistance1_RBSM(vec2(dist.z, dist.w))
+    );
+}
+
+float RevectorizeShadow_RBSM(vec2 r) {
+    // Conservative RBSM: return 0 for new shadow, 1 otherwise.
+    if ((r.x * r.y > 0.0) && ((1.0 - r.x) > r.y)) return 0.0;
+    return 1.0;
+}
+
+float SampleDirectionalRBSM(int shadowMapBase, int cascadeIndex, vec2 shadowUv, float compareDepth) {
+    ivec2 shadowSize = GetDirectionalShadowMapSize(shadowMapBase, cascadeIndex);
+    vec2 o = 1.0 / vec2(shadowSize);
+    vec3 p = vec3(shadowUv, compareDepth);
+
+    float shadowTestResult = ShadowTestRBSM(shadowMapBase, cascadeIndex, p);
+    if (shadowTestResult < 0.5) {
+        return 0.0;
+    }
+
+    vec2 c = fract(shadowUv * vec2(shadowSize));
+    vec4 disc = ComputeDiscontinuity4_RBSM(shadowMapBase, cascadeIndex, p, o);
+    if ((disc.x + disc.y + disc.z + disc.w) > 0.0) {
+        vec4 dist = ComputeRelativeDistance4_RBSM(shadowMapBase, cascadeIndex, p, c, o);
+        vec2 r = NormalizeRelativeDistance2_RBSM(dist);
+        return RevectorizeShadow_RBSM(r);
+    }
+
+    return shadowTestResult;
 }
 
 float SampleDirectionalPCF(
@@ -207,16 +321,22 @@ float ComputeDirectionalShadowFactor(
     softness *= resScale;
     float bias = ComputeDirectionalBias(dl, shadowMapBase, cascadeIndex, normal, lightDir);
     float compareDepth = clamp(receiverDepth - bias, 0.0, 1.0);
-    float shadow = SampleDirectionalPCF(
-        dl,
-        shadowMapBase,
-        cascadeIndex,
-        vec3(shadowUv, compareDepth),
-        softness,
-        normal,
-        lightDir,
-        fragCoord
-    );
+    float shadow = 1.0;
+    if (dl.shadowState.w > 0.5) {
+        // RBSM silhouette recovery variant (binary visibility).
+        shadow = SampleDirectionalRBSM(shadowMapBase, cascadeIndex, shadowUv, compareDepth);
+    } else {
+        shadow = SampleDirectionalPCF(
+            dl,
+            shadowMapBase,
+            cascadeIndex,
+            vec3(shadowUv, compareDepth),
+            softness,
+            normal,
+            lightDir,
+            fragCoord
+        );
+    }
 
     if (cascadeIndex == cascadeCount - 1) {
         float fadeWidth = clamp(dl.shadowParams.w, 0.0, 1.0);

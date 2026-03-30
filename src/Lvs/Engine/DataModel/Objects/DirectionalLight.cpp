@@ -1,7 +1,6 @@
 #include "Lvs/Engine/DataModel/Objects/DirectionalLight.hpp"
 
 #include "Lvs/Engine/DataModel/ClassRegistry.hpp"
-#include "Lvs/Engine/Enums/ShadowType.hpp"
 #include "Lvs/Engine/Math/Vector3.hpp"
 
 #include <mutex>

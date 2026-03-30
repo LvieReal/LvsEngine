@@ -7,9 +7,6 @@
 #include "Lvs/Engine/DataModel/Services/QualitySettings.hpp"
 #include "Lvs/Engine/DataModel/Services/Workspace.hpp"
 #include "Lvs/Engine/Enums/MSAA.hpp"
-#include "Lvs/Engine/Enums/ShadowVolumeCapMode.hpp"
-#include "Lvs/Engine/Enums/ShadowVolumeStencilMode.hpp"
-#include "Lvs/Engine/Enums/ShadowType.hpp"
 #include "Lvs/Engine/Enums/SurfaceMipmapping.hpp"
 #include "Lvs/Engine/Enums/SpecularHighlightType.hpp"
 #include "Lvs/Engine/DataModel/Objects/Camera.hpp"
@@ -114,8 +111,6 @@ void RenderContext::Render() {
     std::unordered_map<const DataModel::Objects::DirectionalLight*, RHI::u32> directionalShadowIndex{};
     std::array<std::shared_ptr<DataModel::Objects::DirectionalLight>, Common::kMaxDirectionalShadowMaps> shadowDirectionalLights{};
     std::array<Common::ShadowSettings, Common::kMaxDirectionalShadowMaps> requestedShadowSettings{};
-    std::shared_ptr<DataModel::Objects::DirectionalLight> shadowVolumeDirectionalLight{};
-    float shadowVolumeMaxDistance = 0.0F;
     float fresnelAmount = 1.0F;
 
     if (place_ != nullptr) {
@@ -126,17 +121,6 @@ void RenderContext::Render() {
             scene.DirectionalShadowCount = 0U;
             scene.DirectionalShadowCascadeCounts.fill(0U);
             shadowDirectionalLights.fill(nullptr);
-            scene.EnableShadowVolumes = false;
-            scene.ShadowVolumeLightDirExtrude = {};
-            scene.ShadowVolumeBias = 0.0F;
-            scene.ShadowVolumeDepthCompare = RHI::DepthCompare::GreaterOrEqual;
-            scene.ShadowVolumeCullMode = RHI::CullMode::None;
-            scene.ShadowVolumeMaskDepthCompare = RHI::DepthCompare::NotEqual;
-            scene.ShadowVolumeMaskCullMode = RHI::CullMode::None;
-            scene.ShadowVolumeCapMode = static_cast<int>(Enums::ShadowVolumeCapMode::BackNear_FrontFar);
-            scene.ShadowVolumeStencilMode = static_cast<int>(Enums::ShadowVolumeStencilMode::ZFail);
-            scene.ShadowVolumeSwapStencilOps = false;
-            bool clearedShadowTargets = false;
             for (const auto& child : lightingService->GetChildren()) {
                 if (postEffects == nullptr) {
                     postEffects = std::dynamic_pointer_cast<DataModel::Objects::PostEffects>(child);
@@ -151,29 +135,7 @@ void RenderContext::Render() {
                 enabledDirectionalLights.push_back(directional);
 
                 const bool wantsShadows = directional->GetProperty("ShadowEnabled").toBool();
-                const Enums::ShadowType shadowType = directional->GetProperty("ShadowType").IsValid()
-                                                         ? directional->GetProperty("ShadowType").value<Enums::ShadowType>()
-                                                         : Enums::ShadowType::Cascaded;
-                const int shadowTypeInt = static_cast<int>(shadowType);
-                const auto itPrev = directionalShadowTypeCache_.find(directional.get());
-                const bool shadowTypeChanged = itPrev != directionalShadowTypeCache_.end() && itPrev->second != shadowTypeInt;
-                directionalShadowTypeCache_[directional.get()] = shadowTypeInt;
-                if (shadowTypeChanged && !clearedShadowTargets) {
-                    WaitForBackendIdle();
-                    for (auto& perLightTargets : directionalShadowTargets_) {
-                        for (auto& target : perLightTargets) {
-                            target.reset();
-                        }
-                    }
-                    clearedShadowTargets = true;
-                }
-
-                if (wantsShadows && shadowType == Enums::ShadowType::Volumes && shadowVolumeDirectionalLight == nullptr) {
-                    shadowVolumeDirectionalLight = directional;
-                }
-
-                if (!wantsShadows || shadowType != Enums::ShadowType::Cascaded ||
-                    scene.DirectionalShadowCount >= Common::kMaxDirectionalShadowMaps) {
+                if (!wantsShadows || scene.DirectionalShadowCount >= Common::kMaxDirectionalShadowMaps) {
                     continue;
                 }
 
@@ -205,17 +167,6 @@ void RenderContext::Render() {
                 scene.DirectionalShadowCascadeCounts[shadowIndex] = static_cast<RHI::u32>(
                     std::clamp(normalized.CascadeCount, 0, Common::kMaxShadowCascades)
                 );
-            }
-
-            if (shadowVolumeDirectionalLight != nullptr) {
-                const Math::Vector3 dir = shadowVolumeDirectionalLight->GetProperty("Direction").value<Math::Vector3>().Unit();
-                const float maxDist =
-                    static_cast<float>(std::max(1.0, shadowVolumeDirectionalLight->GetProperty("ShadowMaxDistance").toDouble()));
-                shadowVolumeMaxDistance = maxDist;
-                scene.ShadowVolumeBias =
-                    static_cast<float>(shadowVolumeDirectionalLight->GetProperty("ShadowVolumeBias").toDouble());
-                scene.EnableShadowVolumes = true;
-                scene.ShadowVolumeLightDirExtrude = Context::ToVec4(dir, std::max(100.0F, maxDist * 2.0F));
             }
         }
     }
@@ -443,14 +394,11 @@ void RenderContext::Render() {
     }
 
     scene.ShadowCasters.clear();
-    bool needsShadowCasters = scene.EnableShadowVolumes;
-    if (!needsShadowCasters) {
-        bool hasAnyShadowCascades = false;
-        for (RHI::u32 i = 0; i < std::min(scene.DirectionalShadowCount, SceneData::MaxDirectionalShadowMaps); ++i) {
-            hasAnyShadowCascades = hasAnyShadowCascades || scene.DirectionalShadowCascadeCounts[i] > 0U;
-        }
-        needsShadowCasters = scene.EnableShadows && hasAnyShadowCascades;
+    bool hasAnyShadowCascades = false;
+    for (RHI::u32 i = 0; i < std::min(scene.DirectionalShadowCount, SceneData::MaxDirectionalShadowMaps); ++i) {
+        hasAnyShadowCascades = hasAnyShadowCascades || scene.DirectionalShadowCascadeCounts[i] > 0U;
     }
+    const bool needsShadowCasters = scene.EnableShadows && hasAnyShadowCascades;
     if (needsShadowCasters) {
         scene.ShadowCasters.reserve(scene.GeometryDraws.size());
         for (const auto& draw : scene.GeometryDraws) {
@@ -472,70 +420,6 @@ void RenderContext::Render() {
     {
         LVS_BENCH_SCOPE("RenderContext::BuildCameraUniforms");
         cameraUniforms = BuildCameraUniforms();
-    }
-    // Shadow-volume range config (stored in unused CameraUBO.lightingSettings components).
-    // x is already used for per-vertex shading toggle.
-    if (scene.EnableShadowVolumes && shadowVolumeMaxDistance > 0.0F) {
-        cameraUniforms.LightingSettings[1] = shadowVolumeMaxDistance;         // y: max distance
-        cameraUniforms.LightingSettings[2] = shadowVolumeMaxDistance * 0.85F; // z: fade start
-        cameraUniforms.LightingSettings[3] = 1.0F;                            // w: enabled
-    } else {
-        cameraUniforms.LightingSettings[1] = 0.0F;
-        cameraUniforms.LightingSettings[2] = 0.0F;
-        cameraUniforms.LightingSettings[3] = 0.0F;
-    }
-
-    // Cull shadow-volume casters that cannot affect the camera's shadow-receive range.
-    if (scene.EnableShadowVolumes && shadowVolumeMaxDistance > 0.0F && !scene.ShadowCasters.empty()) {
-        const Math::Vector3 camPos{
-            static_cast<double>(cameraUniforms.CameraPosition[0]),
-            static_cast<double>(cameraUniforms.CameraPosition[1]),
-            static_cast<double>(cameraUniforms.CameraPosition[2])
-        };
-        const Math::Vector3 lightDir{
-            static_cast<double>(scene.ShadowVolumeLightDirExtrude[0]),
-            static_cast<double>(scene.ShadowVolumeLightDirExtrude[1]),
-            static_cast<double>(scene.ShadowVolumeLightDirExtrude[2])
-        };
-        const double maxDist = static_cast<double>(shadowVolumeMaxDistance);
-        const double lightDirLen2 = lightDir.x * lightDir.x + lightDir.y * lightDir.y + lightDir.z * lightDir.z;
-        if (lightDirLen2 > 1e-12) {
-            const Math::Vector3 L = lightDir * (1.0 / std::sqrt(lightDirLen2));
-            auto& casters = scene.ShadowCasters;
-            casters.erase(
-                std::remove_if(
-                    casters.begin(),
-                    casters.end(),
-                    [&](const SceneData::DrawPacket& draw) {
-                        if (!draw.HasSortBounds) {
-                            return false;
-                        }
-                        const Math::Vector3 bmin{
-                            static_cast<double>(draw.SortBoundsMin[0]),
-                            static_cast<double>(draw.SortBoundsMin[1]),
-                            static_cast<double>(draw.SortBoundsMin[2])
-                        };
-                        const Math::Vector3 bmax{
-                            static_cast<double>(draw.SortBoundsMax[0]),
-                            static_cast<double>(draw.SortBoundsMax[1]),
-                            static_cast<double>(draw.SortBoundsMax[2])
-                        };
-                        const Math::Vector3 center = (bmin + bmax) * 0.5;
-                        const Math::Vector3 extents = (bmax - bmin) * 0.5;
-                        const double radius =
-                            std::sqrt(extents.x * extents.x + extents.y * extents.y + extents.z * extents.z);
-
-                        const Math::Vector3 d = center - camPos;
-                        const double along = d.x * L.x + d.y * L.y + d.z * L.z;
-                        const Math::Vector3 perp = d - (L * along);
-                        const double perpDist = std::sqrt(perp.x * perp.x + perp.y * perp.y + perp.z * perp.z);
-
-                        return perpDist > (maxDist + radius);
-                    }
-                ),
-                casters.end()
-            );
-        }
     }
     scene.SkyboxPush = BuildSkyboxPushConstants();
     if (frameResourceSet_ != nullptr) {
@@ -667,11 +551,13 @@ void RenderContext::Render() {
         const Math::Vector3 direction = directional->GetProperty("Direction").value<Math::Vector3>().Unit();
         dir.Direction = Context::ToVec4(direction, 0.0F);
 
+        const float rbsmFlags =
+            (directional->GetProperty("Revectorize").IsValid() && directional->GetProperty("Revectorize").toBool()) ? 1.0F : 0.0F;
         if (base.ShadowIndex != 0xFFFFFFFFU && base.ShadowIndex < scene.DirectionalShadowCount) {
             const RHI::u32 shadowIndex = base.ShadowIndex;
             const Common::ShadowSettings& settings = requestedShadowSettings[shadowIndex];
             const bool ok = shadowCascadeOk[shadowIndex];
-            dir.ShadowState = {ok ? 1.0F : 0.0F, shadowJitterScaleXY_, shadowJitterScaleXY_, 0.0F};
+            dir.ShadowState = {ok ? 1.0F : 0.0F, shadowJitterScaleXY_, shadowJitterScaleXY_, rbsmFlags};
             dir.ShadowCascadeSplits = {
                 directionalShadowCascadeComputations_[shadowIndex].Split0,
                 directionalShadowCascadeComputations_[shadowIndex].Split1,
@@ -692,7 +578,7 @@ void RenderContext::Render() {
                 dir.ShadowInvMatrices[static_cast<std::size_t>(c)] = Context::ToFloatMat4ColumnMajor(matrix.Inverse());
             }
         } else {
-            dir.ShadowState = {0.0F, 0.0F, 0.0F, 0.0F};
+            dir.ShadowState = {0.0F, 0.0F, 0.0F, rbsmFlags};
         }
 
         lightBuffer.Lights[lightCount] = base;
@@ -1036,13 +922,10 @@ void RenderContext::Render() {
         const RHI::Texture aoTexture = scene.EnableHbao && hbaoBlurFinalTarget_ != nullptr
                                            ? hbaoBlurFinalTarget_->GetColorTexture(0)
                                            : fallbackWhiteTexture_;
-        const RHI::Texture shadowVolumeMask =
-            (geometryTarget_ != nullptr && geometryTarget_->GetColorAttachmentCount() > 3U) ? geometryTarget_->GetColorTexture(3)
-                                                                                            : fallbackBlackTexture_;
         const RHI::Texture depthColor =
             (geometryTarget_ != nullptr && geometryTarget_->GetColorAttachmentCount() > 2U) ? geometryTarget_->GetColorTexture(2)
                                                                                             : fallbackBlackTexture_;
-        const std::array<RHI::ResourceBinding, 6> compositeBindings{
+        const std::array<RHI::ResourceBinding, 5> compositeBindings{
             RHI::ResourceBinding{
                 .slot = 0,
                 .kind = RHI::ResourceBindingKind::UniformBuffer,
@@ -1069,12 +952,6 @@ void RenderContext::Render() {
             },
             RHI::ResourceBinding{
                 .slot = 17,
-                .kind = RHI::ResourceBindingKind::Texture2D,
-                .texture = shadowVolumeMask,
-                .buffer = nullptr
-            },
-            RHI::ResourceBinding{
-                .slot = 18,
                 .kind = RHI::ResourceBindingKind::Texture2D,
                 .texture = depthColor,
                 .buffer = nullptr

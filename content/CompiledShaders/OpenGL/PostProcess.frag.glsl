@@ -23,8 +23,7 @@ uniform PostSettings pushData;
 layout(binding = 1) uniform sampler2D sceneColor;
 layout(binding = 2) uniform sampler2D glowColor;
 layout(binding = 16) uniform sampler2D aoTexture;
-layout(binding = 17) uniform sampler2D shadowVolumeMask;
-layout(binding = 18) uniform sampler2D depthColor;
+layout(binding = 17) uniform sampler2D depthColor;
 
 layout(location = 0) in vec2 fragUv;
 layout(location = 0) out vec4 outColor;

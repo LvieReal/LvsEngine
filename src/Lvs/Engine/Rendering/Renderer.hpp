@@ -56,7 +56,7 @@ struct SceneData {
         int ZIndex{0};
         std::array<float, 3> SortBoundsMin{};
         std::array<float, 3> SortBoundsMax{};
-        bool HasSortBounds{false};
+    bool HasSortBounds{false};
     };
 
     struct Image3DDrawPacket {
@@ -69,14 +69,6 @@ struct SceneData {
     };
 
     bool EnableShadows{true};
-    bool EnableShadowVolumes{false};
-    RHI::DepthCompare ShadowVolumeDepthCompare{RHI::DepthCompare::GreaterOrEqual};
-    RHI::CullMode ShadowVolumeCullMode{RHI::CullMode::None};
-    RHI::DepthCompare ShadowVolumeMaskDepthCompare{RHI::DepthCompare::NotEqual};
-    RHI::CullMode ShadowVolumeMaskCullMode{RHI::CullMode::None};
-    int ShadowVolumeCapMode{0};
-    int ShadowVolumeStencilMode{0};
-    bool ShadowVolumeSwapStencilOps{false};
     bool EnableSkybox{true};
     bool EnablePostProcess{true};
     bool EnableHbao{false};
@@ -87,8 +79,6 @@ struct SceneData {
     std::array<RHI::u32, MaxDirectionalShadowMaps> DirectionalShadowCascadeCounts{};
     std::array<std::array<PassTarget, MaxShadowCascades>, MaxDirectionalShadowMaps> DirectionalShadowCascadeTargets{};
     std::vector<DrawPacket> ShadowCasters{};
-    std::array<float, 4> ShadowVolumeLightDirExtrude{}; // xyz light ray direction (world), w extrude distance
-    float ShadowVolumeBias{0.0F};
     PassTarget ShadowTarget{};
     PassTarget SkyboxTarget{};
     PassTarget PostProcessTarget{};
@@ -152,29 +142,6 @@ private:
     const RenderSurface* surface_{nullptr};
     const SceneData* scene_{nullptr};
     Renderer* renderer_{nullptr};
-};
-
-class ShadowVolumePassRenderer {
-public:
-    void RecordCommands(RHI::IContext& ctx, RHI::ICommandBuffer& cmd);
-
-private:
-    friend class Renderer;
-    void SetInputs(
-        const RenderSurface* surface,
-        const SceneData* scene,
-        Renderer* renderer,
-        const Pipeline* volumePipeline,
-        const Pipeline* applyPipeline,
-        const RHI::IResourceSet* globalResources
-    );
-
-    const RenderSurface* surface_{nullptr};
-    const SceneData* scene_{nullptr};
-    Renderer* renderer_{nullptr};
-    const Pipeline* volumePipeline_{nullptr};
-    const Pipeline* applyPipeline_{nullptr};
-    const RHI::IResourceSet* globalResources_{nullptr};
 };
 
 class SkyboxPassRenderer {
@@ -310,10 +277,6 @@ private:
 
     enum class PassKey : std::size_t {
         Shadow = 1,
-        ShadowVolume = 8,
-        ShadowVolumeMaskClear = 10,
-        ShadowVolumeMask = 9,
-        ShadowVolumeApply = 11,
         Skybox = 2,
         PostProcess = 3,
         Geometry = 4,
@@ -345,15 +308,7 @@ private:
     [[nodiscard]] const RHI::IResourceSet* GetOrCreateGlobalResources(RHI::IContext& ctx, const SceneData& scene);
 
     RenderSurface surface_{};
-    // Per-frame overrides (currently used for shadow-volume tuning via Lighting service).
-    RHI::DepthCompare shadowVolumeDepthCompare_{RHI::DepthCompare::GreaterOrEqual};
-    RHI::CullMode shadowVolumeCullMode_{RHI::CullMode::None};
-    RHI::DepthCompare shadowVolumeMaskDepthCompare_{RHI::DepthCompare::NotEqual};
-    RHI::CullMode shadowVolumeMaskCullMode_{RHI::CullMode::None};
-    int shadowVolumeStencilMode_{0};
-    bool shadowVolumeSwapStencilOps_{false};
     ShadowPassRenderer shadowPass_{};
-    ShadowVolumePassRenderer shadowVolumePass_{};
     SkyboxPassRenderer skyboxPass_{};
     HbaoPassRenderer hbaoPass_{};
     PostProcessPassRenderer postProcessPass_{};

@@ -16,8 +16,7 @@ layout(set = 0, binding = 0) uniform CameraUBO {
 layout(set = 0, binding = 1) uniform sampler2D sceneColor;
 layout(set = 0, binding = 2) uniform sampler2D glowColor;
 layout(set = 0, binding = 16) uniform sampler2D aoTexture;
-layout(set = 0, binding = 17) uniform sampler2D shadowVolumeMask;
-layout(set = 0, binding = 18) uniform sampler2D depthColor;
+layout(set = 0, binding = 17) uniform sampler2D depthColor;
 
 layout(push_constant) uniform PostSettings {
     vec4 settings; // x: tonemapper, y: ditheringEnabled, z: neonEnabled, w: frameSeed

@@ -153,6 +153,7 @@ void RenderContext::EnsureDirectionalShadowTargets(const RHI::u32 shadowIndex, c
                 .colorAttachmentCount = 0,
                 .hasDepth = true,
                 .depthTexture = true,
+                .depthFilterLinear = false,
                 .depthFormat = RHI::Format::D32_Float
             });
         }
@@ -170,6 +171,7 @@ void RenderContext::EnsureFallbackShadowTarget() {
         .colorAttachmentCount = 0,
         .hasDepth = true,
         .depthTexture = true,
+        .depthFilterLinear = false,
         .depthFormat = RHI::Format::D32_Float
     });
 }

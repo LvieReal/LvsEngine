@@ -788,93 +788,38 @@ void VulkanContext::InitializeBackendObjects() {
     }
 
     if (api_.DescriptorSetLayout == VK_NULL_HANDLE) {
+        constexpr VkShaderStageFlags stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT;
+        struct BindingSpec {
+            std::uint32_t binding;
+            VkDescriptorType type;
+            std::uint32_t count;
+        };
+        const std::array<BindingSpec, 12> specs{{
+            {0U, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1U},
+            {1U, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1U},
+            {2U, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1U},
+            {3U, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, Common::kMaxDirectionalShadowMapTextures},
+            {9U, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1U},
+            {10U, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1U},
+            {13U, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1U},
+            {14U, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1U},
+            {15U, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1U},
+            {16U, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1U},
+            {17U, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1U},
+            {18U, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1U},
+        }};
+
         std::vector<VkDescriptorSetLayoutBinding> bindings;
-        bindings.reserve(10);
-        bindings.push_back(VkDescriptorSetLayoutBinding{
-            .binding = 0,
-            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-            .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
-            .pImmutableSamplers = nullptr
-        });
-        bindings.push_back(VkDescriptorSetLayoutBinding{
-            .binding = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
-            .pImmutableSamplers = nullptr
-        });
-        bindings.push_back(VkDescriptorSetLayoutBinding{
-            .binding = 2,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
-            .pImmutableSamplers = nullptr
-        });
-        // Bindless-style directional shadow map array (2 shadowed directionals * 3 cascades).
-        bindings.push_back(VkDescriptorSetLayoutBinding{
-            .binding = 3,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = Common::kMaxDirectionalShadowMapTextures,
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
-            .pImmutableSamplers = nullptr
-        });
-        bindings.push_back(VkDescriptorSetLayoutBinding{
-            .binding = 13,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
-            .pImmutableSamplers = nullptr
-        });
-        bindings.push_back(VkDescriptorSetLayoutBinding{
-            .binding = 14,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
-            .pImmutableSamplers = nullptr
-        });
-        bindings.push_back(VkDescriptorSetLayoutBinding{
-            .binding = 15,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
-            .pImmutableSamplers = nullptr
-        });
-        bindings.push_back(VkDescriptorSetLayoutBinding{
-            .binding = 9,
-            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
-            .pImmutableSamplers = nullptr
-        });
-        bindings.push_back(VkDescriptorSetLayoutBinding{
-            .binding = 10,
-            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
-            .pImmutableSamplers = nullptr
-        });
-        bindings.push_back(VkDescriptorSetLayoutBinding{
-            .binding = 16,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
-            .pImmutableSamplers = nullptr
-        });
-        bindings.push_back(VkDescriptorSetLayoutBinding{
-            .binding = 17,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
-            .pImmutableSamplers = nullptr
-        });
-        bindings.push_back(VkDescriptorSetLayoutBinding{
-            .binding = 18,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
-            .pImmutableSamplers = nullptr
-        });
+        bindings.reserve(specs.size());
+        for (const auto& spec : specs) {
+            bindings.push_back(VkDescriptorSetLayoutBinding{
+                .binding = spec.binding,
+                .descriptorType = spec.type,
+                .descriptorCount = spec.count,
+                .stageFlags = stages,
+                .pImmutableSamplers = nullptr
+            });
+        }
         const VkDescriptorSetLayoutCreateInfo layoutInfo{
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
             .pNext = nullptr,
@@ -2092,7 +2037,8 @@ std::unique_ptr<RHI::IRenderTarget> VulkanContext::CreateRenderTarget(const RHI:
             vkGetPhysicalDeviceFormatProperties(api_.PhysicalDevice, chosenDepthFormat, &depthProps);
             const bool supportsLinear =
                 (depthProps.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) != 0;
-            const VkFilter filter = (!desc.depthCompare || !supportsLinear) ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+            const bool wantsLinear = desc.depthFilterLinear && desc.depthCompare;
+            const VkFilter filter = (wantsLinear && supportsLinear) ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
             const VkSamplerCreateInfo samplerInfo{
                 .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
                 .pNext = nullptr,

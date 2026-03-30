@@ -12,7 +12,7 @@ struct CameraUniformData {
     std::array<float, 4> Ambient{};
     std::array<float, 4> SkyTint{};
     std::array<float, 4> RenderSettings{};
-    std::array<float, 4> LightingSettings{}; // x: perVertexShadingEnabled, yzw: shadow-volume range config
+    std::array<float, 4> LightingSettings{}; // x: perVertexShadingEnabled
     std::array<float, 4> CameraForward{};
 };
 
@@ -42,12 +42,6 @@ struct DrawCallPushConstants {
 
 struct ShadowDrawCallPushConstants {
     std::array<std::uint32_t, 4> Data{}; // x: base instance, y: cascade index
-};
-
-struct ShadowVolumePushConstants {
-    std::array<std::uint32_t, 4> Data{};         // x: base instance
-    std::array<float, 4> LightDirExtrude{}; // xyz: light ray direction (world), w: extrude distance
-    std::array<float, 4> Params{};         // x: bias (world units)
 };
 
 struct ShadowPushConstants {

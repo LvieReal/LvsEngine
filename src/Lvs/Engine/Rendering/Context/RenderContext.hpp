@@ -261,8 +261,6 @@ private:
     std::array<std::array<RHI::u32, Common::kMaxShadowCascades>, Common::kMaxDirectionalShadowMaps>
         directionalShadowCascadeResolutions_{};
 
-    std::unordered_map<const Core::Instance*, int> directionalShadowTypeCache_{};
-
     std::optional<std::size_t> skyboxSettingsKey_{};
     Math::Color3 skyboxTint_{1.0, 1.0, 1.0};
 

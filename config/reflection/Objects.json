@@ -318,102 +318,65 @@
             "description": "Enable directional shadows for this light.",
             "order": 9
           },
-          "ShadowType": {
-            "type": "enum",
-            "enumType": "ShadowType",
-            "default": "Cascaded",
-            "description": "Directional shadow technique.",
-            "order": 10
-          },
           "ShadowBlur": {
             "type": "double",
             "default": 4,
             "description": "Shadow blur radius for PCF (in shadow texels).",
-            "order": 11,
-            "tags": [
-              "VisibleIf:ShadowType=Cascaded"
-            ]
+            "order": 10
           },
           "ShadowTapCount": {
             "type": "int",
             "default": 64,
             "description": "Number of Poisson PCF taps.",
-            "order": 12,
-            "tags": [
-              "VisibleIf:ShadowType=Cascaded"
-            ]
+            "order": 11
+          },
+          "Revectorize": {
+            "type": "bool",
+            "default": false,
+            "description": "Enable SMSR revectorization for sharp hard shadows (reduces perspective aliasing).",
+            "order": 12
           },
           "ShadowDepthBias": {
             "type": "double",
             "default": 0,
             "description": "Directional shadow depth bias (in shadow texels). Higher reduces acne but may cause peter panning. Prefer normal offset.",
-            "order": 13,
-            "tags": [
-              "VisibleIf:ShadowType=Cascaded"
-            ]
+            "order": 13
           },
           "ShadowNormalOffset": {
             "type": "double",
             "default": 4,
             "description": "Directional shadow normal offset (in shadow texels). Virtually pushes receivers along surface normal toward the light.",
-            "order": 14,
-            "tags": [
-              "VisibleIf:ShadowType=Cascaded"
-            ]
+            "order": 14
           },
           "ShadowCascadeCount": {
             "type": "int",
             "default": 3,
             "description": "Directional shadow cascade count (1-3).",
-            "order": 15,
-            "tags": [
-              "VisibleIf:ShadowType=Cascaded"
-            ]
+            "order": 15
           },
           "ShadowMaxDistance": {
             "type": "double",
             "default": 1000,
             "description": "Maximum distance for shadows.",
-            "order": 16,
-            "tags": [
-              "VisibleIf:ShadowType=Cascaded"
-            ]
+            "order": 16
           },
           "ShadowMapResolution": {
             "type": "int",
             "default": 8192,
             "description": "Directional shadow map resolution.",
-            "order": 17,
-            "tags": [
-              "VisibleIf:ShadowType=Cascaded"
-            ]
+            "order": 17
           },
           "ShadowCascadeResolutionScale": {
             "type": "double",
             "default": 0.9,
             "description": "Per-cascade resolution scale (0-1). Higher keeps farther cascades sharper.",
-            "order": 18,
-            "tags": [
-              "VisibleIf:ShadowType=Cascaded"
-            ]
+            "order": 18
           },
           "ShadowCascadeSplitLambda": {
             "type": "double",
             "default": 0.75,
             "description": "Cascade split weighting (0 uniform, 1 logarithmic). Lower preserves near/mid detail.",
-            "order": 19,
-            "tags": [
-              "VisibleIf:ShadowType=Cascaded"
-            ]
-          },
-          "ShadowVolumeBias": {
-            "type": "double",
-            "default": 0.01,
-            "description": "Shadow volume bias (world units). Offsets the near cap/volume along the light direction to reduce acne/self-shadowing.",
-            "order": 20,
-            "tags": [
-              "VisibleIf:ShadowType=Volumes"
-            ]
+            "order": 19
           }
         }
       }

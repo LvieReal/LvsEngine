@@ -19,12 +19,6 @@ void Renderer::RecordFrameCommands(
     sceneRenderPassHandle_ = scene.GeometryTarget.RenderPass;
     sceneColorAttachmentCount_ = std::max(1U, scene.GeometryTarget.ColorAttachmentCount);
     sceneSampleCount_ = std::max(1U, scene.GeometryTarget.SampleCount);
-    shadowVolumeDepthCompare_ = scene.ShadowVolumeDepthCompare;
-    shadowVolumeCullMode_ = scene.ShadowVolumeCullMode;
-    shadowVolumeMaskDepthCompare_ = scene.ShadowVolumeMaskDepthCompare;
-    shadowVolumeMaskCullMode_ = scene.ShadowVolumeMaskCullMode;
-    shadowVolumeStencilMode_ = scene.ShadowVolumeStencilMode;
-    shadowVolumeSwapStencilOps_ = scene.ShadowVolumeSwapStencilOps;
 
     if (scene.ClearColor) {
         const RHI::RenderPassInfo clearPass{
@@ -42,7 +36,7 @@ void Renderer::RecordFrameCommands(
             },
             .clearDepth = true,
             .clearDepthValue = 0.0F,
-            .clearStencil = scene.EnableShadowVolumes,
+            .clearStencil = false,
             .clearStencilValue = 0U
         };
         cmd.BeginRenderPass(clearPass);
@@ -129,38 +123,10 @@ void Renderer::RecordFrameCommands(
                                            scene.GeometryTarget.SampleCount
                                        )
                                      : nullptr;
-    Pipeline* shadowVolumePipeline = scene.EnableShadowVolumes
-                                         ? GetOrCreatePipeline(
-                                               ctx,
-                                               PassKey::ShadowVolume,
-                                               RHI::CullMode::None,
-                                               scene.GeometryTarget.RenderPass,
-                                               scene.GeometryTarget.ColorAttachmentCount,
-                                               scene.GeometryTarget.SampleCount
-                                           )
-                                         : nullptr;
-    Pipeline* shadowVolumeApplyPipeline = scene.EnableShadowVolumes
-                                             ? GetOrCreatePipeline(
-                                                   ctx,
-                                                   PassKey::ShadowVolumeApply,
-                                                   RHI::CullMode::None,
-                                                   scene.GeometryTarget.RenderPass,
-                                                   scene.GeometryTarget.ColorAttachmentCount,
-                                                   scene.GeometryTarget.SampleCount
-                                               )
-                                             : nullptr;
     const RHI::IResourceSet* globalResources = GetOrCreateGlobalResources(ctx, scene);
 
     geometryPass_.SetInputs(&surface_, &scene, this, geometryPipeline, globalResources);
     shadowPass_.SetInputs(&surface_, &scene, this);
-    shadowVolumePass_.SetInputs(
-        &surface_,
-        &scene,
-        this,
-        shadowVolumePipeline,
-        shadowVolumeApplyPipeline,
-        globalResources
-    );
     skyboxPass_.SetInputs(&surface_, &scene, skyboxPipeline, globalResources);
     image3dPass_.SetInputs(&surface_, &scene, this, globalResources);
     hbaoPass_.SetInputs(&surface_, &scene, hbaoPipeline, hbaoBlurDownPipeline, hbaoBlurUpPipeline);
@@ -174,26 +140,14 @@ void Renderer::RecordFrameCommands(
 
     shadowPass_.RecordCommands(ctx, cmd);
     skyboxPass_.RecordCommands(ctx, cmd);
-    if (scene.EnableShadowVolumes) {
-        geometryPass_.SetPhase(GeometryPassRenderer::Phase::OpaqueOnly);
-        geometryPass_.RecordCommands(ctx, cmd);
-        shadowVolumePass_.RecordCommands(ctx, cmd);
-        geometryPass_.SetPhase(GeometryPassRenderer::Phase::TransparentOnly);
-        geometryPass_.RecordCommands(ctx, cmd);
-        image3dPass_.SetPhase(Image3DPassRenderer::Phase::AlwaysOnTopOnly);
-        image3dPass_.RecordCommands(ctx, cmd);
-        geometryPass_.SetPhase(GeometryPassRenderer::Phase::All);
-        image3dPass_.SetPhase(Image3DPassRenderer::Phase::All);
-    } else {
-        geometryPass_.SetPhase(GeometryPassRenderer::Phase::OpaqueOnly);
-        geometryPass_.RecordCommands(ctx, cmd);
-        geometryPass_.SetPhase(GeometryPassRenderer::Phase::TransparentOnly);
-        geometryPass_.RecordCommands(ctx, cmd);
-        image3dPass_.SetPhase(Image3DPassRenderer::Phase::AlwaysOnTopOnly);
-        image3dPass_.RecordCommands(ctx, cmd);
-        geometryPass_.SetPhase(GeometryPassRenderer::Phase::All);
-        image3dPass_.SetPhase(Image3DPassRenderer::Phase::All);
-    }
+    geometryPass_.SetPhase(GeometryPassRenderer::Phase::OpaqueOnly);
+    geometryPass_.RecordCommands(ctx, cmd);
+    geometryPass_.SetPhase(GeometryPassRenderer::Phase::TransparentOnly);
+    geometryPass_.RecordCommands(ctx, cmd);
+    image3dPass_.SetPhase(Image3DPassRenderer::Phase::AlwaysOnTopOnly);
+    image3dPass_.RecordCommands(ctx, cmd);
+    geometryPass_.SetPhase(GeometryPassRenderer::Phase::All);
+    image3dPass_.SetPhase(Image3DPassRenderer::Phase::All);
     hbaoPass_.RecordCommands(ctx, cmd);
     postProcessPass_.RecordCommands(ctx, cmd);
 }
@@ -236,111 +190,6 @@ Pipeline* Renderer::GetOrCreatePipeline(
             desc.blendMode = RHI::BlendMode::None;
             desc.cullMode = cullMode;
             desc.depthClamp = true;
-            break;
-        case PassKey::ShadowVolume:
-            desc.pipelineId = "shadow_volume";
-            desc.vertexLayout = RHI::VertexLayout::P3N3;
-            desc.topology = RHI::PrimitiveTopology::TriangleListAdjacency;
-            desc.depthTest = true;
-            desc.depthWrite = false;
-            desc.depthCompare = shadowVolumeDepthCompare_;
-            desc.blendMode = RHI::BlendMode::None;
-            desc.cullMode = shadowVolumeCullMode_;
-            desc.colorWrite = false;
-            desc.useColorWriteMasks = false;
-            desc.depthClamp = true;
-            desc.conservativeRaster = false;
-            desc.stencil.Enabled = true;
-            {
-                const bool zPass = shadowVolumeStencilMode_ != 0;
-                const bool swapOps = shadowVolumeSwapStencilOps_;
-                const RHI::StencilOp inc = swapOps ? RHI::StencilOp::DecrementWrap : RHI::StencilOp::IncrementWrap;
-                const RHI::StencilOp dec = swapOps ? RHI::StencilOp::IncrementWrap : RHI::StencilOp::DecrementWrap;
-                desc.stencil.Front.CompareOp = RHI::StencilCompare::Always;
-                desc.stencil.Back.CompareOp = RHI::StencilCompare::Always;
-                desc.stencil.Front.FailOp = RHI::StencilOp::Keep;
-                desc.stencil.Back.FailOp = RHI::StencilOp::Keep;
-                desc.stencil.Front.Reference = 0;
-                desc.stencil.Back.Reference = 0;
-                desc.stencil.Front.CompareMask = 0xFFu;
-                desc.stencil.Back.CompareMask = 0xFFu;
-                desc.stencil.Front.WriteMask = 0xFFu;
-                desc.stencil.Back.WriteMask = 0xFFu;
-                if (zPass) {
-                    desc.stencil.Front.PassOp = dec;
-                    desc.stencil.Back.PassOp = inc;
-                    desc.stencil.Front.DepthFailOp = RHI::StencilOp::Keep;
-                    desc.stencil.Back.DepthFailOp = RHI::StencilOp::Keep;
-                } else {
-                    desc.stencil.Front.PassOp = RHI::StencilOp::Keep;
-                    desc.stencil.Back.PassOp = RHI::StencilOp::Keep;
-                    desc.stencil.Front.DepthFailOp = dec;
-                    desc.stencil.Back.DepthFailOp = inc;
-                }
-            }
-            break;
-        case PassKey::ShadowVolumeMaskClear:
-            desc.pipelineId = "shadow_volume_mask_clear";
-            desc.vertexLayout = RHI::VertexLayout::None;
-            desc.topology = RHI::PrimitiveTopology::TriangleList;
-            desc.depthTest = false;
-            desc.depthWrite = false;
-            desc.depthCompare = RHI::DepthCompare::Always;
-            desc.blendMode = RHI::BlendMode::None;
-            desc.cullMode = RHI::CullMode::None;
-            desc.colorWrite = true;
-            desc.stencil.Enabled = false;
-            break;
-        case PassKey::ShadowVolumeMask:
-            desc.pipelineId = "shadow_volume_mask";
-            desc.vertexLayout = RHI::VertexLayout::None;
-            desc.topology = RHI::PrimitiveTopology::TriangleList;
-            desc.depthTest = true;
-            desc.depthWrite = false;
-            desc.depthCompare = shadowVolumeMaskDepthCompare_;
-            desc.blendMode = RHI::BlendMode::None;
-            desc.cullMode = shadowVolumeMaskCullMode_;
-            desc.colorWrite = true;
-            // Apply shadow mask where stencil != 0.
-            desc.stencil.Enabled = true;
-            desc.stencil.Front.WriteMask = 0x00u;
-            desc.stencil.Back.WriteMask = 0x00u;
-            desc.stencil.Front.CompareOp = RHI::StencilCompare::NotEqual;
-            desc.stencil.Back.CompareOp = RHI::StencilCompare::NotEqual;
-            desc.stencil.Front.Reference = 0;
-            desc.stencil.Back.Reference = 0;
-            desc.stencil.Front.FailOp = RHI::StencilOp::Keep;
-            desc.stencil.Back.FailOp = RHI::StencilOp::Keep;
-            desc.stencil.Front.PassOp = RHI::StencilOp::Keep;
-            desc.stencil.Back.PassOp = RHI::StencilOp::Keep;
-            desc.stencil.Front.DepthFailOp = RHI::StencilOp::Keep;
-            desc.stencil.Back.DepthFailOp = RHI::StencilOp::Keep;
-            break;
-        case PassKey::ShadowVolumeApply:
-            desc.pipelineId = "shadow_volume_apply";
-            desc.vertexLayout = RHI::VertexLayout::None;
-            desc.topology = RHI::PrimitiveTopology::TriangleList;
-            desc.depthTest = true;
-            desc.depthWrite = false;
-            // Fullscreen triangle uses NDC depth 0; with reverse-Z, this should only pass where scene depth > 0.
-            desc.depthCompare = RHI::DepthCompare::Less;
-            desc.blendMode = RHI::BlendMode::Multiply;
-            desc.cullMode = RHI::CullMode::None;
-            desc.colorWrite = true;
-            // Apply attenuation where stencil != 0 (do not modify stencil).
-            desc.stencil.Enabled = true;
-            desc.stencil.Front.WriteMask = 0x00u;
-            desc.stencil.Back.WriteMask = 0x00u;
-            desc.stencil.Front.CompareOp = RHI::StencilCompare::NotEqual;
-            desc.stencil.Back.CompareOp = RHI::StencilCompare::NotEqual;
-            desc.stencil.Front.Reference = 0;
-            desc.stencil.Back.Reference = 0;
-            desc.stencil.Front.FailOp = RHI::StencilOp::Keep;
-            desc.stencil.Back.FailOp = RHI::StencilOp::Keep;
-            desc.stencil.Front.PassOp = RHI::StencilOp::Keep;
-            desc.stencil.Back.PassOp = RHI::StencilOp::Keep;
-            desc.stencil.Front.DepthFailOp = RHI::StencilOp::Keep;
-            desc.stencil.Back.DepthFailOp = RHI::StencilOp::Keep;
             break;
         case PassKey::Skybox:
             desc.pipelineId = "sky";
@@ -479,8 +328,6 @@ Pipeline* Renderer::GetOrCreateGeometryPipeline(
         desc.blendMode = RHI::BlendMode::None;
     }
 
-    // Transparent geometry is rendered after shadow-volume application; prevent it from overwriting
-    // non-color MRT attachments (e.g. depthColor used for AO/fades, shadow-mask, etc).
     if (transparent || alwaysOnTop) {
         desc.useColorWriteMasks = true;
         desc.colorWriteMasks = {{0xFU, 0xFU, 0x0U, 0x0U, 0x0U, 0x0U, 0x0U, 0x0U}};
