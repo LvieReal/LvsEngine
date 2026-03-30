@@ -95,6 +95,12 @@ void DockManager::SaveState() const {
     if (isStateSaveSuppressed_) {
         return;
     }
+    // When no place is open we hide all place-required docks, which can collapse the dock areas.
+    // Persisting that transient state causes splitter sizes (notably the Properties dock height) to
+    // progressively shrink across open/close cycles and between sessions.
+    if (!hasOpenPlace_) {
+        return;
+    }
     const QByteArray state = window_.saveState(STATE_VERSION);
     const QString encoded = QString::fromLatin1(state.toBase64());
     Core::Settings::Set("DockLayoutState", encoded);
@@ -115,7 +121,16 @@ void DockManager::CachePlaceRequiredDockVisibility() {
 }
 
 void DockManager::ApplyPlaceRequiredDockVisibility() {
+    const bool wasSuppressed = isStateSaveSuppressed_;
     isStateSaveSuppressed_ = true;
+
+    // Re-apply the saved main-window state before making docks visible again. Hiding all
+    // place-required docks collapses the layout; without restoring, Qt keeps the collapsed
+    // splitter sizes and they can get saved on the next close.
+    if (!RestoreDockState()) {
+        ApplyDefaultSizing();
+    }
+
     for (QDockWidget* dock : GetDockableWidgets()) {
         if (!DockRequiresOpenPlace(dock)) {
             continue;
@@ -126,7 +141,7 @@ void DockManager::ApplyPlaceRequiredDockVisibility() {
         );
         dock->setVisible(isVisible);
     }
-    isStateSaveSuppressed_ = false;
+    isStateSaveSuppressed_ = wasSuppressed;
 }
 
 void DockManager::HidePlaceRequiredDocks() {

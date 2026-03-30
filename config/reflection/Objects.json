@@ -374,7 +374,10 @@
             "type": "double",
             "default": 1000,
             "description": "Maximum distance for shadows.",
-            "order": 16
+            "order": 16,
+            "tags": [
+              "VisibleIf:ShadowType=Cascaded"
+            ]
           },
           "ShadowMapResolution": {
             "type": "int",

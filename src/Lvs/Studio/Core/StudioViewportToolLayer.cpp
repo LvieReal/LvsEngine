@@ -660,14 +660,11 @@ void StudioViewportToolLayer::AppendImage3D(std::vector<Engine::Rendering::Commo
         img.ContentId = sunIconContentId;
         img.ResolutionCap = 1024;
         img.FollowCamera = true;
-        img.ConstantSize = true;
+        img.ConstantSize = false;
         img.MaxDistance = 1000.0;
         img.AlwaysOnTop = true;
         img.NegateMask = true;
-        img.OutlineEnabled = true;
-        img.OutlineColor = {0.0, 0.0, 0.0};
-        img.OutlineTransparency = 0;
-        img.OutlineThickness = 2;
+        img.OutlineEnabled = false;
         images.push_back(std::move(img));
     });
 }
