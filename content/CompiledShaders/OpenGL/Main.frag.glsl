@@ -108,62 +108,62 @@ int GetSurfaceType(vec3 normal)
 {
     vec3 n = normalize(normal);
     vec3 a = abs(n);
-    bool _529 = a.y >= a.x;
-    bool _537;
-    if (_529)
+    bool _539 = a.y >= a.x;
+    bool _547;
+    if (_539)
     {
-        _537 = a.y >= a.z;
+        _547 = a.y >= a.z;
     }
     else
     {
-        _537 = _529;
+        _547 = _539;
     }
-    if (_537)
+    if (_547)
     {
-        int _543;
+        int _553;
         if (n.y > 0.0)
         {
-            _543 = GetTopSurfaceType();
+            _553 = GetTopSurfaceType();
         }
         else
         {
-            _543 = GetBottomSurfaceType();
+            _553 = GetBottomSurfaceType();
         }
-        return _543;
+        return _553;
     }
-    bool _555 = a.x >= a.y;
-    bool _563;
-    if (_555)
+    bool _565 = a.x >= a.y;
+    bool _573;
+    if (_565)
     {
-        _563 = a.x >= a.z;
+        _573 = a.x >= a.z;
     }
     else
     {
-        _563 = _555;
+        _573 = _565;
     }
-    if (_563)
+    if (_573)
     {
-        int _569;
+        int _579;
         if (n.x > 0.0)
         {
-            _569 = GetRightSurfaceType();
+            _579 = GetRightSurfaceType();
         }
         else
         {
-            _569 = GetLeftSurfaceType();
+            _579 = GetLeftSurfaceType();
         }
-        return _569;
+        return _579;
     }
-    int _580;
+    int _590;
     if (n.z > 0.0)
     {
-        _580 = GetFrontSurfaceType();
+        _590 = GetFrontSurfaceType();
     }
     else
     {
-        _580 = GetBackSurfaceType();
+        _590 = GetBackSurfaceType();
     }
-    return _580;
+    return _590;
 }
 
 vec3 GetMeshSizeFromModel()
@@ -181,34 +181,34 @@ vec2 GetFaceUV(vec3 localPos, vec3 localNormal)
     vec3 halfSize = size * 0.5;
     vec3 n = normalize(localNormal);
     vec3 a = abs(n);
-    bool _608 = a.x >= a.y;
-    bool _616;
-    if (_608)
+    bool _618 = a.x >= a.y;
+    bool _626;
+    if (_618)
     {
-        _616 = a.x >= a.z;
+        _626 = a.x >= a.z;
     }
     else
     {
-        _616 = _608;
+        _626 = _618;
     }
     vec2 uv;
-    if (_616)
+    if (_626)
     {
         uv = scaledPos.zy + halfSize.zy;
     }
     else
     {
-        bool _630 = a.y >= a.x;
-        bool _638;
-        if (_630)
+        bool _640 = a.y >= a.x;
+        bool _648;
+        if (_640)
         {
-            _638 = a.y >= a.z;
+            _648 = a.y >= a.z;
         }
         else
         {
-            _638 = _630;
+            _648 = _640;
         }
-        if (_638)
+        if (_648)
         {
             uv = scaledPos.xz + halfSize.xz;
         }
@@ -249,17 +249,17 @@ vec2 GetSurfaceAtlasUV(int surfaceType, vec2 uv)
 
 vec3 SampleSurfaceColor(int surfaceType, vec2 uv)
 {
-    bool _734 = surfaceType == 0;
-    bool _740;
-    if (!_734)
+    bool _744 = surfaceType == 0;
+    bool _750;
+    if (!_744)
     {
-        _740 = !IsSurfaceEnabled();
+        _750 = !IsSurfaceEnabled();
     }
     else
     {
-        _740 = _734;
+        _750 = _744;
     }
-    if (_740)
+    if (_750)
     {
         return vec3(1.0);
     }
@@ -275,53 +275,53 @@ bool IsSurfaceNormalEnabled()
 
 vec3 GetSurfaceMappedNormal(vec3 localNormal, int surfaceType, vec2 uv)
 {
-    bool _756 = !IsSurfaceEnabled();
-    bool _762;
-    if (!_756)
+    bool _766 = !IsSurfaceEnabled();
+    bool _772;
+    if (!_766)
     {
-        _762 = !IsSurfaceNormalEnabled();
+        _772 = !IsSurfaceNormalEnabled();
     }
     else
     {
-        _762 = _756;
+        _772 = _766;
     }
-    if (_762 || (surfaceType == 0))
+    if (_772 || (surfaceType == 0))
     {
         mat3 normalMat = transpose(inverse(mat3(inst.model[0].xyz, inst.model[1].xyz, inst.model[2].xyz)));
         return normalize(normalMat * localNormal);
     }
     vec3 n = normalize(localNormal);
     vec3 a = abs(n);
-    bool _798 = a.x >= a.y;
-    bool _806;
-    if (_798)
+    bool _808 = a.x >= a.y;
+    bool _816;
+    if (_808)
     {
-        _806 = a.x >= a.z;
+        _816 = a.x >= a.z;
     }
     else
     {
-        _806 = _798;
+        _816 = _808;
     }
     vec3 tangentLocal;
     vec3 bitangentLocal;
-    if (_806)
+    if (_816)
     {
         tangentLocal = vec3(0.0, 0.0, 1.0);
         bitangentLocal = vec3(0.0, 1.0, 0.0);
     }
     else
     {
-        bool _818 = a.y >= a.x;
-        bool _826;
-        if (_818)
+        bool _828 = a.y >= a.x;
+        bool _836;
+        if (_828)
         {
-            _826 = a.y >= a.z;
+            _836 = a.y >= a.z;
         }
         else
         {
-            _826 = _818;
+            _836 = _828;
         }
-        if (_826)
+        if (_836)
         {
             tangentLocal = vec3(1.0, 0.0, 0.0);
             bitangentLocal = vec3(0.0, 0.0, 1.0);
@@ -446,43 +446,43 @@ float ComputeRelativeDistance1_RBSM(int shadowMapBase, int cascadeIndex, vec3 p,
 {
     vec3 np = p;
     float foundSilhouetteEnd = 0.0;
-    float _distance = 0.0;
+    float dist = 0.0;
     vec2 stepUv = dir * o;
     for (int it = 0; it < 16; it++)
     {
-        vec3 _1092 = np;
-        vec2 _1094 = _1092.xy + stepUv;
-        np.x = _1094.x;
-        np.y = _1094.y;
-        bool _1101 = np.x < 0.0;
-        bool _1108;
-        if (!_1101)
+        vec3 _1102 = np;
+        vec2 _1104 = _1102.xy + stepUv;
+        np.x = _1104.x;
+        np.y = _1104.y;
+        bool _1111 = np.x < 0.0;
+        bool _1118;
+        if (!_1111)
         {
-            _1108 = np.x > 1.0;
+            _1118 = np.x > 1.0;
         }
         else
         {
-            _1108 = _1101;
+            _1118 = _1111;
         }
-        bool _1115;
-        if (!_1108)
+        bool _1125;
+        if (!_1118)
         {
-            _1115 = np.y < 0.0;
+            _1125 = np.y < 0.0;
         }
         else
         {
-            _1115 = _1108;
+            _1125 = _1118;
         }
-        bool _1122;
-        if (!_1115)
+        bool _1132;
+        if (!_1125)
         {
-            _1122 = np.y > 1.0;
+            _1132 = np.y > 1.0;
         }
         else
         {
-            _1122 = _1115;
+            _1132 = _1125;
         }
-        if (_1122)
+        if (_1132)
         {
             break;
         }
@@ -505,10 +505,10 @@ float ComputeRelativeDistance1_RBSM(int shadowMapBase, int cascadeIndex, vec3 p,
         {
             break;
         }
-        _distance += 1.0;
+        dist += 1.0;
     }
-    _distance += (1.0 - c);
-    return mix(-_distance, _distance, foundSilhouetteEnd);
+    dist += (1.0 - c);
+    return mix(-dist, dist, foundSilhouetteEnd);
 }
 
 vec4 ComputeRelativeDistance4_RBSM(int shadowMapBase, int cascadeIndex, vec3 p, vec2 c, vec2 o)
@@ -549,45 +549,45 @@ vec4 ComputeRelativeDistance4_RBSM(int shadowMapBase, int cascadeIndex, vec3 p, 
 float NormalizeRelativeDistance1_RBSM(vec2 dist)
 {
     float T = 1.0;
-    bool _1259 = dist.x < 0.0;
-    bool _1265;
-    if (_1259)
+    bool _1269 = dist.x < 0.0;
+    bool _1275;
+    if (_1269)
     {
-        _1265 = dist.y < 0.0;
+        _1275 = dist.y < 0.0;
     }
     else
     {
-        _1265 = _1259;
+        _1275 = _1269;
     }
-    if (_1265)
+    if (_1275)
     {
         T = 0.0;
     }
-    bool _1270 = dist.x > 0.0;
-    bool _1276;
-    if (_1270)
+    bool _1280 = dist.x > 0.0;
+    bool _1286;
+    if (_1280)
     {
-        _1276 = dist.y > 0.0;
+        _1286 = dist.y > 0.0;
     }
     else
     {
-        _1276 = _1270;
+        _1286 = _1280;
     }
-    if (_1276)
+    if (_1286)
     {
         T = -2.0;
     }
     float len = min(abs(dist.x) + abs(dist.y), 16.0);
-    float _1293;
+    float _1303;
     if (len > 9.9999999747524270787835121154785e-07)
     {
-        _1293 = abs(max(T * dist.x, T * dist.y)) / len;
+        _1303 = abs(max(T * dist.x, T * dist.y)) / len;
     }
     else
     {
-        _1293 = 0.0;
+        _1303 = 0.0;
     }
-    return _1293;
+    return _1303;
 }
 
 vec2 NormalizeRelativeDistance2_RBSM(vec4 dist)
@@ -599,17 +599,17 @@ vec2 NormalizeRelativeDistance2_RBSM(vec4 dist)
 
 float RevectorizeShadow_RBSM(vec2 r)
 {
-    bool _1334 = (r.x * r.y) > 0.0;
-    bool _1343;
-    if (_1334)
+    bool _1344 = (r.x * r.y) > 0.0;
+    bool _1353;
+    if (_1344)
     {
-        _1343 = (1.0 - r.x) > r.y;
+        _1353 = (1.0 - r.x) > r.y;
     }
     else
     {
-        _1343 = _1334;
+        _1353 = _1344;
     }
-    if (_1343)
+    if (_1353)
     {
         return 0.0;
     }
@@ -622,7 +622,8 @@ float SampleDirectionalRBSM(int shadowMapBase, int cascadeIndex, vec2 shadowUv, 
     int param_1 = cascadeIndex;
     ivec2 shadowSize = GetDirectionalShadowMapSize(param, param_1);
     vec2 o = vec2(1.0) / vec2(shadowSize);
-    vec3 p = vec3(shadowUv, compareDepth);
+    vec2 suv = clamp(shadowUv, vec2(0.0), vec2(1.0));
+    vec3 p = vec3(suv, compareDepth);
     int param_2 = shadowMapBase;
     int param_3 = cascadeIndex;
     vec3 param_4 = p;
@@ -631,7 +632,7 @@ float SampleDirectionalRBSM(int shadowMapBase, int cascadeIndex, vec2 shadowUv, 
     {
         return 0.0;
     }
-    vec2 c = fract(shadowUv * vec2(shadowSize));
+    vec2 c = fract(suv * vec2(shadowSize));
     int param_5 = shadowMapBase;
     int param_6 = cascadeIndex;
     vec3 param_7 = p;
@@ -651,6 +652,99 @@ float SampleDirectionalRBSM(int shadowMapBase, int cascadeIndex, vec2 shadowUv, 
         return RevectorizeShadow_RBSM(param_15);
     }
     return shadowTestResult;
+}
+
+float SampleDirectionalPCF_RBSM(DirectionalLight dl, int shadowMapBase, int cascadeIndex, vec2 baseShadowUv, float compareDepth, float radiusTexels, vec2 fragCoord)
+{
+    int desiredTaps = clamp(int(dl.shadowParams.z + 0.5), 1, 64);
+    if (desiredTaps <= 1)
+    {
+        int param = shadowMapBase;
+        int param_1 = cascadeIndex;
+        vec2 param_2 = baseShadowUv;
+        float param_3 = compareDepth;
+        return SampleDirectionalRBSM(param, param_1, param_2, param_3);
+    }
+    int param_4 = shadowMapBase;
+    int param_5 = cascadeIndex;
+    vec2 texelSize = GetDirectionalShadowTexelSize(param_4, param_5);
+    float radius = max(radiusTexels, 0.0);
+    vec3 jcoord = vec3(fragCoord * dl.shadowState.yz, 0.0);
+    float shadowSum = 0.0;
+    int pretestTaps = min(desiredTaps, 8);
+    int i = 0;
+    for (;;)
+    {
+        bool _1497 = i < 32;
+        bool _1504;
+        if (_1497)
+        {
+            _1504 = (i * 2) < pretestTaps;
+        }
+        else
+        {
+            _1504 = _1497;
+        }
+        if (_1504)
+        {
+            vec4 offset = (texture(directionalShadowJitter, jcoord) * 2.0) - vec4(1.0);
+            jcoord.z += 0.03125;
+            vec2 uvOffset = (offset.xy * texelSize) * radius;
+            int param_6 = shadowMapBase;
+            int param_7 = cascadeIndex;
+            vec2 param_8 = baseShadowUv + uvOffset;
+            float param_9 = compareDepth;
+            shadowSum += SampleDirectionalRBSM(param_6, param_7, param_8, param_9);
+            if (((i * 2) + 1) < pretestTaps)
+            {
+                uvOffset = (offset.zw * texelSize) * radius;
+                int param_10 = shadowMapBase;
+                int param_11 = cascadeIndex;
+                vec2 param_12 = baseShadowUv + uvOffset;
+                float param_13 = compareDepth;
+                shadowSum += SampleDirectionalRBSM(param_10, param_11, param_12, param_13);
+            }
+            i++;
+            continue;
+        }
+        else
+        {
+            break;
+        }
+    }
+    float shadowPretest = shadowSum / float(max(pretestTaps, 1));
+    if (desiredTaps <= pretestTaps)
+    {
+        return shadowPretest;
+    }
+    if ((shadowPretest > 0.0) && (shadowPretest < 1.0))
+    {
+        int tapsDone = pretestTaps;
+        for (int i_1 = 0; (i_1 < 32) && (tapsDone < desiredTaps); i_1++)
+        {
+            vec4 offset_1 = (texture(directionalShadowJitter, jcoord) * 2.0) - vec4(1.0);
+            jcoord.z += 0.03125;
+            vec2 uvOffset_1 = (offset_1.xy * texelSize) * radius;
+            int param_14 = shadowMapBase;
+            int param_15 = cascadeIndex;
+            vec2 param_16 = baseShadowUv + uvOffset_1;
+            float param_17 = compareDepth;
+            shadowSum += SampleDirectionalRBSM(param_14, param_15, param_16, param_17);
+            tapsDone++;
+            if (tapsDone < desiredTaps)
+            {
+                uvOffset_1 = (offset_1.zw * texelSize) * radius;
+                int param_18 = shadowMapBase;
+                int param_19 = cascadeIndex;
+                vec2 param_20 = baseShadowUv + uvOffset_1;
+                float param_21 = compareDepth;
+                shadowSum += SampleDirectionalRBSM(param_18, param_19, param_20, param_21);
+                tapsDone++;
+            }
+        }
+        return shadowSum / float(desiredTaps);
+    }
+    return shadowPretest;
 }
 
 float SampleDirectionalPCF(DirectionalLight dl, int shadowMapBase, int cascadeIndex, vec3 baseShadowCoord, float radiusTexels, vec3 normal, vec3 lightDir, vec2 fragCoord)
@@ -674,25 +768,25 @@ float SampleDirectionalPCF(DirectionalLight dl, int shadowMapBase, int cascadeIn
     int i = 0;
     for (;;)
     {
-        bool _1489 = i < 32;
-        bool _1496;
-        if (_1489)
+        bool _1726 = i < 32;
+        bool _1733;
+        if (_1726)
         {
-            _1496 = (i * 2) < pretestTaps;
+            _1733 = (i * 2) < pretestTaps;
         }
         else
         {
-            _1496 = _1489;
+            _1733 = _1726;
         }
-        if (_1496)
+        if (_1733)
         {
             vec4 offset = (texture(directionalShadowJitter, jcoord) * 2.0) - vec4(1.0);
             jcoord.z += 0.03125;
             vec3 smCoord = baseShadowCoord;
             vec2 uvOffset = (offset.xy * texelSize) * radius;
-            vec2 _1525 = uvOffset + baseShadowCoord.xy;
-            smCoord.x = _1525.x;
-            smCoord.y = _1525.y;
+            vec2 _1757 = uvOffset + baseShadowCoord.xy;
+            smCoord.x = _1757.x;
+            smCoord.y = _1757.y;
             int param_5 = shadowMapBase;
             int param_6 = cascadeIndex;
             vec3 param_7 = smCoord;
@@ -700,9 +794,9 @@ float SampleDirectionalPCF(DirectionalLight dl, int shadowMapBase, int cascadeIn
             if (((i * 2) + 1) < pretestTaps)
             {
                 uvOffset = (offset.zw * texelSize) * radius;
-                vec2 _1555 = uvOffset + baseShadowCoord.xy;
-                smCoord.x = _1555.x;
-                smCoord.y = _1555.y;
+                vec2 _1787 = uvOffset + baseShadowCoord.xy;
+                smCoord.x = _1787.x;
+                smCoord.y = _1787.y;
                 int param_8 = shadowMapBase;
                 int param_9 = cascadeIndex;
                 vec3 param_10 = smCoord;
@@ -730,9 +824,9 @@ float SampleDirectionalPCF(DirectionalLight dl, int shadowMapBase, int cascadeIn
             jcoord.z += 0.03125;
             vec3 smCoord_1 = baseShadowCoord;
             vec2 uvOffset_1 = (offset_1.xy * texelSize) * radius;
-            vec2 _1631 = uvOffset_1 + baseShadowCoord.xy;
-            smCoord_1.x = _1631.x;
-            smCoord_1.y = _1631.y;
+            vec2 _1863 = uvOffset_1 + baseShadowCoord.xy;
+            smCoord_1.x = _1863.x;
+            smCoord_1.y = _1863.y;
             int param_11 = shadowMapBase;
             int param_12 = cascadeIndex;
             vec3 param_13 = smCoord_1;
@@ -741,9 +835,9 @@ float SampleDirectionalPCF(DirectionalLight dl, int shadowMapBase, int cascadeIn
             if (tapsDone < desiredTaps)
             {
                 uvOffset_1 = (offset_1.zw * texelSize) * radius;
-                vec2 _1661 = uvOffset_1 + baseShadowCoord.xy;
-                smCoord_1.x = _1661.x;
-                smCoord_1.y = _1661.y;
+                vec2 _1893 = uvOffset_1 + baseShadowCoord.xy;
+                smCoord_1.x = _1893.x;
+                smCoord_1.y = _1893.y;
                 int param_14 = shadowMapBase;
                 int param_15 = cascadeIndex;
                 vec3 param_16 = smCoord_1;
@@ -766,33 +860,33 @@ float ComputeDirectionalShadowFactor(DirectionalLight dl, int shadowMapBase, vec
     vec3 fwd = normalize(cameraForward);
     float viewDepth = max(dot(worldPos - cameraPos, fwd), 0.0);
     int cascadeIndex = 0;
-    bool _1864 = cascadeCount >= 3;
-    bool _1871;
-    if (_1864)
+    bool _2096 = cascadeCount >= 3;
+    bool _2103;
+    if (_2096)
     {
-        _1871 = viewDepth > dl.shadowCascadeSplits.y;
+        _2103 = viewDepth > dl.shadowCascadeSplits.y;
     }
     else
     {
-        _1871 = _1864;
+        _2103 = _2096;
     }
-    if (_1871)
+    if (_2103)
     {
         cascadeIndex = 2;
     }
     else
     {
-        bool _1876 = cascadeCount >= 2;
-        bool _1883;
-        if (_1876)
+        bool _2108 = cascadeCount >= 2;
+        bool _2115;
+        if (_2108)
         {
-            _1883 = viewDepth > dl.shadowCascadeSplits.x;
+            _2115 = viewDepth > dl.shadowCascadeSplits.x;
         }
         else
         {
-            _1883 = _1876;
+            _2115 = _2108;
         }
-        if (_1883)
+        if (_2115)
         {
             cascadeIndex = 1;
         }
@@ -809,35 +903,35 @@ float ComputeDirectionalShadowFactor(DirectionalLight dl, int shadowMapBase, vec
     {
         return 1.0;
     }
-    bool _1929 = shadowUv.x < 0.0;
-    bool _1936;
-    if (!_1929)
+    bool _2161 = shadowUv.x < 0.0;
+    bool _2168;
+    if (!_2161)
     {
-        _1936 = shadowUv.x > 1.0;
+        _2168 = shadowUv.x > 1.0;
     }
     else
     {
-        _1936 = _1929;
+        _2168 = _2161;
     }
-    bool _1943;
-    if (!_1936)
+    bool _2175;
+    if (!_2168)
     {
-        _1943 = shadowUv.y < 0.0;
+        _2175 = shadowUv.y < 0.0;
     }
     else
     {
-        _1943 = _1936;
+        _2175 = _2168;
     }
-    bool _1950;
-    if (!_1943)
+    bool _2182;
+    if (!_2175)
     {
-        _1950 = shadowUv.y > 1.0;
+        _2182 = shadowUv.y > 1.0;
     }
     else
     {
-        _1950 = _1943;
+        _2182 = _2175;
     }
-    if (_1950)
+    if (_2182)
     {
         return 1.0;
     }
@@ -866,35 +960,35 @@ float ComputeDirectionalShadowFactor(DirectionalLight dl, int shadowMapBase, vec
         {
             return 1.0;
         }
-        bool _2022 = shadowUv.x < 0.0;
-        bool _2029;
-        if (!_2022)
+        bool _2254 = shadowUv.x < 0.0;
+        bool _2261;
+        if (!_2254)
         {
-            _2029 = shadowUv.x > 1.0;
+            _2261 = shadowUv.x > 1.0;
         }
         else
         {
-            _2029 = _2022;
+            _2261 = _2254;
         }
-        bool _2036;
-        if (!_2029)
+        bool _2268;
+        if (!_2261)
         {
-            _2036 = shadowUv.y < 0.0;
+            _2268 = shadowUv.y < 0.0;
         }
         else
         {
-            _2036 = _2029;
+            _2268 = _2261;
         }
-        bool _2043;
-        if (!_2036)
+        bool _2275;
+        if (!_2268)
         {
-            _2043 = shadowUv.y > 1.0;
+            _2275 = shadowUv.y > 1.0;
         }
         else
         {
-            _2043 = _2036;
+            _2275 = _2268;
         }
-        if (_2043)
+        if (_2275)
         {
             return 1.0;
         }
@@ -917,23 +1011,47 @@ float ComputeDirectionalShadowFactor(DirectionalLight dl, int shadowMapBase, vec
     float shadow = 1.0;
     if (dl.shadowState.w > 0.5)
     {
-        int param_14 = shadowMapBase;
-        int param_15 = cascadeIndex;
-        vec2 param_16 = shadowUv;
-        float param_17 = compareDepth;
-        shadow = SampleDirectionalRBSM(param_14, param_15, param_16, param_17);
+        bool _2349 = softness > 9.9999997473787516355514526367188e-05;
+        bool _2357;
+        if (_2349)
+        {
+            _2357 = int(dl.shadowParams.z + 0.5) > 1;
+        }
+        else
+        {
+            _2357 = _2349;
+        }
+        if (_2357)
+        {
+            DirectionalLight param_14 = dl;
+            int param_15 = shadowMapBase;
+            int param_16 = cascadeIndex;
+            vec2 param_17 = shadowUv;
+            float param_18 = compareDepth;
+            float param_19 = softness;
+            vec2 param_20 = fragCoord;
+            shadow = SampleDirectionalPCF_RBSM(param_14, param_15, param_16, param_17, param_18, param_19, param_20);
+        }
+        else
+        {
+            int param_21 = shadowMapBase;
+            int param_22 = cascadeIndex;
+            vec2 param_23 = shadowUv;
+            float param_24 = compareDepth;
+            shadow = SampleDirectionalRBSM(param_21, param_22, param_23, param_24);
+        }
     }
     else
     {
-        DirectionalLight param_18 = dl;
-        int param_19 = shadowMapBase;
-        int param_20 = cascadeIndex;
-        vec3 param_21 = vec3(shadowUv, compareDepth);
-        float param_22 = softness;
-        vec3 param_23 = normal;
-        vec3 param_24 = lightDir;
-        vec2 param_25 = fragCoord;
-        shadow = SampleDirectionalPCF(param_18, param_19, param_20, param_21, param_22, param_23, param_24, param_25);
+        DirectionalLight param_25 = dl;
+        int param_26 = shadowMapBase;
+        int param_27 = cascadeIndex;
+        vec3 param_28 = vec3(shadowUv, compareDepth);
+        float param_29 = softness;
+        vec3 param_30 = normal;
+        vec3 param_31 = lightDir;
+        vec2 param_32 = fragCoord;
+        shadow = SampleDirectionalPCF(param_25, param_26, param_27, param_28, param_29, param_30, param_31, param_32);
     }
     if (cascadeIndex == (cascadeCount - 1))
     {
@@ -1049,16 +1167,16 @@ void main()
     uint materialFlags = uint(fragMaterial.w + 0.5);
     bool ignoreLighting = (materialFlags & 1u) != 0u;
     bool excludeHbao = (materialFlags & 2u) != 0u;
-    float _2253;
+    float _2513;
     if (excludeHbao)
     {
-        _2253 = 1.0;
+        _2513 = 1.0;
     }
     else
     {
-        _2253 = gl_FragCoord.z;
+        _2513 = gl_FragCoord.z;
     }
-    float hbaoDepth = _2253;
+    float hbaoDepth = _2513;
     float metalness = clamp(fragMaterial.x, 0.0, 1.0);
     float roughness = clamp(fragMaterial.y, 0.0, 1.0);
     float emissive = max(fragMaterial.z, 0.0);
@@ -1070,16 +1188,16 @@ void main()
     {
         glowMask = 0.0;
     }
-    float _2309;
+    float _2569;
     if (allowBlackNeon)
     {
-        _2309 = 0.0;
+        _2569 = 0.0;
     }
     else
     {
-        _2309 = smoothstep(1.0, 8.0, emissive);
+        _2569 = smoothstep(1.0, 8.0, emissive);
     }
-    float whiteShift = _2309;
+    float whiteShift = _2569;
     vec3 emissionRaw = albedo * emissive;
     float emissionMax = max(emissionRaw.x, max(emissionRaw.y, emissionRaw.z));
     vec3 emissionChroma = emissionRaw / vec3(max(emissionMax, 9.9999999747524270787835121154785e-07));
@@ -1096,16 +1214,16 @@ void main()
     vec3 glowTint = mix(glowChroma, vec3(1.0), vec3(whiteShift));
     vec3 glowColor = (glowTint * glowMax) * glowMask;
     vec2 neonUv = gl_FragCoord.xy / vec2(max(textureSize(neonTexture, 0), ivec2(1)));
-    vec3 _2396;
+    vec3 _2656;
     if (neonEnabled)
     {
-        _2396 = texture(neonTexture, neonUv).xyz;
+        _2656 = texture(neonTexture, neonUv).xyz;
     }
     else
     {
-        _2396 = vec3(0.0);
+        _2656 = vec3(0.0);
     }
-    vec3 neonSample = _2396;
+    vec3 neonSample = _2656;
     if (ignoreLighting)
     {
         outSceneColor = vec4((albedo + emissiveScene) + ((neonSample * 0.100000001490116119384765625) * glowMask), alpha);
@@ -1146,17 +1264,17 @@ void main()
                 continue;
             }
             fresnelAmount = clamp(light.specular.z, 0.0, 1.0);
-            bool _2546 = light.type == 0u;
-            bool _2553;
-            if (_2546)
+            bool _2806 = light.type == 0u;
+            bool _2813;
+            if (_2806)
             {
-                _2553 = light.shadowIndex != 4294967295u;
+                _2813 = light.shadowIndex != 4294967295u;
             }
             else
             {
-                _2553 = _2546;
+                _2813 = _2806;
             }
-            if (_2553)
+            if (_2813)
             {
                 dl.direction = lightData.directionalLights[light.dataIndex].direction;
                 dl.shadowCascadeSplits = lightData.directionalLights[light.dataIndex].shadowCascadeSplits;

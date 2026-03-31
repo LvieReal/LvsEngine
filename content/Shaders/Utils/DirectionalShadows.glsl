@@ -51,7 +51,7 @@ float ComputeRelativeDistance1_RBSM(int shadowMapBase, int cascadeIndex, vec3 p,
     const int maxSize = 16;
     vec3 np = p;
     float foundSilhouetteEnd = 0.0;
-    float distance = 0.0;
+    float dist = 0.0;
     vec2 stepUv = dir * o;
 
     for (int it = 0; it < maxSize; ++it) {
@@ -72,11 +72,11 @@ float ComputeRelativeDistance1_RBSM(int shadowMapBase, int cascadeIndex, vec3 p,
             break;
         }
 
-        distance += 1.0;
+        dist++;
     }
 
-    distance = distance + (1.0 - c);
-    return mix(-distance, distance, foundSilhouetteEnd);
+    dist += (1.0 - c);
+    return mix(-dist, dist, foundSilhouetteEnd);
 }
 
 vec4 ComputeRelativeDistance4_RBSM(int shadowMapBase, int cascadeIndex, vec3 p, vec2 c, vec2 o) {
@@ -114,14 +114,15 @@ float RevectorizeShadow_RBSM(vec2 r) {
 float SampleDirectionalRBSM(int shadowMapBase, int cascadeIndex, vec2 shadowUv, float compareDepth) {
     ivec2 shadowSize = GetDirectionalShadowMapSize(shadowMapBase, cascadeIndex);
     vec2 o = 1.0 / vec2(shadowSize);
-    vec3 p = vec3(shadowUv, compareDepth);
+    vec2 suv = clamp(shadowUv, vec2(0.0), vec2(1.0));
+    vec3 p = vec3(suv, compareDepth);
 
     float shadowTestResult = ShadowTestRBSM(shadowMapBase, cascadeIndex, p);
     if (shadowTestResult < 0.5) {
         return 0.0;
     }
 
-    vec2 c = fract(shadowUv * vec2(shadowSize));
+    vec2 c = fract(suv * vec2(shadowSize));
     vec4 disc = ComputeDiscontinuity4_RBSM(shadowMapBase, cascadeIndex, p, o);
     if ((disc.x + disc.y + disc.z + disc.w) > 0.0) {
         vec4 dist = ComputeRelativeDistance4_RBSM(shadowMapBase, cascadeIndex, p, c, o);
@@ -130,6 +131,69 @@ float SampleDirectionalRBSM(int shadowMapBase, int cascadeIndex, vec2 shadowUv, 
     }
 
     return shadowTestResult;
+}
+
+float SampleDirectionalPCF_RBSM(
+    DirectionalLight dl,
+    int shadowMapBase,
+    int cascadeIndex,
+    vec2 baseShadowUv,
+    float compareDepth,
+    float radiusTexels,
+    vec2 fragCoord
+) {
+    int desiredTaps = clamp(int(dl.shadowParams.z + 0.5), 1, SHADOW_SAMPLES_COUNT);
+    if (desiredTaps <= 1) {
+        return SampleDirectionalRBSM(shadowMapBase, cascadeIndex, baseShadowUv, compareDepth);
+    }
+
+    vec2 texelSize = GetDirectionalShadowTexelSize(shadowMapBase, cascadeIndex);
+    float radius = max(radiusTexels, 0.0);
+
+    vec3 jcoord = vec3(fragCoord * dl.shadowState.yz, 0.0);
+    float shadowSum = 0.0;
+
+    // Cheap pretest: up to 8 taps via jitter fetches.
+    int pretestTaps = min(desiredTaps, 8);
+    for (int i = 0; i < SHADOW_SAMPLES_HALF && (i * 2) < pretestTaps; ++i) {
+        vec4 offset = (texture(directionalShadowJitter, jcoord) * 2.0) - 1.0;
+        jcoord.z += 1.0 / float(SHADOW_SAMPLES_HALF);
+
+        vec2 uvOffset = offset.xy * texelSize * radius;
+        shadowSum += SampleDirectionalRBSM(shadowMapBase, cascadeIndex, baseShadowUv + uvOffset, compareDepth);
+
+        if ((i * 2 + 1) < pretestTaps) {
+            uvOffset = offset.zw * texelSize * radius;
+            shadowSum += SampleDirectionalRBSM(shadowMapBase, cascadeIndex, baseShadowUv + uvOffset, compareDepth);
+        }
+    }
+
+    float shadowPretest = shadowSum / float(max(pretestTaps, 1));
+    if (desiredTaps <= pretestTaps) {
+        return shadowPretest;
+    }
+
+    // Only refine near the boundary.
+    if (shadowPretest > 0.0 && shadowPretest < 1.0) {
+        int tapsDone = pretestTaps;
+        for (int i = 0; i < SHADOW_SAMPLES_HALF && tapsDone < desiredTaps; ++i) {
+            vec4 offset = (texture(directionalShadowJitter, jcoord) * 2.0) - 1.0;
+            jcoord.z += 1.0 / float(SHADOW_SAMPLES_HALF);
+
+            vec2 uvOffset = offset.xy * texelSize * radius;
+            shadowSum += SampleDirectionalRBSM(shadowMapBase, cascadeIndex, baseShadowUv + uvOffset, compareDepth);
+            tapsDone += 1;
+
+            if (tapsDone < desiredTaps) {
+                uvOffset = offset.zw * texelSize * radius;
+                shadowSum += SampleDirectionalRBSM(shadowMapBase, cascadeIndex, baseShadowUv + uvOffset, compareDepth);
+                tapsDone += 1;
+            }
+        }
+        return shadowSum / float(desiredTaps);
+    }
+
+    return shadowPretest;
 }
 
 float SampleDirectionalPCF(
@@ -323,8 +387,12 @@ float ComputeDirectionalShadowFactor(
     float compareDepth = clamp(receiverDepth - bias, 0.0, 1.0);
     float shadow = 1.0;
     if (dl.shadowState.w > 0.5) {
-        // RBSM silhouette recovery variant (binary visibility).
-        shadow = SampleDirectionalRBSM(shadowMapBase, cascadeIndex, shadowUv, compareDepth);
+        // RBSM silhouette recovery (hard) + optional PCF softening over the recovered silhouette.
+        if (softness > 1e-4 && int(dl.shadowParams.z + 0.5) > 1) {
+            shadow = SampleDirectionalPCF_RBSM(dl, shadowMapBase, cascadeIndex, shadowUv, compareDepth, softness, fragCoord);
+        } else {
+            shadow = SampleDirectionalRBSM(shadowMapBase, cascadeIndex, shadowUv, compareDepth);
+        }
     } else {
         shadow = SampleDirectionalPCF(
             dl,
