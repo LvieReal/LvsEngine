@@ -93,6 +93,8 @@ void RenderContext::ClearGeometryCache() {
     overlayDirty_ = true;
 
     cachedInstanceData_.clear();
+    cachedInstanceBounds_.clear();
+    cachedInstanceHasBounds_.clear();
     cachedOpaqueDraws_.clear();
     cachedTransparentDraws_.clear();
     cachedAlwaysOnTopDraws_.clear();
@@ -370,6 +372,9 @@ void RenderContext::UpdateDirtyInstanceData() {
         const Math::Matrix4 model = part->GetWorldCFrame().ToMatrix4() * Math::Matrix4::Scale(size);
         const Math::Color3 color = part->GetProperty("Color").value<Math::Color3>();
 
+        entry.WorldAabb = Utils::BuildPartWorldAABB(part);
+        entry.HasWorldAabb = true;
+
         Common::DrawInstanceData drawInstance{};
         drawInstance.Model = Context::ToFloatMat4ColumnMajor(model);
         drawInstance.BaseColor = Context::ToVec4(color, alpha);
@@ -400,6 +405,12 @@ void RenderContext::UpdateDirtyInstanceData() {
         if (entry.PackedInstanceIndex < cachedInstanceData_.size()) {
             cachedInstanceData_[entry.PackedInstanceIndex] = drawInstance;
         }
+        if (entry.PackedInstanceIndex < cachedInstanceHasBounds_.size()) {
+            cachedInstanceHasBounds_[entry.PackedInstanceIndex] = entry.HasWorldAabb;
+        }
+        if (entry.PackedInstanceIndex < cachedInstanceBounds_.size() && entry.HasWorldAabb) {
+            cachedInstanceBounds_[entry.PackedInstanceIndex] = entry.WorldAabb;
+        }
         entry.InstanceData = drawInstance;
         entry.Alpha = alpha;
 
@@ -426,6 +437,8 @@ void RenderContext::UpdateDirtyInstanceData() {
 void RenderContext::RebuildGeometryBatchesAndInstances() {
     LVS_BENCH_SCOPE("RenderContext::RebuildGeometryBatchesAndInstances");
     cachedInstanceData_.clear();
+    cachedInstanceBounds_.clear();
+    cachedInstanceHasBounds_.clear();
     cachedOpaqueDraws_.clear();
     cachedTransparentDraws_.clear();
     cachedAlwaysOnTopDraws_.clear();
@@ -606,14 +619,13 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
         }
         entry.InstanceData = drawInstance;
 
+        entry.WorldAabb = Utils::BuildPartWorldAABB(part);
+        entry.HasWorldAabb = true;
+
         if (alwaysOnTop) {
-            entry.WorldAabb = Utils::BuildPartWorldAABB(part);
-            entry.HasWorldAabb = true;
             alwaysOnTopItems.push_back(&entry);
         } else if (alpha < 1.0F) {
             // Use world bounds for more accurate transparency sorting than object origin.
-            entry.WorldAabb = Utils::BuildPartWorldAABB(part);
-            entry.HasWorldAabb = true;
             transparentItems.push_back(&entry);
         } else {
             opaqueBatches[BatchKey{meshRef, entry.CullMode, false}].push_back(&entry);
@@ -696,8 +708,10 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
         for (auto* item : items) {
             item->PackedInstanceIndex = cachedInstanceData_.size();
             cachedInstanceData_.push_back(item->InstanceData);
+            cachedInstanceBounds_.push_back(item->WorldAabb);
+            cachedInstanceHasBounds_.push_back(item->HasWorldAabb);
         }
-        outDraws.push_back(SceneData::DrawPacket{
+        SceneData::DrawPacket draw{
             .Mesh = key.Mesh,
             .BaseInstance = baseInstance,
             .InstanceCount = static_cast<RHI::u32>(items.size()),
@@ -706,7 +720,31 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
             .AlwaysOnTop = alwaysOnTopFlag,
             .IgnoreLighting = false,
             .SortDepth = 0.0F
-        });
+        };
+
+        bool hasBounds = false;
+        Math::AABB bounds{};
+        for (const auto* item : items) {
+            if (item == nullptr || !item->HasWorldAabb) {
+                continue;
+            }
+            if (!hasBounds) {
+                bounds = item->WorldAabb;
+                hasBounds = true;
+                continue;
+            }
+            bounds.Min.x = std::min(bounds.Min.x, item->WorldAabb.Min.x);
+            bounds.Min.y = std::min(bounds.Min.y, item->WorldAabb.Min.y);
+            bounds.Min.z = std::min(bounds.Min.z, item->WorldAabb.Min.z);
+            bounds.Max.x = std::max(bounds.Max.x, item->WorldAabb.Max.x);
+            bounds.Max.y = std::max(bounds.Max.y, item->WorldAabb.Max.y);
+            bounds.Max.z = std::max(bounds.Max.z, item->WorldAabb.Max.z);
+        }
+        if (hasBounds) {
+            WriteDrawPacketSortBounds(draw, bounds);
+        }
+
+        outDraws.push_back(draw);
     };
 
     const auto packOverlayBatch = [this](
@@ -724,6 +762,8 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
         for (const auto& item : items) {
             ignoreLighting = ignoreLighting || item.IgnoreLighting;
             cachedInstanceData_.push_back(item.Data);
+            cachedInstanceBounds_.push_back(item.Bounds);
+            cachedInstanceHasBounds_.push_back(item.HasBounds);
         }
         outDraws.push_back(SceneData::DrawPacket{
             .Mesh = key.Mesh,
@@ -762,6 +802,8 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
         const RHI::u32 baseInstance = static_cast<RHI::u32>(cachedInstanceData_.size());
         item->PackedInstanceIndex = cachedInstanceData_.size();
         cachedInstanceData_.push_back(item->InstanceData);
+        cachedInstanceBounds_.push_back(item->WorldAabb);
+        cachedInstanceHasBounds_.push_back(item->HasWorldAabb);
         SceneData::DrawPacket draw{
             .Mesh = item->Mesh,
             .BaseInstance = baseInstance,
@@ -782,6 +824,8 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
         const RHI::u32 baseInstance = static_cast<RHI::u32>(cachedInstanceData_.size());
         item->PackedInstanceIndex = cachedInstanceData_.size();
         cachedInstanceData_.push_back(item->InstanceData);
+        cachedInstanceBounds_.push_back(item->WorldAabb);
+        cachedInstanceHasBounds_.push_back(item->HasWorldAabb);
         SceneData::DrawPacket draw{
             .Mesh = item->Mesh,
             .BaseInstance = baseInstance,
@@ -817,6 +861,8 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
     for (const auto& item : overlayTransparent) {
         const RHI::u32 baseInstance = static_cast<RHI::u32>(cachedInstanceData_.size());
         cachedInstanceData_.push_back(item.Data);
+        cachedInstanceBounds_.push_back(item.Bounds);
+        cachedInstanceHasBounds_.push_back(item.HasBounds);
         SceneData::DrawPacket draw{
             .Mesh = item.Mesh,
             .BaseInstance = baseInstance,
@@ -836,6 +882,8 @@ void RenderContext::RebuildGeometryBatchesAndInstances() {
     for (const auto& item : overlayOnTop) {
         const RHI::u32 baseInstance = static_cast<RHI::u32>(cachedInstanceData_.size());
         cachedInstanceData_.push_back(item.Data);
+        cachedInstanceBounds_.push_back(item.Bounds);
+        cachedInstanceHasBounds_.push_back(item.HasBounds);
         SceneData::DrawPacket draw{
             .Mesh = item.Mesh,
             .BaseInstance = baseInstance,
@@ -996,6 +1044,8 @@ void RenderContext::RebuildOverlayBatchesAndInstances() {
     }
 
     cachedInstanceData_.resize(cachedGeometryInstanceCount_);
+    cachedInstanceBounds_.resize(cachedGeometryInstanceCount_);
+    cachedInstanceHasBounds_.resize(cachedGeometryInstanceCount_);
     cachedOpaqueDraws_.resize(cachedGeometryOpaqueDrawCount_);
     cachedTransparentDraws_.resize(cachedGeometryTransparentDrawCount_);
     cachedAlwaysOnTopDraws_.resize(cachedGeometryAlwaysOnTopDrawCount_);
@@ -1077,6 +1127,8 @@ void RenderContext::RebuildOverlayBatchesAndInstances() {
         for (const auto& item : items) {
             ignoreLighting = ignoreLighting || item.IgnoreLighting;
             cachedInstanceData_.push_back(item.Data);
+            cachedInstanceBounds_.push_back(item.Bounds);
+            cachedInstanceHasBounds_.push_back(item.HasBounds);
         }
         outDraws.push_back(SceneData::DrawPacket{
             .Mesh = key.Mesh,
@@ -1114,6 +1166,8 @@ void RenderContext::RebuildOverlayBatchesAndInstances() {
     for (const auto& item : overlayTransparent) {
         const RHI::u32 baseInstance = static_cast<RHI::u32>(cachedInstanceData_.size());
         cachedInstanceData_.push_back(item.Data);
+        cachedInstanceBounds_.push_back(item.Bounds);
+        cachedInstanceHasBounds_.push_back(item.HasBounds);
         cachedTransparentDraws_.push_back(SceneData::DrawPacket{
             .Mesh = item.Mesh,
             .BaseInstance = baseInstance,
@@ -1129,6 +1183,8 @@ void RenderContext::RebuildOverlayBatchesAndInstances() {
     for (const auto& item : overlayOnTop) {
         const RHI::u32 baseInstance = static_cast<RHI::u32>(cachedInstanceData_.size());
         cachedInstanceData_.push_back(item.Data);
+        cachedInstanceBounds_.push_back(item.Bounds);
+        cachedInstanceHasBounds_.push_back(item.HasBounds);
         SceneData::DrawPacket draw{
             .Mesh = item.Mesh,
             .BaseInstance = baseInstance,

@@ -4,6 +4,7 @@
 #include "Lvs/Engine/Core/Instance.hpp"
 #include "Lvs/Engine/Math/AABB.hpp"
 #include "Lvs/Engine/Math/Color3.hpp"
+#include "Lvs/Engine/Math/Frustum.hpp"
 #include "Lvs/Engine/Rendering/Backends/OpenGL/GLApi.hpp"
 #include "Lvs/Engine/Rendering/Backends/Vulkan/VulkanApi.hpp"
 #include "Lvs/Engine/Rendering/Common/ShadowCascadeUtils.hpp"
@@ -210,6 +211,8 @@ private:
     bool geometryCacheInitialized_{false};
 
     std::vector<Common::DrawInstanceData> cachedInstanceData_{};
+    std::vector<Math::AABB> cachedInstanceBounds_{};
+    std::vector<bool> cachedInstanceHasBounds_{};
     std::vector<SceneData::DrawPacket> cachedOpaqueDraws_{};
     std::vector<SceneData::DrawPacket> cachedTransparentDraws_{};
     std::vector<SceneData::DrawPacket> cachedAlwaysOnTopDraws_{};
@@ -260,6 +263,13 @@ private:
     std::array<Common::ShadowCascadeComputation, Common::kMaxDirectionalShadowMaps> directionalShadowCascadeComputations_{};
     std::array<std::array<RHI::u32, Common::kMaxShadowCascades>, Common::kMaxDirectionalShadowMaps>
         directionalShadowCascadeResolutions_{};
+
+    std::weak_ptr<DataModel::Objects::Camera> frozenCullingCamera_{};
+    std::optional<Math::Frustum> frozenViewFrustum_{};
+    bool frozenCullingActive_{false};
+    bool frozenShadowCascadesCaptured_{false};
+    std::array<Common::ShadowCascadeComputation, Common::kMaxDirectionalShadowMaps> frozenShadowCascadeComputations_{};
+    std::array<bool, Common::kMaxDirectionalShadowMaps> frozenShadowCascadeOk_{};
 
     std::optional<std::size_t> skyboxSettingsKey_{};
     Math::Color3 skyboxTint_{1.0, 1.0, 1.0};

@@ -10,11 +10,13 @@
 #include "Lvs/Engine/Enums/SurfaceMipmapping.hpp"
 #include "Lvs/Engine/Enums/SpecularHighlightType.hpp"
 #include "Lvs/Engine/DataModel/Objects/Camera.hpp"
+#include "Lvs/Engine/DataModel/Objects/BasePart.hpp"
 #include "Lvs/Engine/DataModel/Objects/DirectionalLight.hpp"
 #include "Lvs/Engine/DataModel/Objects/PostEffects.hpp"
 #include "Lvs/Engine/Rendering/Context/RenderContextUtils.hpp"
 #include "Lvs/Engine/Utils/Benchmark.hpp"
 #include "Lvs/Engine/Core/ExternalMetadata.hpp"
+#include "Lvs/Engine/Math/FrustumCulling.hpp"
 
 #include <algorithm>
 #include <array>
@@ -103,6 +105,10 @@ void RenderContext::Render() {
     scene.EnablePostProcess = geometryTarget_ != nullptr && blurDownTargets_[0] != nullptr && blurFinalTarget_ != nullptr;
     scene.EnableGeometry = true;
     scene.NeonBlur = 2.0F;
+
+    bool enableFrustumCulling = false;
+    bool freezeFrustumCulling = false;
+    std::optional<std::vector<SceneData::DrawPacket>> shadowCasterDrawSource{};
 
     std::shared_ptr<DataModel::Lighting> lightingService{};
     std::shared_ptr<DataModel::Objects::PostEffects> postEffects{};
@@ -382,6 +388,248 @@ void RenderContext::Render() {
             scene.GeometryDraws = std::move(geometryDraws);
         }
     }
+
+    {
+        LVS_BENCH_SCOPE("RenderContext::FrustumCull(Camera)");
+        std::shared_ptr<DataModel::Objects::Camera> camera{};
+        if (place_ != nullptr) {
+            if (const auto workspaceService = std::dynamic_pointer_cast<DataModel::Workspace>(place_->FindService("Workspace"));
+                workspaceService != nullptr) {
+                const auto cameraVar = workspaceService->GetProperty("CurrentCamera");
+                if (cameraVar.Is<Core::Variant::InstanceRef>()) {
+                    if (const auto locked = cameraVar.Get<Core::Variant::InstanceRef>().lock()) {
+                        camera = std::dynamic_pointer_cast<DataModel::Objects::Camera>(locked);
+                    }
+                }
+            }
+        }
+
+        const auto getBoolPropertyOr = [](const std::shared_ptr<DataModel::Objects::Camera>& cam, const char* name, const bool fallback) {
+            if (cam == nullptr) {
+                return fallback;
+            }
+            try {
+                return cam->GetProperty(name).toBool();
+            } catch (...) {
+                return fallback;
+            }
+        };
+
+        enableFrustumCulling = getBoolPropertyOr(camera, "FrustumCulling", false);
+        freezeFrustumCulling = getBoolPropertyOr(camera, "FreezeFrustumCulling", false);
+
+        const bool shouldFreeze = enableFrustumCulling && freezeFrustumCulling && camera != nullptr;
+        if (!shouldFreeze) {
+            frozenCullingActive_ = false;
+            frozenShadowCascadesCaptured_ = false;
+            frozenCullingCamera_.reset();
+            frozenViewFrustum_.reset();
+            frozenShadowCascadeOk_.fill(false);
+        } else {
+            const bool cameraChanged = [&]() {
+                const auto locked = frozenCullingCamera_.lock();
+                return locked == nullptr || locked.get() != camera.get();
+            }();
+            if (!frozenCullingActive_ || cameraChanged) {
+                frozenCullingActive_ = true;
+                frozenShadowCascadesCaptured_ = false;
+                frozenCullingCamera_ = camera;
+                frozenViewFrustum_.reset();
+                frozenShadowCascadeOk_.fill(false);
+            }
+        }
+
+        if (enableFrustumCulling && camera != nullptr && !scene.GeometryDraws.empty()) {
+            // Keep an unculled copy for shadow caster selection so shadows can be cast into view from outside the camera frustum.
+            shadowCasterDrawSource = scene.GeometryDraws;
+
+            const float aspect =
+                surfaceHeight_ > 0U ? static_cast<float>(surfaceWidth_) / static_cast<float>(surfaceHeight_) : 1.0F;
+            if (surfaceHeight_ > 0U) {
+                camera->Resize(static_cast<double>(aspect));
+            }
+
+            Math::ClipSpaceDepthRange depthRange = Math::ClipSpaceDepthRange::ZeroToOne;
+            Math::Matrix4 projection = camera->GetProjectionMatrix();
+            if (vkBackend_ != nullptr) {
+                projection = Context::ApplyVulkanProjectionFlip(projection);
+                depthRange = Math::ClipSpaceDepthRange::ZeroToOne;
+            } else {
+                projection = Context::ApplyOpenGLClipDepthRemap(projection);
+                depthRange = Math::ClipSpaceDepthRange::MinusOneToOne;
+            }
+
+            Math::Frustum frustum{};
+            if (frozenCullingActive_ && freezeFrustumCulling && frozenViewFrustum_.has_value()) {
+                frustum = *frozenViewFrustum_;
+            } else {
+                const Math::Matrix4 viewProjection = projection * camera->GetViewMatrix();
+                frustum = Math::BuildFrustumFromViewProjection(viewProjection, depthRange);
+                if (frozenCullingActive_ && freezeFrustumCulling) {
+                    frozenViewFrustum_ = frustum;
+                }
+            }
+
+            std::vector<SceneData::DrawPacket> culled;
+            culled.reserve(scene.GeometryDraws.size());
+            for (const auto& draw : scene.GeometryDraws) {
+                if (draw.Mesh == nullptr) {
+                    continue;
+                }
+                if (draw.AlwaysOnTop) {
+                    culled.push_back(draw);
+                    continue;
+                }
+
+                // Prefer per-instance culling for batches when bounds are available.
+                const std::size_t base = static_cast<std::size_t>(draw.BaseInstance);
+                const std::size_t count = static_cast<std::size_t>(draw.InstanceCount);
+                const bool canPerInstanceCull =
+                    count > 1 &&
+                    (base + count) <= cachedInstanceHasBounds_.size() &&
+                    (base + count) <= cachedInstanceBounds_.size();
+
+                if (!canPerInstanceCull) {
+                    if (!draw.HasSortBounds) {
+                        culled.push_back(draw);
+                        continue;
+                    }
+                    const double minX = static_cast<double>(draw.SortBoundsMin[0]);
+                    const double minY = static_cast<double>(draw.SortBoundsMin[1]);
+                    const double minZ = static_cast<double>(draw.SortBoundsMin[2]);
+                    const double maxX = static_cast<double>(draw.SortBoundsMax[0]);
+                    const double maxY = static_cast<double>(draw.SortBoundsMax[1]);
+                    const double maxZ = static_cast<double>(draw.SortBoundsMax[2]);
+                    const Math::AABB bounds{{minX, minY, minZ}, {maxX, maxY, maxZ}};
+                    if (Math::IntersectsFrustumAABB(frustum, bounds)) {
+                        culled.push_back(draw);
+                    }
+                    continue;
+                }
+
+                bool inRun = false;
+                std::size_t runStart = 0;
+                Math::AABB runBounds{};
+                bool runHasBounds = false;
+
+                const auto writeBounds = [](SceneData::DrawPacket& packet, const Math::AABB& bounds) {
+                    packet.SortBoundsMin = {static_cast<float>(bounds.Min.x), static_cast<float>(bounds.Min.y), static_cast<float>(bounds.Min.z)};
+                    packet.SortBoundsMax = {static_cast<float>(bounds.Max.x), static_cast<float>(bounds.Max.y), static_cast<float>(bounds.Max.z)};
+                    packet.HasSortBounds = true;
+                };
+
+                const auto flushRun = [&](const std::size_t runEndExclusive) {
+                    if (!inRun || runEndExclusive <= runStart) {
+                        return;
+                    }
+                    SceneData::DrawPacket out = draw;
+                    out.BaseInstance = static_cast<RHI::u32>(base + runStart);
+                    out.InstanceCount = static_cast<RHI::u32>(runEndExclusive - runStart);
+                    if (runHasBounds) {
+                        writeBounds(out, runBounds);
+                    } else {
+                        out.HasSortBounds = false;
+                    }
+                    culled.push_back(out);
+                    inRun = false;
+                    runHasBounds = false;
+                };
+
+                for (std::size_t i = 0; i < count; ++i) {
+                    const std::size_t idx = base + i;
+                    const bool hasBounds = cachedInstanceHasBounds_[idx];
+                    if (!hasBounds) {
+                        if (!inRun) {
+                            inRun = true;
+                            runStart = i;
+                            runBounds = {};
+                            runHasBounds = false;
+                        }
+                        continue;
+                    }
+
+                    const Math::AABB& bounds = cachedInstanceBounds_[idx];
+                    const bool visible = Math::IntersectsFrustumAABB(frustum, bounds);
+                    if (!visible) {
+                        flushRun(i);
+                        continue;
+                    }
+
+                    if (!inRun) {
+                        inRun = true;
+                        runStart = i;
+                        runBounds = bounds;
+                        runHasBounds = true;
+                        continue;
+                    }
+
+                    if (!runHasBounds) {
+                        runBounds = bounds;
+                        runHasBounds = true;
+                    } else {
+                        runBounds.Min.x = std::min(runBounds.Min.x, bounds.Min.x);
+                        runBounds.Min.y = std::min(runBounds.Min.y, bounds.Min.y);
+                        runBounds.Min.z = std::min(runBounds.Min.z, bounds.Min.z);
+                        runBounds.Max.x = std::max(runBounds.Max.x, bounds.Max.x);
+                        runBounds.Max.y = std::max(runBounds.Max.y, bounds.Max.y);
+                        runBounds.Max.z = std::max(runBounds.Max.z, bounds.Max.z);
+                    }
+                }
+                flushRun(count);
+            }
+
+            scene.GeometryDraws = std::move(culled);
+        }
+    }
+
+    scene.EnableFrustumCulling = enableFrustumCulling;
+    scene.ClipDepthZeroToOne = (vkBackend_ != nullptr);
+
+    {
+        LVS_BENCH_SCOPE("RenderContext::UpdateIsRendered");
+        const std::size_t instanceCount = cachedInstanceData_.size();
+        std::vector<std::uint8_t> renderedMask(instanceCount, 0U);
+        for (const auto& draw : scene.GeometryDraws) {
+            if (draw.Mesh == nullptr) {
+                continue;
+            }
+            const std::size_t base = static_cast<std::size_t>(draw.BaseInstance);
+            const std::size_t count = static_cast<std::size_t>(draw.InstanceCount);
+            if (base >= instanceCount) {
+                continue;
+            }
+            const std::size_t end = std::min(instanceCount, base + count);
+            for (std::size_t i = base; i < end; ++i) {
+                renderedMask[i] = 1U;
+            }
+        }
+
+        for (auto& [raw, entry] : renderables_) {
+            static_cast<void>(raw);
+            const auto inst = entry.Instance.lock();
+            const auto part = std::dynamic_pointer_cast<DataModel::Objects::BasePart>(inst);
+            if (part == nullptr) {
+                continue;
+            }
+
+            const bool rendered = entry.Visible &&
+                                  entry.PackedInstanceIndex < renderedMask.size() &&
+                                  renderedMask[entry.PackedInstanceIndex] != 0U;
+            bool current = false;
+            try {
+                current = part->GetProperty("IsRendered").toBool();
+            } catch (...) {
+                continue;
+            }
+            if (current != rendered) {
+                try {
+                    part->SetProperty("IsRendered", rendered);
+                } catch (...) {
+                }
+            }
+        }
+    }
+
     if (!scene.GeometryDraws.empty()) {
         scene.GeometryDraw = scene.GeometryDraws.front();
     } else {
@@ -400,8 +648,9 @@ void RenderContext::Render() {
     }
     const bool needsShadowCasters = scene.EnableShadows && hasAnyShadowCascades;
     if (needsShadowCasters) {
-        scene.ShadowCasters.reserve(scene.GeometryDraws.size());
-        for (const auto& draw : scene.GeometryDraws) {
+        const auto& shadowDraws = shadowCasterDrawSource.has_value() ? *shadowCasterDrawSource : scene.GeometryDraws;
+        scene.ShadowCasters.reserve(shadowDraws.size());
+        for (const auto& draw : shadowDraws) {
             if (draw.Mesh == nullptr) {
                 continue;
             }
@@ -411,7 +660,35 @@ void RenderContext::Render() {
             if (draw.IgnoreLighting) { // ignore lighting (gizmos/overlays)
                 continue;
             }
-            scene.ShadowCasters.push_back(draw);
+
+            const std::size_t base = static_cast<std::size_t>(draw.BaseInstance);
+            const std::size_t count = static_cast<std::size_t>(draw.InstanceCount);
+            const bool canSplit =
+                scene.EnableFrustumCulling &&
+                count > 1 &&
+                count <= 64 &&
+                (base + count) <= cachedInstanceHasBounds_.size() &&
+                (base + count) <= cachedInstanceBounds_.size();
+
+            if (!canSplit) {
+                scene.ShadowCasters.push_back(draw);
+                continue;
+            }
+
+            for (std::size_t i = 0; i < count; ++i) {
+                SceneData::DrawPacket single = draw;
+                single.BaseInstance = static_cast<RHI::u32>(base + i);
+                single.InstanceCount = 1U;
+                const bool hasBounds = cachedInstanceHasBounds_[base + i];
+                single.HasSortBounds = false;
+                if (hasBounds) {
+                    const Math::AABB& bounds = cachedInstanceBounds_[base + i];
+                    single.SortBoundsMin = {static_cast<float>(bounds.Min.x), static_cast<float>(bounds.Min.y), static_cast<float>(bounds.Min.z)};
+                    single.SortBoundsMax = {static_cast<float>(bounds.Max.x), static_cast<float>(bounds.Max.y), static_cast<float>(bounds.Max.z)};
+                    single.HasSortBounds = true;
+                }
+                scene.ShadowCasters.push_back(single);
+            }
         }
     }
 
@@ -513,6 +790,22 @@ void RenderContext::Render() {
         shadowCascadeOk[shadowIndex] = true;
     }
 
+    const bool freezeCulling = scene.EnableFrustumCulling && freezeFrustumCulling && frozenCullingActive_;
+    if (!freezeCulling) {
+        frozenShadowCascadesCaptured_ = false;
+    } else if (!frozenShadowCascadesCaptured_) {
+        frozenShadowCascadeComputations_ = directionalShadowCascadeComputations_;
+        for (std::size_t i = 0; i < frozenShadowCascadeOk_.size(); ++i) {
+            frozenShadowCascadeOk_[i] = shadowCascadeOk[i];
+        }
+        frozenShadowCascadesCaptured_ = true;
+    } else {
+        directionalShadowCascadeComputations_ = frozenShadowCascadeComputations_;
+        for (std::size_t i = 0; i < frozenShadowCascadeOk_.size(); ++i) {
+            shadowCascadeOk[i] = frozenShadowCascadeOk_[i];
+        }
+    }
+
     // Build light buffer (all enabled directional lights; shadow data only for up to 2 shadowed directionals).
     Common::GpuLightBuffer lightBuffer{};
     std::uint32_t lightCount = 0U;
@@ -610,6 +903,10 @@ void RenderContext::Render() {
                     matrix = Context::ApplyOpenGLClipDepthRemap(matrix);
                 }
                 shadowUniforms.LightViewProjection[static_cast<std::size_t>(i)] = Context::ToFloatMat4ColumnMajor(matrix);
+                if (shadowIndex < scene.DirectionalShadowViewProjections.size() &&
+                    static_cast<std::size_t>(i) < scene.DirectionalShadowViewProjections[shadowIndex].size()) {
+                    scene.DirectionalShadowViewProjections[shadowIndex][static_cast<std::size_t>(i)] = matrix;
+                }
             }
 
             frameShadowUniformBuffers_[shadowIndex] = GetRhiContext().CreateBuffer(RHI::BufferDesc{

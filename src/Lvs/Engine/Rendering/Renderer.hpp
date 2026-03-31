@@ -2,6 +2,7 @@
 
 #include "Lvs/Engine/Rendering/Common/LightBufferData.hpp"
 #include "Lvs/Engine/Rendering/Common/SceneUniformData.hpp"
+#include "Lvs/Engine/Math/Matrix4.hpp"
 #include "Lvs/Engine/Rendering/RHI/IContext.hpp"
 #include "Lvs/Engine/Rendering/RHI/Types.hpp"
 
@@ -73,11 +74,14 @@ struct SceneData {
     bool EnablePostProcess{true};
     bool EnableHbao{false};
     bool EnableGeometry{true};
+    bool EnableFrustumCulling{false};
+    bool ClipDepthZeroToOne{true};
     bool ClearColor{true};
     float ClearColorValue[4]{1.0F, 1.0F, 1.0F, 1.0F};
     RHI::u32 DirectionalShadowCount{0};
     std::array<RHI::u32, MaxDirectionalShadowMaps> DirectionalShadowCascadeCounts{};
     std::array<std::array<PassTarget, MaxShadowCascades>, MaxDirectionalShadowMaps> DirectionalShadowCascadeTargets{};
+    std::array<std::array<Math::Matrix4, MaxShadowCascades>, MaxDirectionalShadowMaps> DirectionalShadowViewProjections{};
     std::vector<DrawPacket> ShadowCasters{};
     PassTarget ShadowTarget{};
     PassTarget SkyboxTarget{};

@@ -1,5 +1,8 @@
 #include "Lvs/Engine/Rendering/Renderer.hpp"
 
+#include "Lvs/Engine/Math/Frustum.hpp"
+#include "Lvs/Engine/Math/FrustumCulling.hpp"
+
 #include <array>
 
 namespace Lvs::Engine::Rendering {
@@ -34,6 +37,21 @@ void ShadowPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBuffer&
             if (target.Framebuffer == nullptr) {
                 continue;
             }
+
+            Math::Frustum cascadeFrustum{};
+            const bool doCull = scene_->EnableFrustumCulling;
+            if (doCull) {
+                const auto depthRange = scene_->ClipDepthZeroToOne ? Math::ClipSpaceDepthRange::ZeroToOne
+                                                                  : Math::ClipSpaceDepthRange::MinusOneToOne;
+                cascadeFrustum = Math::BuildFrustumFromViewProjection(
+                    scene_->DirectionalShadowViewProjections[shadowIndex][cascadeIndex],
+                    depthRange
+                );
+
+                // Shadow pass uses depth clamp; avoid culling casters purely by clip-depth.
+                cascadeFrustum.PlaneCount = std::min<std::size_t>(cascadeFrustum.PlaneCount, 4U);
+            }
+
             const RHI::RenderPassInfo renderPass{
                 .width = target.Width,
                 .height = target.Height,
@@ -50,6 +68,19 @@ void ShadowPassRenderer::RecordCommands(RHI::IContext& ctx, RHI::ICommandBuffer&
             const Pipeline* boundPipeline = nullptr;
             RHI::CullMode boundCullMode = RHI::CullMode::Back;
             for (const auto& draw : scene_->ShadowCasters) {
+                if (doCull && draw.HasSortBounds) {
+                    const double minX = static_cast<double>(draw.SortBoundsMin[0]);
+                    const double minY = static_cast<double>(draw.SortBoundsMin[1]);
+                    const double minZ = static_cast<double>(draw.SortBoundsMin[2]);
+                    const double maxX = static_cast<double>(draw.SortBoundsMax[0]);
+                    const double maxY = static_cast<double>(draw.SortBoundsMax[1]);
+                    const double maxZ = static_cast<double>(draw.SortBoundsMax[2]);
+                    const Math::AABB bounds{{minX, minY, minZ}, {maxX, maxY, maxZ}};
+                    if (!Math::IntersectsFrustumAABB(cascadeFrustum, bounds)) {
+                        continue;
+                    }
+                }
+
                 const auto* mesh = draw.Mesh;
                 if (mesh == nullptr || mesh->VertexBuffer == nullptr || mesh->IndexBuffer == nullptr || mesh->IndexCount == 0) {
                     continue;

@@ -115,6 +115,16 @@
             ],
             "order": 17
           }
+        },
+        "Rendering": {
+          "IsRendered": {
+            "type": "bool",
+            "default": false,
+            "serializable": false,
+            "readOnly": true,
+            "description": "True if this part was submitted for rendering in the most recent frame.",
+            "order": 1
+          }
         }
       }
     },
@@ -240,6 +250,18 @@
             "type": "double",
             "default": 0.1,
             "order": 4
+          },
+          "FrustumCulling": {
+            "type": "bool",
+            "default": true,
+            "description": "Toggle view + shadow frustum culling.",
+            "order": 5
+          },
+          "FreezeFrustumCulling": {
+            "type": "bool",
+            "default": false,
+            "description": "Freeze the current frustum(s) for debugging.",
+            "order": 6
           }
         }
       }
