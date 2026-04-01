@@ -44,53 +44,62 @@ void main()
         outColor = vec4(0.0);
         return;
     }
-    if (color.w <= 0.001000000047497451305389404296875)
+    bool _92 = !outlineEnabled;
+    bool _98;
+    if (_92)
+    {
+        _98 = color.w <= 0.001000000047497451305389404296875;
+    }
+    else
+    {
+        _98 = _92;
+    }
+    if (_98)
     {
         discard;
     }
     vec4 outCol = color;
-    bool _106;
+    bool _111;
     if (outlineEnabled)
     {
-        _106 = pushData.outlineColor.w > 0.001000000047497451305389404296875;
+        _111 = pushData.outlineColor.w > 0.001000000047497451305389404296875;
     }
     else
     {
-        _106 = outlineEnabled;
+        _111 = outlineEnabled;
     }
-    bool _112;
-    if (_106)
+    bool _117;
+    if (_111)
     {
-        _112 = pushData.outlineParams.x > 0.0;
+        _117 = pushData.outlineParams.x > 0.0;
     }
     else
     {
-        _112 = _106;
+        _117 = _111;
     }
-    if (_112)
+    if (_117)
     {
+        int radius = int(pushData.outlineParams.x);
         ivec2 ts = textureSize(imageTex, 0);
-        vec2 invSize = vec2(1.0) / vec2(max(ts, ivec2(1)));
-        float px = max(0.5, pushData.outlineParams.x);
-        vec2 o = invSize * px;
-        float a0 = color.w;
+        ivec2 base = ivec2(fragUv * vec2(ts));
         float aMax = 0.0;
-        aMax = max(aMax, texture(imageTex, fragUv + vec2(o.x, 0.0)).w * fragColor.w);
-        aMax = max(aMax, texture(imageTex, fragUv + vec2(-o.x, 0.0)).w * fragColor.w);
-        aMax = max(aMax, texture(imageTex, fragUv + vec2(0.0, o.y)).w * fragColor.w);
-        aMax = max(aMax, texture(imageTex, fragUv + vec2(0.0, -o.y)).w * fragColor.w);
-        aMax = max(aMax, texture(imageTex, fragUv + vec2(o.x, o.y)).w * fragColor.w);
-        aMax = max(aMax, texture(imageTex, fragUv + vec2(-o.x, o.y)).w * fragColor.w);
-        aMax = max(aMax, texture(imageTex, fragUv + vec2(o.x, -o.y)).w * fragColor.w);
-        aMax = max(aMax, texture(imageTex, fragUv + vec2(-o.x, -o.y)).w * fragColor.w);
-        float inside = step(alphaThreshold, a0);
-        float neighborInside = step(alphaThreshold, aMax);
-        float outlineMask = (1.0 - inside) * neighborInside;
-        if (outlineMask > 0.0)
+        int _141 = -radius;
+        for (int y = _141; y <= radius; y++)
         {
-            vec4 oc = vec4(pushData.outlineColor.xyz, pushData.outlineColor.w * outlineMask);
-            outCol = oc;
+            int _152 = -radius;
+            for (int x = _152; x <= radius; x++)
+            {
+                if ((x == 0) && (y == 0))
+                {
+                    continue;
+                }
+                aMax = max(aMax, texelFetch(imageTex, base + ivec2(x, y), 0).w);
+            }
         }
+        float inside = smoothstep(alphaThreshold - 0.0199999995529651641845703125, alphaThreshold + 0.0199999995529651641845703125, color.w);
+        float neighbor = smoothstep(alphaThreshold - 0.0199999995529651641845703125, alphaThreshold + 0.0199999995529651641845703125, aMax);
+        float outlineMask = (1.0 - inside) * neighbor;
+        outCol = mix(outCol, vec4(pushData.outlineColor.xyz, pushData.outlineColor.w), vec4((1.0 - inside) * neighbor));
     }
     outColor = outCol;
 }

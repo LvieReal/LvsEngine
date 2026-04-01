@@ -23,58 +23,57 @@ void main() {
     const bool outlineEnabled = pushData.options.z > 0.5;
     const float alphaThreshold = clamp(pushData.outlineParams.y, 0.0, 1.0);
 
-    if (negateMask) {
+    if (negateMask)
+    {
         // Shader outputs a mask in RGB/A; blending performs the masked inversion.
         const float mask = clamp(color.a, 0.0, 1.0);
-        if (mask <= 0.001) {
+        if (mask <= 0.001)
             discard;
-        }
         outColor = vec4(mask, mask, mask, mask);
         return;
     }
 
-    if (depthOnly) {
+    if (depthOnly)
+    {
         // Depth mask prepass: only write depth for sufficiently covered pixels.
-        if (color.a < alphaThreshold) {
+        if (color.a < alphaThreshold)
             discard;
-        }
         outColor = vec4(0.0);
         return;
     }
 
-    if (color.a <= 0.001) {
+    if (!outlineEnabled && color.a <= 0.001)
         discard;
-    }
 
     vec4 outCol = color;
-    if (outlineEnabled && pushData.outlineColor.a > 0.001 && pushData.outlineParams.x > 0.0) {
-        // Outside outline based on alpha coverage.
+
+    if (outlineEnabled && pushData.outlineColor.a > 0.001 && pushData.outlineParams.x > 0.0)
+    {
+        int radius = int(pushData.outlineParams.x);
+
         ivec2 ts = textureSize(imageTex, 0);
-        vec2 invSize = vec2(1.0) / vec2(max(ts, ivec2(1)));
-        float px = max(0.5, pushData.outlineParams.x);
-        vec2 o = invSize * px;
+        ivec2 base = ivec2(fragUv * vec2(ts));
 
-        float a0 = color.a;
         float aMax = 0.0;
-        aMax = max(aMax, texture(imageTex, fragUv + vec2( o.x, 0.0)).a * fragColor.a);
-        aMax = max(aMax, texture(imageTex, fragUv + vec2(-o.x, 0.0)).a * fragColor.a);
-        aMax = max(aMax, texture(imageTex, fragUv + vec2(0.0,  o.y)).a * fragColor.a);
-        aMax = max(aMax, texture(imageTex, fragUv + vec2(0.0, -o.y)).a * fragColor.a);
-        aMax = max(aMax, texture(imageTex, fragUv + vec2( o.x,  o.y)).a * fragColor.a);
-        aMax = max(aMax, texture(imageTex, fragUv + vec2(-o.x,  o.y)).a * fragColor.a);
-        aMax = max(aMax, texture(imageTex, fragUv + vec2( o.x, -o.y)).a * fragColor.a);
-        aMax = max(aMax, texture(imageTex, fragUv + vec2(-o.x, -o.y)).a * fragColor.a);
 
-        float inside = step(alphaThreshold, a0);
-        float neighborInside = step(alphaThreshold, aMax);
-        float outlineMask = (1.0 - inside) * neighborInside;
+        for (int y = -radius; y <= radius; y++)
+        {
+            for (int x = -radius; x <= radius; x++)
+            {
+                if (x == 0 && y == 0)
+                    continue;
 
-        if (outlineMask > 0.0) {
-            vec4 oc = vec4(pushData.outlineColor.rgb, pushData.outlineColor.a * outlineMask);
-            outCol = oc;
+                aMax = max(aMax, texelFetch(imageTex, base + ivec2(x, y), 0).a);
+            }
         }
+
+        float inside = smoothstep(alphaThreshold - 0.02, alphaThreshold + 0.02, color.a);
+        float neighbor = smoothstep(alphaThreshold - 0.02, alphaThreshold + 0.02, aMax);
+
+        float outlineMask = (1.0 - inside) * neighbor;
+
+        outCol = mix(outCol, vec4(pushData.outlineColor.rgb, pushData.outlineColor.a), (1.0 - inside) * neighbor);
     }
 
     outColor = outCol;
 }
-

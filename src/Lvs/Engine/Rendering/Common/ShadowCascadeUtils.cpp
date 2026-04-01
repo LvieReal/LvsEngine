@@ -198,7 +198,7 @@ ShadowSettings NormalizeShadowSettings(const ShadowSettings& settings) {
     normalized.CascadeResolutionScale = std::max(0.25F, std::min(1.0F, normalized.CascadeResolutionScale));
     normalized.CascadeSplitLambda = std::max(0.0F, std::min(1.0F, normalized.CascadeSplitLambda));
     normalized.TapCount = std::max(1, std::min(64, normalized.TapCount));
-    normalized.BlurAmount = std::max(0.0F, std::min(12.0F, normalized.BlurAmount));
+    normalized.BlurAmount = std::max(0.0F, std::min(32.0F, normalized.BlurAmount));
     normalized.CascadeCount = std::max(1, std::min(kMaxShadowCascades, normalized.CascadeCount));
     normalized.MaxDistance = std::max(1.0F, std::min(1024.0F, normalized.MaxDistance));
     normalized.DepthBias = std::max(0.0F, std::min(8.0F, normalized.DepthBias));

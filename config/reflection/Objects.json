@@ -276,7 +276,7 @@
               0,
               0
             ],
-            "description": "Cosmetic position for the scene billboard and gizmo.",
+            "description": "Physical light position.\nDirectional lights are unaffected.",
             "order": 1
           }
         },
@@ -343,7 +343,7 @@
           "ShadowBlur": {
             "type": "double",
             "default": 4,
-            "description": "Shadow blur radius for PCF (in shadow texels).",
+            "description": "Shadow blur radius (in shadow texels) using PCF.",
             "order": 10
           },
           "ShadowTapCount": {
@@ -355,7 +355,7 @@
           "Revectorize": {
             "type": "bool",
             "default": false,
-            "description": "Enable SMSR revectorization for sharp hard shadows (reduces perspective aliasing).",
+            "description": "Enable SMSR revectorization to reduce perspective aliasing.",
             "order": 12
           },
           "ShadowDepthBias": {
@@ -427,8 +427,8 @@
           },
           "InaccurateNeon": {
             "type": "bool",
-            "default": true,
-            "description": "Allow emissive parts with very dark colors to still emit glow.",
+            "default": false,
+            "description": "Allow black neon.",
             "order": 5,
             "tags": [
               "VisibleIf:NeonEnabled=true"
@@ -437,7 +437,7 @@
           "NeonBlur": {
             "type": "double",
             "default": 2,
-            "description": "Dual Kawase blur amount for neon glow.",
+            "description": "Blur amount for neon glow using Dual-Kawase technique.",
             "order": 6,
             "tags": [
               "VisibleIf:NeonEnabled=true"
@@ -487,13 +487,13 @@
           "HBAODirections": {
             "type": "int",
             "default": 6,
-            "description": "Number of sampling directions (higher is smoother, slower).",
+            "description": "Number of sampling directions (higher is smoother but slower).",
             "order": 12
           },
           "HBAOSamples": {
             "type": "int",
             "default": 4,
-            "description": "Number of samples per direction (higher is smoother, slower).",
+            "description": "Number of samples per direction (higher is smoother but slower).",
             "order": 13
           },
           "HBAOPower": {
@@ -505,7 +505,7 @@
           "HBAOBlur": {
             "type": "double",
             "default": 1,
-            "description": "Dual Kawase blur amount applied to AO output.",
+            "description": "Blur amount applied to AO output using Dual-Kawase technique.",
             "order": 15
           },
           "AOTint": {
