@@ -44,50 +44,54 @@ void main()
         outColor = vec4(0.0);
         return;
     }
-    bool _92 = !outlineEnabled;
-    bool _98;
-    if (_92)
+    if (color.w > 0.999000012874603271484375)
     {
-        _98 = color.w <= 0.001000000047497451305389404296875;
+        color.w = 1.0;
+    }
+    bool _99 = !outlineEnabled;
+    bool _105;
+    if (_99)
+    {
+        _105 = color.w <= 0.001000000047497451305389404296875;
     }
     else
     {
-        _98 = _92;
+        _105 = _99;
     }
-    if (_98)
+    if (_105)
     {
         discard;
     }
     vec4 outCol = color;
-    bool _111;
+    bool _118;
     if (outlineEnabled)
     {
-        _111 = pushData.outlineColor.w > 0.001000000047497451305389404296875;
+        _118 = pushData.outlineColor.w > 0.001000000047497451305389404296875;
     }
     else
     {
-        _111 = outlineEnabled;
+        _118 = outlineEnabled;
     }
-    bool _117;
-    if (_111)
+    bool _124;
+    if (_118)
     {
-        _117 = pushData.outlineParams.x > 0.0;
+        _124 = pushData.outlineParams.x > 0.0;
     }
     else
     {
-        _117 = _111;
+        _124 = _118;
     }
-    if (_117)
+    if (_124)
     {
         int radius = int(pushData.outlineParams.x);
         ivec2 ts = textureSize(imageTex, 0);
         ivec2 base = ivec2(fragUv * vec2(ts));
         float aMax = 0.0;
-        int _141 = -radius;
-        for (int y = _141; y <= radius; y++)
+        int _148 = -radius;
+        for (int y = _148; y <= radius; y++)
         {
-            int _152 = -radius;
-            for (int x = _152; x <= radius; x++)
+            int _159 = -radius;
+            for (int x = _159; x <= radius; x++)
             {
                 if ((x == 0) && (y == 0))
                 {

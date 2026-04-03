@@ -42,6 +42,10 @@ void main() {
         return;
     }
 
+    // Snap near-opaque alpha to fully opaque to avoid subtle background bleed (most visible on dark images).
+    if (color.a > 0.999)
+        color.a = 1.0;
+
     if (!outlineEnabled && color.a <= 0.001)
         discard;
 
@@ -77,3 +81,4 @@ void main() {
 
     outColor = outCol;
 }
+
