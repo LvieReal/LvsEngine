@@ -38,19 +38,35 @@ vec3 TonemapACES(vec3 x)
     return clamp((x * ((x * 2.5099999904632568359375) + vec3(0.02999999932944774627685546875))) / ((x * ((x * 2.4300000667572021484375) + vec3(0.589999973773956298828125))) + vec3(0.14000000059604644775390625)), vec3(0.0), vec3(1.0));
 }
 
-vec3 TonemapAgXApprox(inout vec3 x)
+vec3 Saturate(vec3 v)
 {
-    x = max(x, vec3(0.0));
-    vec3 logv = log2(max(x, vec3(9.9999999747524270787835121154785e-07)));
-    vec3 t = clamp((logv - vec3(-12.0)) / vec3(16.0), vec3(0.0), vec3(1.0));
-    t = (t * t) * (vec3(3.0) - (t * 2.0));
-    return t;
+    return clamp(v, vec3(0.0), vec3(1.0));
 }
 
-vec3 LinearToDisplayGamma(inout vec3 x)
+vec3 AgXCurve3(vec3 v)
 {
-    x = clamp(x, vec3(0.0), vec3(1.0));
-    return pow(x, vec3(0.4545454680919647216796875));
+    vec3 mask = step(v, vec3(0.60606062412261962890625));
+    vec3 a = vec3(69.86278533935546875) + (mask * (-10.3549137115478515625));
+    vec3 b = vec3(3.25) + (mask * (-0.25));
+    vec3 c = vec3(-0.3076923191547393798828125) + (mask * (-0.02564102597534656524658203125));
+    return vec3(0.5) + ((vec3(-1.2121212482452392578125) + (v * 2.0)) * pow(vec3(1.0) + (a * pow(abs(v - vec3(0.60606062412261962890625)), b)), c));
+}
+
+vec3 TonemapAgX(inout vec3 ci)
+{
+    ci = mat3(vec3(0.842401087284088134765625, 0.0424010716378688812255859375, 0.0424010716378688812255859375), vec3(0.078436501324176788330078125, 0.878436505794525146484375, 0.078436501324176788330078125), vec3(0.079162426292896270751953125, 0.079162426292896270751953125, 0.87916243076324462890625)) * ci;
+    vec3 param = (log2(ci) * 0.060606062412261962890625) - vec3(-0.755995810031890869140625);
+    vec3 ct = Saturate(param);
+    vec3 param_1 = ct;
+    vec3 co = AgXCurve3(param_1);
+    co = mat3(vec3(1.19699871540069580078125, -0.0530013404786586761474609375, -0.0530013404786586761474609375), vec3(-0.098045624792575836181640625, 1.1519544124603271484375, -0.098045624792575836181640625), vec3(-0.098953031003475189208984375, -0.098953031003475189208984375, 1.1510469913482666015625)) * co;
+    return co;
+}
+
+vec3 LinearToDisplayGamma(vec3 x)
+{
+    vec3 param = x;
+    return pow(Saturate(param), vec3(0.4545454680919647216796875));
 }
 
 vec3 ApplyTonemapper(vec3 hdrColor, int tonemapper)
@@ -73,8 +89,8 @@ vec3 ApplyTonemapper(vec3 hdrColor, int tonemapper)
             if (tonemapper == 4)
             {
                 vec3 param_2 = x;
-                vec3 _143 = TonemapAgXApprox(param_2);
-                x = _143;
+                vec3 _213 = TonemapAgX(param_2);
+                x = _213;
             }
             else
             {
@@ -83,8 +99,7 @@ vec3 ApplyTonemapper(vec3 hdrColor, int tonemapper)
         }
     }
     vec3 param_3 = x;
-    vec3 _151 = LinearToDisplayGamma(param_3);
-    return _151;
+    return LinearToDisplayGamma(param_3);
 }
 
 float InterleavedGradientNoise(vec2 pixel, float frameSeed)
