@@ -1199,8 +1199,8 @@ void StudioViewportToolLayer::AppendGizmoSelectionBox(
             .Emissive = 0.0F,
             .IgnoreLighting = gizmoIgnoreDiffuseSpecular_,
             .AlwaysOnTop = false,
-            .Thickness = 0.05,
-            .ScaleWithDistance = false
+            .Thickness = 0.025,
+            .ScaleWithDistance = true
         };
 
         for (const auto& entry : cachedTopLevelSelection_) {
@@ -1266,8 +1266,8 @@ void StudioViewportToolLayer::AppendGizmoSelectionBox(
                 .Emissive = 0.0F,
                 .IgnoreLighting = gizmoIgnoreDiffuseSpecular_,
                 .AlwaysOnTop = false,
-                .Thickness = 0.05,
-                .ScaleWithDistance = false
+                .Thickness = 0.025,
+                .ScaleWithDistance = true
             };
 
             if (localSpace && hoveredModel == nullptr) {
