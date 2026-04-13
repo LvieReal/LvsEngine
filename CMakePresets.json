@@ -19,7 +19,6 @@
         "CMAKE_C_COMPILER": "C:/msys64/clang64/bin/clang.exe",
         "CMAKE_CXX_COMPILER": "C:/msys64/clang64/bin/clang++.exe",
         "CMAKE_PREFIX_PATH": "C:/msys64/clang64",
-        "CMAKE_IGNORE_PREFIX_PATH": "C:/msys64/mingw64",
         "Qt6_DIR": "C:/msys64/clang64/lib/cmake/Qt6",
         "LVS_STATIC_RUNTIME": "OFF"
       }
@@ -37,7 +36,6 @@
         "CMAKE_C_COMPILER": "C:/msys64/clang64/bin/clang.exe",
         "CMAKE_CXX_COMPILER": "C:/msys64/clang64/bin/clang++.exe",
         "CMAKE_PREFIX_PATH": "C:/msys64/clang64",
-        "CMAKE_IGNORE_PREFIX_PATH": "C:/msys64/mingw64",
         "Qt6_DIR": "C:/msys64/clang64/lib/cmake/Qt6",
         "LVS_STATIC_RUNTIME": "OFF"
       }
@@ -55,7 +53,6 @@
         "CMAKE_C_COMPILER": "C:/msys64/clang64/bin/clang.exe",
         "CMAKE_CXX_COMPILER": "C:/msys64/clang64/bin/clang++.exe",
         "CMAKE_PREFIX_PATH": "C:/msys64/clang64",
-        "CMAKE_IGNORE_PREFIX_PATH": "C:/msys64/mingw64",
         "Qt6_DIR": "C:/msys64/clang64/lib/cmake/Qt6",
         "LVS_ENABLE_ASAN": "ON",
         "LVS_STATIC_RUNTIME": "OFF"
@@ -66,6 +63,9 @@
       "displayName": "Studio MinGW Debug",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/mingw-debug",
+      "environment": {
+        "PATH": "C:/msys64/mingw64/bin;$penv{PATH}"
+      },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_CXX_COMPILER": "C:/msys64/mingw64/bin/g++.exe",
@@ -78,6 +78,9 @@
       "displayName": "Studio MinGW Release",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/mingw-release",
+      "environment": {
+        "PATH": "C:/msys64/mingw64/bin;$penv{PATH}"
+      },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_CXX_COMPILER": "C:/msys64/mingw64/bin/g++.exe",

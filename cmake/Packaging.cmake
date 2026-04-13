@@ -97,6 +97,20 @@ function(lvs_add_distribution_target target)
     )
 
     if(WIN32)
+        # Keep the build output runnable by syncing cached runtime DLLs into the target output dir.
+        add_custom_command(
+            TARGET ${target}
+            POST_BUILD
+            COMMAND ${CMAKE_COMMAND}
+                -DRUNTIME_CACHE_DIR=${runtime_cache_dir}
+                -DDEST_DIR=$<TARGET_FILE_DIR:${target}>
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CopyRuntimeCacheToOutput.cmake"
+            COMMENT "Syncing cached runtime DLLs for ${target}"
+            VERBATIM
+        )
+    endif()
+
+    if(WIN32)
         get_filename_component(qt_cmake_root "${Qt6_DIR}" ABSOLUTE)
         get_filename_component(qt_cmake_dir "${qt_cmake_root}" DIRECTORY)
         get_filename_component(qt_lib_dir "${qt_cmake_dir}" DIRECTORY)
@@ -105,11 +119,53 @@ function(lvs_add_distribution_target target)
         set(windeployqt "${qt_bin_dir}/windeployqt.exe")
         if(EXISTS "${windeployqt}")
             get_filename_component(compiler_bin_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)
+            get_filename_component(c_compiler_bin_dir "${CMAKE_C_COMPILER}" DIRECTORY)
             set(objdump "${compiler_bin_dir}/objdump.exe")
             if(NOT EXISTS "${objdump}")
                 set(objdump "${compiler_bin_dir}/llvm-objdump.exe")
             endif()
             set(extra_runtime_search_dirs "")
+
+            # Add likely runtime directories without relying on user PATH.
+            foreach(prefix IN LISTS CMAKE_PREFIX_PATH)
+                if(prefix AND IS_DIRECTORY "${prefix}/bin")
+                    list(APPEND extra_runtime_search_dirs "${prefix}/bin")
+                endif()
+            endforeach()
+
+            if(DEFINED assimp_DIR AND assimp_DIR)
+                set(assimp_prefix "${assimp_DIR}")
+                get_filename_component(assimp_prefix "${assimp_prefix}" DIRECTORY) # .../lib/cmake
+                get_filename_component(assimp_prefix "${assimp_prefix}" DIRECTORY) # .../lib
+                get_filename_component(assimp_prefix "${assimp_prefix}" DIRECTORY) # prefix
+                if(IS_DIRECTORY "${assimp_prefix}/bin")
+                    list(APPEND extra_runtime_search_dirs "${assimp_prefix}/bin")
+                endif()
+            endif()
+
+            if(DEFINED ZLIB_INCLUDE_DIR AND IS_DIRECTORY "${ZLIB_INCLUDE_DIR}")
+                get_filename_component(zlib_prefix "${ZLIB_INCLUDE_DIR}" DIRECTORY)
+                if(IS_DIRECTORY "${zlib_prefix}/bin")
+                    list(APPEND extra_runtime_search_dirs "${zlib_prefix}/bin")
+                endif()
+            endif()
+            foreach(zlib_lib_var IN ITEMS ZLIB_LIBRARY_RELEASE ZLIB_LIBRARY_DEBUG ZLIB_LIBRARY)
+                if(DEFINED ${zlib_lib_var} AND EXISTS "${${zlib_lib_var}}")
+                    get_filename_component(zlib_lib_dir "${${zlib_lib_var}}" DIRECTORY) # .../lib
+                    get_filename_component(zlib_prefix "${zlib_lib_dir}" DIRECTORY)     # prefix
+                    if(IS_DIRECTORY "${zlib_prefix}/bin")
+                        list(APPEND extra_runtime_search_dirs "${zlib_prefix}/bin")
+                    endif()
+                endif()
+            endforeach()
+
+            if(DEFINED CMAKE_CXX_COMPILER_EXTERNAL_TOOLCHAIN AND IS_DIRECTORY "${CMAKE_CXX_COMPILER_EXTERNAL_TOOLCHAIN}/bin")
+                list(APPEND extra_runtime_search_dirs "${CMAKE_CXX_COMPILER_EXTERNAL_TOOLCHAIN}/bin")
+            endif()
+
+            if(c_compiler_bin_dir AND IS_DIRECTORY "${c_compiler_bin_dir}")
+                list(APPEND extra_runtime_search_dirs "${c_compiler_bin_dir}")
+            endif()
             if(TARGET assimp::assimp)
                 foreach(assimp_location_prop
                     IMPORTED_LOCATION_RELEASE

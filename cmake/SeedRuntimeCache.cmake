@@ -25,6 +25,8 @@ function(is_system_dll dll_name out_var)
     endif()
 endfunction()
 
+set(missing_runtime_dlls "")
+
 function(resolve_and_copy_runtime root_binary)
     set(processed "")
     set(queue "${root_binary}")
@@ -41,10 +43,15 @@ function(resolve_and_copy_runtime root_binary)
         list(APPEND processed "${current_bin}")
 
         execute_process(
-            COMMAND "${OBJDUMP_EXECUTABLE}" -p "${current_bin}"
+            COMMAND "${CMAKE_COMMAND}" -E env "PATH=${LVS_RUNTIME_TOOL_PATH}"
+                "${OBJDUMP_EXECUTABLE}" -p "${current_bin}"
             OUTPUT_VARIABLE objdump_output
+            RESULT_VARIABLE objdump_result
             ERROR_QUIET
         )
+        if(NOT objdump_result EQUAL 0)
+            continue()
+        endif()
         string(REGEX MATCHALL "DLL Name: [^\r\n]+" dll_lines "${objdump_output}")
 
         foreach(dll_line IN LISTS dll_lines)
@@ -68,6 +75,7 @@ function(resolve_and_copy_runtime root_binary)
             endforeach()
 
             if(NOT found_path)
+                list(APPEND missing_runtime_dlls "${dll_name}")
                 continue()
             endif()
 
@@ -92,16 +100,6 @@ set(search_dirs
     "${COMPILER_BIN_DIR}"
 )
 
-# Pull runtime dependencies from toolchain/system PATH as a fallback.
-if(DEFINED ENV{PATH} AND NOT "$ENV{PATH}" STREQUAL "")
-    string(REPLACE ";" ";" path_search_dirs "$ENV{PATH}")
-    foreach(path_dir IN LISTS path_search_dirs)
-        if(path_dir AND EXISTS "${path_dir}")
-            list(APPEND search_dirs "${path_dir}")
-        endif()
-    endforeach()
-endif()
-
 # Optional additional runtime search locations passed by caller.
 if(DEFINED EXTRA_RUNTIME_SEARCH_DIRS AND NOT "${EXTRA_RUNTIME_SEARCH_DIRS}" STREQUAL "")
     foreach(extra_dir IN LISTS EXTRA_RUNTIME_SEARCH_DIRS)
@@ -113,8 +111,27 @@ endif()
 
 list(REMOVE_DUPLICATES search_dirs)
 
+# Ensure helper tools (windeployqt/objdump) can run even when the user removes MinGW/Clang bin dirs from PATH.
+set(lvs_runtime_tool_dirs
+    "${QT_BIN_DIR}"
+    "${COMPILER_BIN_DIR}"
+)
+foreach(extra_dir IN LISTS EXTRA_RUNTIME_SEARCH_DIRS)
+    if(extra_dir AND EXISTS "${extra_dir}")
+        list(APPEND lvs_runtime_tool_dirs "${extra_dir}")
+    endif()
+endforeach()
+list(REMOVE_DUPLICATES lvs_runtime_tool_dirs)
+list(JOIN lvs_runtime_tool_dirs ";" lvs_runtime_tool_path)
+if(DEFINED ENV{PATH} AND NOT "$ENV{PATH}" STREQUAL "")
+    set(LVS_RUNTIME_TOOL_PATH "${lvs_runtime_tool_path};$ENV{PATH}")
+else()
+    set(LVS_RUNTIME_TOOL_PATH "${lvs_runtime_tool_path}")
+endif()
+
 execute_process(
-    COMMAND "${WINDEPLOYQT}"
+    COMMAND "${CMAKE_COMMAND}" -E env "PATH=${LVS_RUNTIME_TOOL_PATH}"
+        "${WINDEPLOYQT}"
         --dir "${seed_dir}"
         --no-opengl-sw
         --no-translations
@@ -126,6 +143,12 @@ if(NOT deploy_result EQUAL 0)
 endif()
 
 resolve_and_copy_runtime("${seed_dir}/${EXE_NAME}")
+
+if(missing_runtime_dlls)
+    list(REMOVE_DUPLICATES missing_runtime_dlls)
+    list(JOIN missing_runtime_dlls ", " missing_runtime_dlls_msg)
+    message(WARNING "Some runtime DLLs could not be resolved for ${EXE_NAME}: ${missing_runtime_dlls_msg}")
+endif()
 
 file(REMOVE_RECURSE "${RUNTIME_CACHE_DIR}")
 file(MAKE_DIRECTORY "${RUNTIME_CACHE_DIR}")

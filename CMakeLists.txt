@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.27)
 
-project(LvsEngineDevCpp VERSION 1.0.0 LANGUAGES C CXX)
+project(LvsEngine VERSION 1.0.0 LANGUAGES C CXX)
 
 if(WIN32)
     enable_language(RC)

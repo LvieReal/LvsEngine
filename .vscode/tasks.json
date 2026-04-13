@@ -5,7 +5,7 @@
             "label": "studio-configure-asan-clang",
             "type": "shell",
             "hide": true,
-            "command": "cmake",
+            "command": "C:/msys64/mingw64/bin/cmake.exe",
             "args": [
                 "--preset",
                 "studio-clang-asan-debug"
@@ -18,7 +18,7 @@
             "label": "studio-asan-clang",
             "type": "shell",
             // "hide": true,
-            "command": "cmake",
+            "command": "C:/msys64/mingw64/bin/cmake.exe",
             "args": [
                 "--build",
                 "--preset",
@@ -35,7 +35,7 @@
             "label": "studio-package-asan-clang",
             "type": "shell",
             "hide": true,
-            "command": "cmake",
+            "command": "C:/msys64/mingw64/bin/cmake.exe",
             "args": [
                 "--build",
                 "--preset",
@@ -69,7 +69,7 @@
             "label": "studio-configure-debug-clang",
             "type": "shell",
             "hide": true,
-            "command": "cmake",
+            "command": "C:/msys64/mingw64/bin/cmake.exe",
             "args": [
                 "--preset",
                 "studio-clang-debug"
@@ -81,7 +81,7 @@
         {
             "label": "studio-debug-clang",
             "type": "shell",
-            "command": "cmake",
+            "command": "C:/msys64/mingw64/bin/cmake.exe",
             "args": [
                 "--build",
                 "--preset",
@@ -97,7 +97,7 @@
         {
             "label": "studio-package-debug-clang",
             "type": "shell",
-            "command": "cmake",
+            "command": "C:/msys64/mingw64/bin/cmake.exe",
             "args": [
                 "--build",
                 "--preset",
@@ -116,7 +116,7 @@
             "label": "studio-configure-release-clang",
             "type": "shell",
             "hide": true,
-            "command": "cmake",
+            "command": "C:/msys64/mingw64/bin/cmake.exe",
             "args": [
                 "--preset",
                 "studio-clang-release"
@@ -128,7 +128,7 @@
         {
             "label": "studio-release-clang",
             "type": "shell",
-            "command": "cmake",
+            "command": "C:/msys64/mingw64/bin/cmake.exe",
             "args": [
                 "--build",
                 "--preset",
@@ -144,7 +144,7 @@
         {
             "label": "studio-package-release-clang",
             "type": "shell",
-            "command": "cmake",
+            "command": "C:/msys64/mingw64/bin/cmake.exe",
             "args": [
                 "--build",
                 "--preset",
@@ -163,8 +163,10 @@
             "label": "studio-configure-debug-mingw",
             "type": "shell",
             "hide": true,
-            "command": "cmake",
+            "command": "C:/msys64/mingw64/bin/cmake.exe",
             "args": [
+                "-G",
+                "Ninja",
                 "--preset",
                 "studio-mingw-debug"
             ],
@@ -175,7 +177,7 @@
         {
             "label": "studio-debug-mingw",
             "type": "shell",
-            "command": "cmake",
+            "command": "C:/msys64/mingw64/bin/cmake.exe",
             "args": [
                 "--build",
                 "--preset",
@@ -195,7 +197,7 @@
         {
             "label": "studio-package-debug-mingw",
             "type": "shell",
-            "command": "cmake",
+            "command": "C:/msys64/mingw64/bin/cmake.exe",
             "args": [
                 "--build",
                 "--preset",
@@ -214,7 +216,7 @@
             "label": "studio-configure-release-mingw",
             "type": "shell",
             "hide": true,
-            "command": "cmake",
+            "command": "C:/msys64/mingw64/bin/cmake.exe",
             "args": [
                 "--preset",
                 "studio-mingw-release"
@@ -226,7 +228,7 @@
         {
             "label": "studio-release-mingw",
             "type": "shell",
-            "command": "cmake",
+            "command": "C:/msys64/mingw64/bin/cmake.exe",
             "args": [
                 "--build",
                 "--preset",
@@ -242,7 +244,7 @@
         {
             "label": "studio-package-release-mingw",
             "type": "shell",
-            "command": "cmake",
+            "command": "C:/msys64/mingw64/bin/cmake.exe",
             "args": [
                 "--build",
                 "--preset",
